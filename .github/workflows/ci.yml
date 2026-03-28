@@ -7,32 +7,28 @@ on:
     branches: [main, develop]
 
 jobs:
-  build-and-test:
-    name: Build & Test
+  test:
+    name: GdUnit4 Tests
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - name: Run GdUnit4 tests (headless Godot)
+        uses: MikeSchulze/gdUnit4-action@v1
         with:
-          dotnet-version: "8.0.x"
+          godot-version: "4.3"
+          godot-status: "stable"
+          version: "latest"
+          paths: |
+            res://tests
+          timeout: 600
+          report-name: test-report
 
-      - name: Restore dependencies
-        run: dotnet restore Tests/GoBuild.Tests/GoBuild.Tests.csproj
-
-      - name: Build
-        run: dotnet build Tests/GoBuild.Tests/GoBuild.Tests.csproj --no-restore --configuration Release
-
-      - name: Run tests
-        run: dotnet test Tests/GoBuild.Tests/GoBuild.Tests.csproj --no-build --configuration Release --verbosity normal --logger "trx;LogFileName=test-results.trx"
-
-      - name: Upload test results
+      - name: Upload test report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
-          path: "**/test-results.trx"
-
+          name: test-report
+          path: reports/

@@ -16,31 +16,12 @@ HighLevelTodos.txt
 # GdUnit4 — testing framework. Install via Project → AssetLib → "GdUnit4".
 addons/gdUnit4/
 
-# ── C# / .NET build outputs ────────────────────────────────────────────
+# ── C# / .NET build outputs (kept in case GDExtension is added later) ──
 [Bb]in/
 [Oo]bj/
 *.user
 *.suo
 .vs/
-.vscode/
-
-# ── NuGet ───────────────────────────────────────────────────────────────
-*.nupkg
-*.snupkg
-.nuget/
-packages/
-# Restore outputs (nuget.config may redirect these, but cover the defaults)
-[Pp]ackages/
-project.lock.json
-project.fragment.lock.json
-artifacts/
-
-# ── Compiled output ─────────────────────────────────────────────────────
-*.dll
-*.exe
-!icon.ico
-*.pdb
-*.mdb
 
 # ── IDE ─────────────────────────────────────────────────────────────────
 .idea/

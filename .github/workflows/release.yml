@@ -17,15 +17,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-
-      - name: Run tests (gate release on green)
-        run: |
-          dotnet restore Tests/GoBuild.Tests/GoBuild.Tests.csproj
-          dotnet test Tests/GoBuild.Tests/GoBuild.Tests.csproj --configuration Release --verbosity normal
 
       - name: Extract version from tag
         id: version
