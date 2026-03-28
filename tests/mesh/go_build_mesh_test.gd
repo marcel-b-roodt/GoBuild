@@ -1,13 +1,206 @@
-## GoBuild mesh tests — GdUnit4
-## Install GdUnit4 from AssetLib before running.
+## GoBuildMesh unit tests.
 extends GdUnitTestSuite
 
 
-# ── GoBuildMesh construction ─────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-func test_placeholder_always_passes() -> void:
-	# TODO: replace once GoBuildMesh is implemented.
-	# var mesh := GoBuildMesh.new()
-	# assert_int(mesh.vertices.size()).is_equal(0)
-	assert_bool(true).is_true()
+## Build a simple axis-aligned quad on the XY plane.
+func _make_xy_quad() -> GoBuildMesh:
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(0, 0, 0),
+		Vector3(1, 0, 0),
+		Vector3(1, 1, 0),
+		Vector3(0, 1, 0),
+	]
+	var f := GoBuildFace.new()
+	f.vertex_indices = [0, 1, 2, 3]
+	f.uvs = [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+	m.faces.append(f)
+	return m
 
+
+# ---------------------------------------------------------------------------
+# Construction
+# ---------------------------------------------------------------------------
+
+func test_new_mesh_arrays_are_empty() -> void:
+	var m := GoBuildMesh.new()
+	assert_int(m.vertices.size()).is_equal(0)
+	assert_int(m.faces.size()).is_equal(0)
+	assert_int(m.edges.size()).is_equal(0)
+
+
+# ---------------------------------------------------------------------------
+# Bake — empty mesh
+# ---------------------------------------------------------------------------
+
+func test_bake_empty_mesh_returns_array_mesh() -> void:
+	var result := GoBuildMesh.new().bake()
+	assert_object(result).is_not_null()
+	assert_bool(result is ArrayMesh).is_true()
+
+
+func test_bake_empty_mesh_has_zero_surfaces() -> void:
+	assert_int(GoBuildMesh.new().bake().get_surface_count()).is_equal(0)
+
+
+# ---------------------------------------------------------------------------
+# Bake — single quad (one material)
+# ---------------------------------------------------------------------------
+
+func test_bake_single_quad_produces_one_surface() -> void:
+	assert_int(_make_xy_quad().bake().get_surface_count()).is_equal(1)
+
+
+func test_bake_single_quad_vertex_count() -> void:
+	# One quad → 2 triangles → 6 vertices in the packed array.
+	var am: ArrayMesh = _make_xy_quad().bake()
+	var arrays: Array = am.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	assert_int(verts.size()).is_equal(6)
+
+
+# ---------------------------------------------------------------------------
+# Bake — two materials → two surfaces
+# ---------------------------------------------------------------------------
+
+func test_bake_two_materials_produces_two_surfaces() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 1, 0), Vector3(0, 1, 0),
+		Vector3(2, 0, 0), Vector3(3, 0, 0), Vector3(3, 1, 0), Vector3(2, 1, 0),
+	]
+	var f0 := GoBuildFace.new()
+	f0.vertex_indices = [0, 1, 2, 3]
+	f0.uvs = [Vector2.ZERO, Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+	f0.material_index = 0
+
+	var f1 := GoBuildFace.new()
+	f1.vertex_indices = [4, 5, 6, 7]
+	f1.uvs = [Vector2.ZERO, Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+	f1.material_index = 1
+
+	m.faces.append(f0)
+	m.faces.append(f1)
+	assert_int(m.bake().get_surface_count()).is_equal(2)
+
+
+# ---------------------------------------------------------------------------
+# Face normal — compute_face_normal
+# ---------------------------------------------------------------------------
+
+func test_face_normal_xy_plane_quad_points_in_z() -> void:
+	var m := _make_xy_quad()
+	var n: Vector3 = m.compute_face_normal(m.faces[0])
+	assert_float(absf(n.z)).is_greater(0.99)
+
+
+func test_face_normal_is_unit_length() -> void:
+	var m := _make_xy_quad()
+	var n: Vector3 = m.compute_face_normal(m.faces[0])
+	assert_float(n.length()).is_equal_approx(1.0, 0.001)
+
+
+func test_face_normal_triangle_points_in_z() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(0, 1, 0)]
+	var f := GoBuildFace.new()
+	f.vertex_indices = [0, 1, 2]
+	f.uvs = [Vector2.ZERO, Vector2(1, 0), Vector2(0, 1)]
+	m.faces.append(f)
+	var n := m.compute_face_normal(f)
+	assert_float(absf(n.z)).is_greater(0.99)
+
+
+# ---------------------------------------------------------------------------
+# Edge derivation — rebuild_edges
+# ---------------------------------------------------------------------------
+
+func test_rebuild_edges_quad_has_four_edges() -> void:
+	var m := _make_xy_quad()
+	m.rebuild_edges()
+	assert_int(m.edges.size()).is_equal(4)
+
+
+func test_rebuild_edges_all_quad_edges_are_boundary() -> void:
+	var m := _make_xy_quad()
+	m.rebuild_edges()
+	for edge in m.edges:
+		assert_bool((edge as GoBuildEdge).is_boundary()).is_true()
+
+
+func test_rebuild_edges_two_adjacent_quads_share_interior_edge() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(2, 0, 0),
+		Vector3(0, 1, 0), Vector3(1, 1, 0), Vector3(2, 1, 0),
+	]
+	var f0 := GoBuildFace.new()
+	f0.vertex_indices = [0, 1, 4, 3]
+	f0.uvs = [Vector2.ZERO, Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+
+	var f1 := GoBuildFace.new()
+	f1.vertex_indices = [1, 2, 5, 4]
+	f1.uvs = [Vector2.ZERO, Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+
+	m.faces.append(f0)
+	m.faces.append(f1)
+	m.rebuild_edges()
+
+	# Two quads share edge 1-4; that edge should have 2 face_indices.
+	var interior_count := 0
+	for edge in m.edges:
+		if not (edge as GoBuildEdge).is_boundary():
+			interior_count += 1
+	assert_int(interior_count).is_equal(1)
+
+
+# ---------------------------------------------------------------------------
+# Snapshot / Restore
+# ---------------------------------------------------------------------------
+
+func test_snapshot_restores_vertices() -> void:
+	var m := _make_xy_quad()
+	var snap := m.take_snapshot()
+
+	m.vertices[0] = Vector3(99, 0, 0)
+	m.restore_snapshot(snap)
+
+	assert_vector3(m.vertices[0]).is_equal(Vector3(0, 0, 0))
+
+
+func test_snapshot_restores_face_count() -> void:
+	var m := _make_xy_quad()
+	var snap := m.take_snapshot()
+
+	m.faces.clear()
+	m.restore_snapshot(snap)
+
+	assert_int(m.faces.size()).is_equal(1)
+
+
+func test_snapshot_rebuilds_edges_on_restore() -> void:
+	var m := _make_xy_quad()
+	m.rebuild_edges()
+	var snap := m.take_snapshot()
+
+	m.faces.clear()
+	m.edges.clear()
+	m.restore_snapshot(snap)
+
+	# restore_snapshot calls rebuild_edges internally.
+	assert_int(m.edges.size()).is_equal(4)
+
+
+func test_snapshot_is_deep_copy() -> void:
+	var m := _make_xy_quad()
+	var snap := m.take_snapshot()
+
+	# Mutate the snapshot's vertex array — should not affect m.
+	var snap_verts: Array[Vector3] = snap["vertices"]
+	snap_verts[0] = Vector3(99, 0, 0)
+
+	assert_vector3(m.vertices[0]).is_equal(Vector3(0, 0, 0))
