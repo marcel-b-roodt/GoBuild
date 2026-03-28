@@ -12,6 +12,13 @@ const _VERSION := "0.1.0"
 var _status_label: Label
 var _stats_label: Label
 var _target: GoBuildMeshInstance = null
+var _plugin: EditorPlugin = null
+
+
+## Called by the owning [EditorPlugin] immediately after the panel is docked.
+## Required so [method _insert_shape] can access [method EditorPlugin.get_undo_redo].
+func set_plugin(plugin: EditorPlugin) -> void:
+	_plugin = plugin
 
 
 func _ready() -> void:
@@ -23,6 +30,37 @@ func _ready() -> void:
 	header.text = "GoBuild  v" + _VERSION
 	header.add_theme_font_size_override("font_size", 13)
 	add_child(header)
+
+	add_child(HSeparator.new())
+
+	# ── Create Shape ─────────────────────────────────────────────────────
+	var create_label := Label.new()
+	create_label.text = "── Create Shape ──"
+	create_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	create_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	create_label.add_theme_font_size_override("font_size", 11)
+	add_child(create_label)
+
+	var grid := GridContainer.new()
+	grid.columns = 2
+	add_child(grid)
+
+	var shapes: Array = [
+		["Cube",      func(): return CubeGenerator.generate()],
+		["Plane",     func(): return PlaneGenerator.generate()],
+		["Cylinder",  func(): return CylinderGenerator.generate()],
+		["Sphere",    func(): return SphereGenerator.generate()],
+		["Cone",      func(): return ConeGenerator.generate()],
+		["Torus",     func(): return TorusGenerator.generate()],
+		["Staircase", func(): return StaircaseGenerator.generate()],
+		["Arch",      func(): return ArchGenerator.generate()],
+	]
+	for shape_data: Array in shapes:
+		var btn := Button.new()
+		btn.text = shape_data[0]
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.pressed.connect(_insert_shape.bind(shape_data[1], "GoBuild" + shape_data[0]))
+		grid.add_child(btn)
 
 	add_child(HSeparator.new())
 
@@ -80,4 +118,32 @@ func _refresh() -> void:
 	_stats_label.text = "Verts: %d   Faces: %d   Edges: %d" % [
 		vert_count, face_count, edge_count,
 	]
+
+
+## Create a [GoBuildMeshInstance] populated by [param mesh_callable] and
+## insert it at the root of the currently edited scene with full undo/redo.
+func _insert_shape(mesh_callable: Callable, node_name: String) -> void:
+	if not Engine.is_editor_hint():
+		return
+	if not _plugin:
+		push_warning("GoBuild: cannot insert shape — plugin reference not set")
+		return
+
+	var scene_root: Node = EditorInterface.get_edited_scene_root()
+	if not scene_root:
+		push_warning("GoBuild: no open scene — create or open a scene first")
+		return
+
+	var node := GoBuildMeshInstance.new()
+	node.name = node_name
+	node.go_build_mesh = mesh_callable.call()
+
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	ur.create_action("Insert " + node_name)
+	ur.add_do_method(scene_root, "add_child", node, true)
+	ur.add_do_method(node, "set_owner", scene_root)
+	ur.add_undo_method(scene_root, "remove_child", node)
+	ur.add_undo_reference(node)
+	ur.commit_action()
+
 

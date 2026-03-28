@@ -33,6 +33,7 @@ func _enter_tree() -> void:
 	# Create and dock the side panel.
 	_panel = _PANEL_SCRIPT.new()
 	add_control_to_dock(DOCK_SLOT_LEFT_BL, _panel)
+	_panel.set_plugin(self)
 
 
 func _exit_tree() -> void:
