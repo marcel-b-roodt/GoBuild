@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Run tests (gate release on green)
+        run: |
+          dotnet restore Tests/GoBuild.Tests/GoBuild.Tests.csproj
+          dotnet test Tests/GoBuild.Tests/GoBuild.Tests.csproj --configuration Release --verbosity normal
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Pull out the block between ## [VERSION] and the next ## heading
+          BODY=$(awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
+          # Write to a file to avoid quoting issues
+          echo "$BODY" > release_notes.md
+          echo "Generated release notes for v$VERSION"
+
+      - name: Build plugin zip
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ZIP_NAME="GoBuild-v${VERSION}.zip"
+
+          # Package only the addon contents + root docs
+          zip -r "$ZIP_NAME" \
+            addons/go_build \
+            README.md \
+            CHANGELOG.md \
+            LICENSE \
+            --exclude "*.import" \
+            --exclude ".godot/*" \
+            --exclude "*.uid"
+
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+        id: package
+
+      - name: Create draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "GoBuild ${{ github.ref_name }}"
+          body_path: release_notes.md
+          draft: true
+          files: ${{ steps.package.outputs.zip_name }}
+
