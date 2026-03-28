@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit
+# Automatically runs verify.sh before every git commit.
+#
+# Enable once after cloning:
+#   git config core.hooksPath .githooks
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+exec "$REPO_ROOT/verify.sh"
+

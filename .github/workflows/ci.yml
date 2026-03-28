@@ -7,9 +7,31 @@ on:
     branches: [main, develop]
 
 jobs:
+  lint:
+    name: GDScript Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install gdtoolkit
+        run: pip install gdtoolkit
+
+      - name: Syntax check (gdparse)
+        run: |
+          mapfile -t SCRIPTS < <(find addons tests -name "*.gd")
+          echo "Checking ${#SCRIPTS[@]} file(s)..."
+          gdparse "${SCRIPTS[@]}"
+
+      - name: Lint check (gdlint)
+        run: |
+          mapfile -t SCRIPTS < <(find addons tests -name "*.gd")
+          gdlint "${SCRIPTS[@]}"
+
   test:
     name: GdUnit4 Tests
     runs-on: ubuntu-latest
+    needs: lint
 
     steps:
       - name: Checkout

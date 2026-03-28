@@ -1,0 +1,4 @@
+# gdlint configuration for GoBuild — YAML format
+# https://github.com/Scony/godot-gdscript-toolkit
+
+max-line-length: 100
