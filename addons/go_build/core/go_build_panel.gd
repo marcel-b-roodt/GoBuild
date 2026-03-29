@@ -200,6 +200,13 @@ func _insert_shape(mesh_callable: Callable, node_name: String) -> void:
 	ur.add_undo_reference(node)
 	ur.commit_action()
 
+	# Auto-select the new node so _edit() fires immediately and the user can
+	# switch to a sub-element mode without first having to click the node in
+	# the scene tree or viewport.
+	var es: EditorSelection = EditorInterface.get_selection()
+	es.clear()
+	es.add_node(node)
+
 
 ## Called when one of the mode radio buttons is pressed.
 func _on_mode_button_pressed(mode_index: int) -> void:
