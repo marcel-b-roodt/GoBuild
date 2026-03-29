@@ -10,6 +10,11 @@
 class_name GoBuildMeshInstance
 extends MeshInstance3D
 
+# Self-preload: Godot's startup script scan processes core/ files alphabetically,
+# reaching this file before selection_manager.gd.  The explicit preload forces
+# SelectionManager to be registered before this script is compiled.
+const _SEL_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.gd")
+
 ## The editable mesh resource. Assigning a new resource immediately bakes it.
 @export var go_build_mesh: GoBuildMesh:
 	set(value):

@@ -46,9 +46,10 @@ static func generate(
 		var y1: float = float(i + 1) * step_height
 
 		# Tread (normal +Y)
+		# CCW from above: front-left → back-left → back-right → front-right
 		MeshGeneratorUtils.add_quad_grid(mesh,
-			Vector3(-hw, y1, z0), Vector3( hw, y1, z0),
-			Vector3( hw, y1, z1), Vector3(-hw, y1, z1),
+			Vector3(-hw, y1, z0), Vector3(-hw, y1, z1),
+			Vector3( hw, y1, z1), Vector3( hw, y1, z0),
 			1, 1, material_index)
 
 		# Riser (normal -Z)

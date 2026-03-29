@@ -7,6 +7,13 @@
 class_name GoBuildPanel
 extends VBoxContainer
 
+# Self-preloads: Godot's startup scan reaches go_build_panel.gd before
+# selection_manager.gd and go_build_mesh_instance.gd alphabetically.
+# Explicit preloads here ensure those class names are registered before
+# this script's own class-level type annotations are resolved.
+const _SEL_MGR_SCRIPT      := preload("res://addons/go_build/core/selection_manager.gd")
+const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+
 const _VERSION := "0.1.0"
 
 var _status_label: Label
