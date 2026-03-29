@@ -19,9 +19,14 @@
 class_name GoBuildGizmo
 extends EditorNode3DGizmo
 
-# Self-preload: SelectionManager is used in function parameter type annotations,
-# which are resolved at compile time.  Godot's startup scan processes this file
-# before selection_manager.gd alphabetically, so we force it here.
+# Self-preloads: Godot's startup scan processes core/ before mesh/ alphabetically.
+# GoBuildMesh, GoBuildEdge, and GoBuildFace are used as compile-time type
+# annotations (function parameters, typed for-loop variables) so they must be
+# registered before this script is compiled.
+const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _EDGE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_edge.gd")
+const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+# SelectionManager: same scan-order issue within core/ ('go' < 'se').
 const _SEL_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.gd")
 
 

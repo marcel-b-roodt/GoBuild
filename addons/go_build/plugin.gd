@@ -16,6 +16,7 @@ extends EditorPlugin
 const _SEL_MGR_SCRIPT      := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
+const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
 const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_panel.gd")
 const _ICON                 := preload("res://icon.svg")
 
@@ -109,30 +110,40 @@ func _make_visible(visible: bool) -> void:
 # Viewport input — keyboard shortcuts
 # ---------------------------------------------------------------------------
 
-## Intercept keyboard input in the 3D viewport.
-## Keys 1–4 switch the active editing mode; mirrors Blender muscle-memory.
-## Returns a non-zero int to consume the event and prevent other handlers
-## (e.g. Godot's own viewport shortcuts) from reacting.
-func _forward_3d_gui_input(_camera: Camera3D, event: InputEvent) -> int:
+## Intercept input in the 3D viewport.
+##
+## - Keys [b]1–4[/b]: switch edit mode (mirrors Blender muscle-memory).
+## - [b]Left-click[/b]: pick vertex / edge / face depending on active mode.
+##   [kbd]Shift[/kbd] adds to the selection; [kbd]Ctrl[/kbd] toggles.
+##
+## Returns a non-zero int to consume the event.
+func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 	if _edited_node == null:
 		return 0
-
-	if event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_1:
-				_set_mode(SelectionManager.Mode.OBJECT)
-				return 1
-			KEY_2:
-				_set_mode(SelectionManager.Mode.VERTEX)
-				return 1
-			KEY_3:
-				_set_mode(SelectionManager.Mode.EDGE)
-				return 1
-			KEY_4:
-				_set_mode(SelectionManager.Mode.FACE)
-				return 1
-
+	var key_result: int = _handle_keyboard(event)
+	if key_result != 0:
+		return key_result
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
+			return _handle_pick(camera, mb.position, mb.shift_pressed, mb.ctrl_pressed)
 	return 0
+
+
+## Handle keyboard mode-switch shortcuts (1–4). Returns 1 if consumed, 0 if not.
+func _handle_keyboard(event: InputEvent) -> int:
+	if not (event is InputEventKey):
+		return 0
+	var key := event as InputEventKey
+	if not key.pressed or key.echo:
+		return 0
+	match key.keycode:
+		KEY_1: _set_mode(SelectionManager.Mode.OBJECT)
+		KEY_2: _set_mode(SelectionManager.Mode.VERTEX)
+		KEY_3: _set_mode(SelectionManager.Mode.EDGE)
+		KEY_4: _set_mode(SelectionManager.Mode.FACE)
+		_:     return 0
+	return 1
 
 
 func _set_mode(mode: SelectionManager.Mode) -> void:
@@ -140,6 +151,78 @@ func _set_mode(mode: SelectionManager.Mode) -> void:
 		return
 	_edited_node.selection.set_mode(mode)
 	# The panel listens to selection.mode_changed, so it updates automatically.
+
+
+# ---------------------------------------------------------------------------
+# Picking
+# ---------------------------------------------------------------------------
+
+## Perform a pick at [param click_pos] for the current edit mode.
+## [param additive] (Shift) adds to the existing selection.
+## [param toggle]   (Ctrl)  toggles the hit element in/out of the selection.
+## Returns 1 to consume the event, 0 to let it propagate.
+func _handle_pick(
+		camera: Camera3D,
+		click_pos: Vector2,
+		additive: bool,
+		toggle: bool,
+) -> int:
+	var sel: SelectionManager = _edited_node.selection
+	var mode: SelectionManager.Mode = sel.get_mode()
+	var gbm: GoBuildMesh = _edited_node.go_build_mesh
+
+	# Object mode: let Godot handle its own node-selection click.
+	if mode == SelectionManager.Mode.OBJECT:
+		return 0
+
+	if gbm == null:
+		return 1
+
+	# Find the nearest hit element for the active mode.
+	var hit_idx: int = -1
+	match mode:
+		SelectionManager.Mode.VERTEX:
+			hit_idx = PickingHelper.find_nearest_vertex(camera, click_pos, _edited_node, gbm)
+		SelectionManager.Mode.EDGE:
+			hit_idx = PickingHelper.find_nearest_edge(camera, click_pos, _edited_node, gbm)
+		SelectionManager.Mode.FACE:
+			hit_idx = PickingHelper.find_nearest_face(camera, click_pos, _edited_node, gbm)
+
+	if hit_idx == -1:
+		# Missed everything — clear selection on a plain click.
+		if not additive and not toggle:
+			sel.clear()
+		return 1   # Still consume so we don't deselect the GoBuildMeshInstance node.
+
+	_apply_pick(sel, mode, hit_idx, additive, toggle)
+	return 1
+
+
+## Apply [param hit_idx] to [param sel] according to the modifier keys.
+func _apply_pick(
+		sel: SelectionManager,
+		mode: SelectionManager.Mode,
+		hit_idx: int,
+		additive: bool,
+		toggle: bool,
+) -> void:
+	if toggle:
+		match mode:
+			SelectionManager.Mode.VERTEX: sel.toggle_vertex(hit_idx)
+			SelectionManager.Mode.EDGE:   sel.toggle_edge(hit_idx)
+			SelectionManager.Mode.FACE:   sel.toggle_face(hit_idx)
+	elif additive:
+		match mode:
+			SelectionManager.Mode.VERTEX: sel.select_vertex(hit_idx)
+			SelectionManager.Mode.EDGE:   sel.select_edge(hit_idx)
+			SelectionManager.Mode.FACE:   sel.select_face(hit_idx)
+	else:
+		# Plain click: replace the whole selection with just this element.
+		sel.clear()
+		match mode:
+			SelectionManager.Mode.VERTEX: sel.select_vertex(hit_idx)
+			SelectionManager.Mode.EDGE:   sel.select_edge(hit_idx)
+			SelectionManager.Mode.FACE:   sel.select_face(hit_idx)
 
 
 # ---------------------------------------------------------------------------
