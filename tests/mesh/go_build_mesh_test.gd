@@ -219,3 +219,77 @@ func test_snapshot_is_deep_copy() -> void:
 	snap_verts[0] = Vector3(99, 0, 0)
 
 	assert_vector3(m.vertices[0]).is_equal(Vector3(0, 0, 0))
+
+
+# ---------------------------------------------------------------------------
+# translate_vertices
+# ---------------------------------------------------------------------------
+
+func test_translate_moves_specified_vertices() -> void:
+	var m := _make_xy_quad()
+	var indices: Array[int] = [0, 1]
+	m.translate_vertices(indices, Vector3(1, 2, 3))
+	assert_vector3(m.vertices[0]).is_equal(Vector3(1, 2, 3))
+	assert_vector3(m.vertices[1]).is_equal(Vector3(2, 2, 3))
+
+
+func test_translate_does_not_move_unselected_vertices() -> void:
+	var m := _make_xy_quad()
+	var indices: Array[int] = [0]
+	m.translate_vertices(indices, Vector3(10, 0, 0))
+	# vertices 1, 2, 3 should be unchanged.
+	assert_vector3(m.vertices[1]).is_equal(Vector3(1, 0, 0))
+	assert_vector3(m.vertices[2]).is_equal(Vector3(1, 1, 0))
+	assert_vector3(m.vertices[3]).is_equal(Vector3(0, 1, 0))
+
+
+func test_translate_zero_delta_is_noop() -> void:
+	var m := _make_xy_quad()
+	var before := m.vertices[0]
+	var indices: Array[int] = [0, 1, 2, 3]
+	m.translate_vertices(indices, Vector3.ZERO)
+	assert_vector3(m.vertices[0]).is_equal(before)
+
+
+func test_translate_all_vertices() -> void:
+	var m := _make_xy_quad()
+	var indices: Array[int] = [0, 1, 2, 3]
+	m.translate_vertices(indices, Vector3(5, 0, 0))
+	for v in m.vertices:
+		assert_float(v.x).is_equal_approx(
+			m.vertices[0].x, 0.001)  # all shifted by same delta, so same X
+
+
+func test_translate_empty_indices_is_safe() -> void:
+	var m := _make_xy_quad()
+	var before := m.vertices.duplicate()
+	var indices: Array[int] = []
+	m.translate_vertices(indices, Vector3(1, 1, 1))
+	for i in m.vertices.size():
+		assert_vector3(m.vertices[i]).is_equal(before[i])
+
+
+# ---------------------------------------------------------------------------
+# compute_centroid
+# ---------------------------------------------------------------------------
+
+func test_centroid_single_vertex() -> void:
+	var m := _make_xy_quad()
+	var indices: Array[int] = [2]  # (1,1,0)
+	assert_vector3(m.compute_centroid(indices)).is_equal(Vector3(1, 1, 0))
+
+
+func test_centroid_all_quad_vertices() -> void:
+	var m := _make_xy_quad()
+	# Quad has verts (0,0,0),(1,0,0),(1,1,0),(0,1,0) — centroid = (0.5,0.5,0)
+	var indices: Array[int] = [0, 1, 2, 3]
+	assert_vector3(m.compute_centroid(indices)).is_equal_approx(
+		Vector3(0.5, 0.5, 0.0), 0.001)
+
+
+func test_centroid_empty_returns_zero() -> void:
+	var m := _make_xy_quad()
+	var indices: Array[int] = []
+	assert_vector3(m.compute_centroid(indices)).is_equal(Vector3.ZERO)
+
+

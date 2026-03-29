@@ -29,6 +29,17 @@ const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh
 # SelectionManager: same scan-order issue within core/ ('go' < 'se').
 const _SEL_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.gd")
 
+## Handle ID base for the 3-axis transform handles.
+## Must be large enough to never collide with vertex or face-centre handle IDs.
+## Matches [constant GoBuildGizmoPlugin.AXIS_HANDLE_OFFSET].
+const AXIS_HANDLE_OFFSET: int = 1_000_000
+const _AXIS_X_ID: int = AXIS_HANDLE_OFFSET + 0
+const _AXIS_Y_ID: int = AXIS_HANDLE_OFFSET + 1
+const _AXIS_Z_ID: int = AXIS_HANDLE_OFFSET + 2
+
+## Length of each axis arrow in local mesh units.
+const _ARROW_LENGTH: float = 0.8
+
 
 ## Rebuild all viewport overlays for the attached [GoBuildMeshInstance].
 ## Called by the editor when [method EditorPlugin.update_overlays] is invoked.
@@ -65,6 +76,11 @@ func _redraw() -> void:
 		SelectionManager.Mode.FACE:
 			_draw_context_edges(gbm, plugin.mat_edge_context)
 			_draw_face_centres(gbm, sel, plugin.mat_face_normal, plugin.mat_face_selected)
+
+	# Draw the 3-axis translate handle whenever any sub-element is selected.
+	if sel.get_mode() != SelectionManager.Mode.OBJECT and not sel.is_empty():
+		var centroid := _compute_selection_centroid(gbm, sel)
+		_draw_transform_handles(centroid, plugin)
 
 
 # ---------------------------------------------------------------------------
@@ -178,3 +194,49 @@ func _draw_face_centres(
 	if not pts_selected.is_empty():
 		add_handles(pts_selected, mat_selected, ids_selected, true)
 
+
+# ---------------------------------------------------------------------------
+# Transform handle helpers
+# ---------------------------------------------------------------------------
+
+## Compute the mean position of all vertices implied by the current selection.
+func _compute_selection_centroid(gbm: GoBuildMesh, sel: SelectionManager) -> Vector3:
+	var sum := Vector3.ZERO
+	var count := 0
+	match sel.get_mode():
+		SelectionManager.Mode.VERTEX:
+			for idx: int in sel.get_selected_vertices():
+				sum += gbm.vertices[idx]
+				count += 1
+		SelectionManager.Mode.EDGE:
+			for eidx: int in sel.get_selected_edges():
+				var edge: GoBuildEdge = gbm.edges[eidx]
+				sum += gbm.vertices[edge.vertex_a]
+				sum += gbm.vertices[edge.vertex_b]
+				count += 2
+		SelectionManager.Mode.FACE:
+			for fidx: int in sel.get_selected_faces():
+				for vidx: int in gbm.faces[fidx].vertex_indices:
+					sum += gbm.vertices[vidx]
+					count += 1
+	return sum / count if count > 0 else Vector3.ZERO
+
+
+## Draw the 3-axis translate widget centred on [param centroid].
+## Materials are accessed via untyped [method Object.get] to avoid a circular
+## import dependency with [GoBuildGizmoPlugin].
+func _draw_transform_handles(centroid: Vector3, plugin: EditorNode3DGizmoPlugin) -> void:
+	var tip_x := centroid + Vector3(_ARROW_LENGTH, 0.0, 0.0)
+	var tip_y := centroid + Vector3(0.0, _ARROW_LENGTH, 0.0)
+	var tip_z := centroid + Vector3(0.0, 0.0, _ARROW_LENGTH)
+
+	add_lines(PackedVector3Array([centroid, tip_x]), plugin.get("mat_axis_line_x"))
+	add_lines(PackedVector3Array([centroid, tip_y]), plugin.get("mat_axis_line_y"))
+	add_lines(PackedVector3Array([centroid, tip_z]), plugin.get("mat_axis_line_z"))
+
+	add_handles(PackedVector3Array([tip_x]), plugin.get("mat_axis_x"),
+			PackedInt32Array([AXIS_HANDLE_OFFSET + 0]), true)
+	add_handles(PackedVector3Array([tip_y]), plugin.get("mat_axis_y"),
+			PackedInt32Array([AXIS_HANDLE_OFFSET + 1]), true)
+	add_handles(PackedVector3Array([tip_z]), plugin.get("mat_axis_z"),
+			PackedInt32Array([AXIS_HANDLE_OFFSET + 2]), true)

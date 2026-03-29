@@ -1,0 +1,199 @@
+## Unit tests for [GoBuildGizmoPlugin] pure-math helpers.
+##
+## Tested here (no scene-tree dependency):
+## - [method GoBuildGizmoPlugin._get_local_axis]
+## - [method GoBuildGizmoPlugin._get_handle_name]
+## - [method GoBuildGizmoPlugin._get_affected_vertex_indices]
+##
+## Scene-dependent (deferred to a later scene-runner test):
+## - [method GoBuildGizmoPlugin._project_to_axis] — requires a live [Camera3D]
+## - Full drag round-trip (_get_handle_value → _set_handle → _commit_handle)
+##   — requires an EditorUndoRedoManager and a wired EditorPlugin.
+@tool
+extends GdUnitTestSuite
+
+# Self-preloads — dependency order, per the self-preload rule.
+const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _EDGE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_edge.gd")
+const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
+const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+## Create a GoBuildGizmoPlugin without calling setup() — sufficient for
+## pure-math helpers that do not access _editor_plugin or materials.
+func _make_plugin() -> GoBuildGizmoPlugin:
+	return GoBuildGizmoPlugin.new()
+
+
+## Build a minimal quad GoBuildMesh with rebuild_edges() called.
+func _make_quad_mesh() -> GoBuildMesh:
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(0, 0, 0),
+		Vector3(1, 0, 0),
+		Vector3(1, 1, 0),
+		Vector3(0, 1, 0),
+	]
+	var f := GoBuildFace.new()
+	f.vertex_indices = [0, 1, 2, 3]
+	f.uvs = [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+	m.faces.append(f)
+	m.rebuild_edges()
+	return m
+
+
+## Create a bare GoBuildMeshInstance with a quad mesh assigned and some
+## selection state, without needing to add it to the scene tree.
+func _make_node_with_quad() -> GoBuildMeshInstance:
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	var gbm := _make_quad_mesh()
+	node.go_build_mesh = gbm
+	return node
+
+
+# ---------------------------------------------------------------------------
+# _get_local_axis
+# ---------------------------------------------------------------------------
+
+func test_axis_0_is_right() -> void:
+	var plugin := _make_plugin()
+	assert_vector3(plugin._get_local_axis(0)).is_equal(Vector3.RIGHT)
+
+
+func test_axis_1_is_up() -> void:
+	var plugin := _make_plugin()
+	assert_vector3(plugin._get_local_axis(1)).is_equal(Vector3.UP)
+
+
+func test_axis_2_is_back() -> void:
+	# Vector3.BACK = (0, 0, 1) — +Z in Godot 4.  See coordinate-system docs.
+	var plugin := _make_plugin()
+	assert_vector3(plugin._get_local_axis(2)).is_equal(Vector3.BACK)
+
+
+func test_axis_unknown_returns_zero() -> void:
+	var plugin := _make_plugin()
+	assert_vector3(plugin._get_local_axis(99)).is_equal(Vector3.ZERO)
+
+
+# ---------------------------------------------------------------------------
+# _get_handle_name
+# ---------------------------------------------------------------------------
+
+func test_handle_name_move_x() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null,
+		GoBuildGizmoPlugin.AXIS_HANDLE_OFFSET + 0,
+		false
+	)).is_equal("Move X")
+
+
+func test_handle_name_move_y() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null,
+		GoBuildGizmoPlugin.AXIS_HANDLE_OFFSET + 1,
+		false
+	)).is_equal("Move Y")
+
+
+func test_handle_name_move_z() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null,
+		GoBuildGizmoPlugin.AXIS_HANDLE_OFFSET + 2,
+		false
+	)).is_equal("Move Z")
+
+
+func test_handle_name_non_axis_handle_returns_empty() -> void:
+	# handle_id values below AXIS_HANDLE_OFFSET are vertex/face handles —
+	# the plugin should return "" for those.
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(null, 0, false)).is_equal("")
+	assert_str(plugin._get_handle_name(null, 42, false)).is_equal("")
+
+
+# ---------------------------------------------------------------------------
+# _get_affected_vertex_indices
+# ---------------------------------------------------------------------------
+
+func test_affected_indices_vertex_mode_returns_selected_vertices() -> void:
+	var plugin  := _make_plugin()
+	var node    := _make_node_with_quad()
+	node.selection.set_mode(SelectionManager.Mode.VERTEX)
+	node.selection.select_vertex(0)
+	node.selection.select_vertex(2)
+
+	var result: Array[int] = plugin._get_affected_vertex_indices(node)
+	assert_int(result.size()).is_equal(2)
+	assert_bool(result.has(0)).is_true()
+	assert_bool(result.has(2)).is_true()
+
+
+func test_affected_indices_vertex_mode_empty_when_nothing_selected() -> void:
+	var plugin := _make_plugin()
+	var node   := _make_node_with_quad()
+	node.selection.set_mode(SelectionManager.Mode.VERTEX)
+	# No selection.
+
+	var result: Array[int] = plugin._get_affected_vertex_indices(node)
+	assert_array(result).is_empty()
+
+
+func test_affected_indices_edge_mode_returns_edge_endpoints() -> void:
+	var plugin := _make_plugin()
+	var node   := _make_node_with_quad()
+	node.selection.set_mode(SelectionManager.Mode.EDGE)
+	# Select edge 0 — the quad has 4 edges; edge[0] connects vertices 0 and 1.
+	node.selection.select_edge(0)
+
+	var result: Array[int] = plugin._get_affected_vertex_indices(node)
+	# Must contain the two endpoint vertex indices, no duplicates.
+	assert_int(result.size()).is_equal(2)
+	var edge: GoBuildEdge = node.go_build_mesh.edges[0]
+	assert_bool(result.has(edge.vertex_a)).is_true()
+	assert_bool(result.has(edge.vertex_b)).is_true()
+
+
+func test_affected_indices_edge_mode_deduplicates_shared_vertices() -> void:
+	# Select two edges that share a vertex — the shared vertex appears once.
+	var plugin := _make_plugin()
+	var node   := _make_node_with_quad()
+	node.selection.set_mode(SelectionManager.Mode.EDGE)
+	node.selection.select_edge(0)
+	node.selection.select_edge(1)
+
+	var result: Array[int] = plugin._get_affected_vertex_indices(node)
+	# Edges 0 and 1 share one vertex → 3 unique vertices total.
+	assert_int(result.size()).is_equal(3)
+
+
+func test_affected_indices_face_mode_returns_all_face_vertices() -> void:
+	var plugin := _make_plugin()
+	var node   := _make_node_with_quad()
+	node.selection.set_mode(SelectionManager.Mode.FACE)
+	node.selection.select_face(0)
+
+	var result: Array[int] = plugin._get_affected_vertex_indices(node)
+	# The quad face has 4 vertices: 0, 1, 2, 3.
+	assert_int(result.size()).is_equal(4)
+	for idx in [0, 1, 2, 3]:
+		assert_bool(result.has(idx)).is_true()
+
+
+func test_affected_indices_null_mesh_returns_empty() -> void:
+	var plugin := _make_plugin()
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	# go_build_mesh is null by default.
+
+	var result: Array[int] = plugin._get_affected_vertex_indices(node)
+	assert_array(result).is_empty()
+

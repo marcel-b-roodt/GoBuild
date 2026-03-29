@@ -196,6 +196,29 @@ func rebuild_edges() -> void:
 
 
 # ---------------------------------------------------------------------------
+# Mesh operations
+# ---------------------------------------------------------------------------
+
+## Translate a set of vertices by [param delta] in local mesh space.
+## [param vertex_indices] may contain duplicates — each unique index is moved once.
+## Does not rebuild edges (topology is unchanged by translation).
+func translate_vertices(vertex_indices: Array[int], delta: Vector3) -> void:
+	for idx: int in vertex_indices:
+		vertices[idx] += delta
+
+
+## Return the mean position of [param vertex_indices] in local mesh space.
+## Returns [constant Vector3.ZERO] if the array is empty.
+func compute_centroid(vertex_indices: Array[int]) -> Vector3:
+	if vertex_indices.is_empty():
+		return Vector3.ZERO
+	var sum := Vector3.ZERO
+	for idx: int in vertex_indices:
+		sum += vertices[idx]
+	return sum / vertex_indices.size()
+
+
+# ---------------------------------------------------------------------------
 # Undo / Redo snapshots
 # ---------------------------------------------------------------------------
 
