@@ -54,12 +54,14 @@ func test_cube_bottom_face_normal_is_y_minus() -> void:
 
 func test_cube_front_face_normal_is_z_plus() -> void:
 	var mesh := CubeGenerator.generate()
-	assert_float(_normal(mesh, 2).dot(Vector3.FORWARD)).is_greater_equal(0.999)
+	# Vector3.BACK = (0, 0, +1) in Godot 4.  Vector3.FORWARD = (0, 0, -1).
+	assert_float(_normal(mesh, 2).dot(Vector3.BACK)).is_greater_equal(0.999)
 
 
 func test_cube_back_face_normal_is_z_minus() -> void:
 	var mesh := CubeGenerator.generate()
-	assert_float(_normal(mesh, 3).dot(Vector3.BACK)).is_greater_equal(0.999)
+	# Vector3.FORWARD = (0, 0, -1) in Godot 4.  Vector3.BACK = (0, 0, +1).
+	assert_float(_normal(mesh, 3).dot(Vector3.FORWARD)).is_greater_equal(0.999)
 
 
 func test_cube_right_face_normal_is_x_plus() -> void:

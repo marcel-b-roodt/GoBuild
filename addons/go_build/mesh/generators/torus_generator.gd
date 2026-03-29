@@ -51,6 +51,10 @@ static func generate(
 			))
 
 	# ── Quad faces ───────────────────────────────────────────────────────
+	# Wound CCW from outside (consistent with all other generators) so that
+	# compute_face_normal() returns the correct outward normal.
+	# Order [i00, i01, i11, i10]: advance along the major ring first, then
+	# along the tube, giving CCW winding when viewed from outside the tube.
 	for ring in range(rings):
 		for tube in range(tube_segments):
 			var i00: int =  ring      * (tube_segments + 1) + tube
@@ -64,11 +68,12 @@ static func generate(
 			var v1: float = float(ring + 1) / float(rings)
 
 			var face := GoBuildFace.new()
-			face.vertex_indices = [i00, i10, i11, i01]
+			# [i00, i01, i11, i10]: CCW from outside; UVs follow their vertex.
+			face.vertex_indices = [i00, i01, i11, i10]
 			face.material_index = material_index
 			face.uvs = [
-				Vector2(u0, v0), Vector2(u1, v0),
-				Vector2(u1, v1), Vector2(u0, v1),
+				Vector2(u0, v0), Vector2(u0, v1),
+				Vector2(u1, v1), Vector2(u1, v0),
 			]
 			mesh.faces.append(face)
 

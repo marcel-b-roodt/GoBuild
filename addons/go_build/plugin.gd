@@ -65,11 +65,50 @@ func _edit(object: Object) -> void:
 
 
 ## Called by the editor to show or hide our UI when selection changes.
+## Note: _make_visible is the bottom-panel API. We use a dock control instead,
+## so we deliberately do NOT hide _panel here — the dock tab must always show
+## content. We only clear the selection when another node type is selected.
 func _make_visible(visible: bool) -> void:
-	if _panel:
-		_panel.visible = visible
 	if not visible:
 		_edited_node = null
 		if _panel:
 			_panel.set_target(null)
+
+
+# ---------------------------------------------------------------------------
+# Viewport input — keyboard shortcuts
+# ---------------------------------------------------------------------------
+
+## Intercept keyboard input in the 3D viewport.
+## Keys 1–4 switch the active editing mode; mirrors Blender muscle-memory.
+## Returns [code]true[/code] to consume the event and prevent other handlers
+## (e.g. Godot's own viewport shortcuts) from reacting.
+func _forward_3d_gui_input(_camera: Camera3D, event: InputEvent) -> bool:
+	if _edited_node == null:
+		return false
+
+	if event is InputEventKey and event.pressed and not event.echo:
+		match event.keycode:
+			KEY_1:
+				_set_mode(SelectionManager.Mode.OBJECT)
+				return true
+			KEY_2:
+				_set_mode(SelectionManager.Mode.VERTEX)
+				return true
+			KEY_3:
+				_set_mode(SelectionManager.Mode.EDGE)
+				return true
+			KEY_4:
+				_set_mode(SelectionManager.Mode.FACE)
+				return true
+
+	return false
+
+
+func _set_mode(mode: SelectionManager.Mode) -> void:
+	if _edited_node == null:
+		return
+	_edited_node.selection.set_mode(mode)
+	# The panel listens to selection.mode_changed, so it updates automatically.
+
 

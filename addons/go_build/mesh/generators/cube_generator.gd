@@ -8,6 +8,10 @@
 ## Face order (indices 0-5 for subdivisions = 0):
 ## [code]0[/code] Top (Y+) · [code]1[/code] Bottom (Y-) · [code]2[/code] Front (Z+)
 ## [code]3[/code] Back (Z-) · [code]4[/code] Right (X+) · [code]5[/code] Left (X-)
+##
+## [b]Godot 4 axis note:[/b] [constant Vector3.FORWARD] = [code](0, 0, -1)[/code]
+## and [constant Vector3.BACK] = [code](0, 0, +1)[/code].  The Z+ face therefore
+## aligns with [constant Vector3.BACK], not [constant Vector3.FORWARD].
 class_name CubeGenerator
 extends RefCounted
 

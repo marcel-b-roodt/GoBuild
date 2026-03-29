@@ -16,6 +16,10 @@ extends MeshInstance3D
 		go_build_mesh = value
 		bake()
 
+## Per-instance selection state: which mode is active and which elements are
+## selected. The gizmo and panel both hold a reference to this object.
+var selection: SelectionManager = SelectionManager.new()
+
 
 func _ready() -> void:
 	bake()

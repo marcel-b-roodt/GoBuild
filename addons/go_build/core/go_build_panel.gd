@@ -11,6 +11,7 @@ const _VERSION := "0.1.0"
 
 var _status_label: Label
 var _stats_label: Label
+var _mode_buttons: Array[Button] = []
 var _target: GoBuildMeshInstance = null
 var _plugin: EditorPlugin = null
 
@@ -30,6 +31,33 @@ func _ready() -> void:
 	header.text = "GoBuild  v" + _VERSION
 	header.add_theme_font_size_override("font_size", 13)
 	add_child(header)
+
+	add_child(HSeparator.new())
+
+	# ── Edit Mode ────────────────────────────────────────────────────────
+	var mode_label := Label.new()
+	mode_label.text = "── Edit Mode ──"
+	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mode_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	mode_label.add_theme_font_size_override("font_size", 11)
+	add_child(mode_label)
+
+	var mode_row := HBoxContainer.new()
+	add_child(mode_row)
+
+	var mode_names: Array[String] = ["Object", "Vertex", "Edge", "Face"]
+	for i: int in mode_names.size():
+		var btn := Button.new()
+		btn.text = mode_names[i]
+		btn.toggle_mode = true
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.add_theme_font_size_override("font_size", 11)
+		btn.pressed.connect(_on_mode_button_pressed.bind(i))
+		mode_row.add_child(btn)
+		_mode_buttons.append(btn)
+
+	# Object mode active by default.
+	_mode_buttons[SelectionManager.Mode.OBJECT].button_pressed = true
 
 	add_child(HSeparator.new())
 
@@ -67,14 +95,14 @@ func _ready() -> void:
 	# ── Status ───────────────────────────────────────────────────────────
 	_status_label = Label.new()
 	_status_label.text = "No mesh selected."
-	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_ONLY
+	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_status_label)
 
 	# ── Stats ────────────────────────────────────────────────────────────
 	_stats_label = Label.new()
 	_stats_label.add_theme_color_override("font_color",
 			Color(0.65, 0.65, 0.65))
-	_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_ONLY
+	_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_stats_label)
 
 	add_child(HSeparator.new())
@@ -83,7 +111,7 @@ func _ready() -> void:
 	var hint := Label.new()
 	hint.text = "Select a GoBuildMeshInstance\nnode to begin editing."
 	hint.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_ONLY
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 11)
 	add_child(hint)
 
@@ -95,8 +123,27 @@ func _ready() -> void:
 ## Update the panel to reflect [param target].
 ## Pass [code]null[/code] to clear the selection display.
 func set_target(target: GoBuildMeshInstance) -> void:
+	# Disconnect from old target's selection signals.
+	if _target != null and _target.selection.mode_changed.is_connected(_on_target_mode_changed):
+		_target.selection.mode_changed.disconnect(_on_target_mode_changed)
+
 	_target = target
+
+	if _target != null:
+		_target.selection.mode_changed.connect(_on_target_mode_changed)
+		_sync_mode_buttons(_target.selection.get_mode())
+	else:
+		_sync_mode_buttons(SelectionManager.Mode.OBJECT)
+
 	_refresh()
+
+
+## Apply the mode button state that corresponds to [param new_mode].
+## Called via the signal from the target's [SelectionManager].
+func set_edit_mode(new_mode: SelectionManager.Mode) -> void:
+	if _target != null:
+		_target.selection.set_mode(new_mode)
+	_sync_mode_buttons(new_mode)
 
 
 # ---------------------------------------------------------------------------
@@ -146,4 +193,24 @@ func _insert_shape(mesh_callable: Callable, node_name: String) -> void:
 	ur.add_undo_reference(node)
 	ur.commit_action()
 
+
+## Called when one of the mode radio buttons is pressed.
+func _on_mode_button_pressed(mode_index: int) -> void:
+	var new_mode: SelectionManager.Mode = mode_index as SelectionManager.Mode
+	if _target != null:
+		_target.selection.set_mode(new_mode)
+	_sync_mode_buttons(new_mode)
+
+
+## Called when the target's [SelectionManager] emits [signal SelectionManager.mode_changed].
+## Keeps the panel buttons in sync when the plugin changes mode via keyboard shortcut.
+func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
+	_sync_mode_buttons(new_mode)
+
+
+## Press exactly the button that corresponds to [param active_mode] and
+## release all others (radio-button behaviour).
+func _sync_mode_buttons(active_mode: SelectionManager.Mode) -> void:
+	for i: int in _mode_buttons.size():
+		_mode_buttons[i].set_pressed_no_signal(i == active_mode as int)
 

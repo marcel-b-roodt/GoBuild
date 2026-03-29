@@ -63,6 +63,21 @@ func test_bake_single_quad_vertex_count() -> void:
 	assert_int(verts.size()).is_equal(6)
 
 
+func test_bake_triangle_winding_is_cw_from_outside() -> void:
+	# Regression guard: _build_surface must emit CW triangles (from outside)
+	# so Godot 4's Vulkan renderer treats them as front-facing.
+	#
+	# _make_xy_quad has face.vertex_indices wound CCW from +Z so that
+	# compute_face_normal() returns +Z (outward).  After the winding reversal
+	# in _build_surface the first emitted triangle must produce a cross product
+	# that points toward -Z (CW from +Z).
+	var arrays: Array = _make_xy_quad().bake().surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var cross: Vector3 = (verts[1] - verts[0]).cross(verts[2] - verts[0])
+	# cross.z < 0  →  CW from +Z  →  front-facing in Godot 4 Vulkan.
+	assert_float(cross.z).is_less(0.0)
+
+
 # ---------------------------------------------------------------------------
 # Bake — two materials → two surfaces
 # ---------------------------------------------------------------------------

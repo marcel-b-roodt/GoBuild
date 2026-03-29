@@ -15,7 +15,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 # ── Collect all GDScript files ──────────────────────────────────────────
-mapfile -t ADDON_SCRIPTS < <(find addons -name "*.gd" 2>/dev/null)
+# Exclude addons/gdUnit4 — that is a third-party dependency; its files are
+# not our responsibility and may contain patterns that trip our toolchain.
+mapfile -t ADDON_SCRIPTS < <(find addons -name "*.gd" -not -path "addons/gdUnit4/*" 2>/dev/null)
 mapfile -t TEST_SCRIPTS  < <(find tests  -name "*.gd" 2>/dev/null)
 ALL_SCRIPTS=("${ADDON_SCRIPTS[@]}" "${TEST_SCRIPTS[@]}")
 

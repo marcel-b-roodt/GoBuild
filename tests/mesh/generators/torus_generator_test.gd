@@ -63,6 +63,10 @@ func test_torus_is_centred_at_origin() -> void:
 # ---------------------------------------------------------------------------
 
 func test_torus_face_normals_point_away_from_tube_centre() -> void:
+	# Regression guard for CCW winding: face.vertex_indices must be wound
+	# CCW from outside so compute_face_normal() returns an outward normal.
+	# The old buggy order [i00,i10,i11,i01] gave dot ≈ -0.976 (inward).
+	# The correct order [i00,i01,i11,i10] gives dot ≈ +0.976 (outward).
 	var rmaj := 0.5
 	var mesh := TorusGenerator.generate(rmaj, 0.2, 8, 6)
 	for face in mesh.faces:
@@ -82,7 +86,8 @@ func test_torus_face_normals_point_away_from_tube_centre() -> void:
 		else:
 			ring_pt = Vector3(rmaj, 0.0, 0.0)
 		var outward := (c - ring_pt).normalized()
-		assert_float(n.dot(outward)).is_greater(0.0)
+		# Must be clearly outward (> 0.5), not merely > 0.
+		assert_float(n.dot(outward)).is_greater(0.5)
 
 
 # ---------------------------------------------------------------------------

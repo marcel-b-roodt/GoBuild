@@ -106,9 +106,14 @@ func _build_surface(
 		var fn: Vector3 = face_normals[fi]
 		var vc: int = face.vertex_indices.size()
 
-		# Fan triangulation from vertex 0: (0,1,2), (0,2,3), (0,3,4) …
+		# Fan triangulation from vertex 0.
+		# Winding is reversed ([0, tri+2, tri+1]) so triangles are CW from
+		# outside, which is the front-facing convention in Godot 4's Vulkan
+		# renderer.  face.vertex_indices deliberately remains CCW-from-outside
+		# so that compute_face_normal() (Newell) returns the correct outward
+		# normal.
 		for tri in range(vc - 2):
-			var local_idx: Array[int] = [0, tri + 1, tri + 2]
+			var local_idx: Array[int] = [0, tri + 2, tri + 1]
 			for li in local_idx:
 				var vi: int = face.vertex_indices[li]
 				verts.append(vertices[vi])
