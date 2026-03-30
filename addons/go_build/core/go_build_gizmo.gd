@@ -37,6 +37,13 @@ const _AXIS_X_ID: int = AXIS_HANDLE_OFFSET + 0
 const _AXIS_Y_ID: int = AXIS_HANDLE_OFFSET + 1
 const _AXIS_Z_ID: int = AXIS_HANDLE_OFFSET + 2
 
+## Handle ID base for the 3-axis rotate ring handles.
+## Must be distinct from AXIS_HANDLE_OFFSET range.
+## Matches [constant GoBuildGizmoPlugin.ROT_HANDLE_OFFSET].
+const ROT_HANDLE_OFFSET: int  = 2_000_000
+const _ROT_RING_SEGMENTS: int = 32
+const _ROT_RING_RADIUS: float = 1.05  # slightly larger than _ARROW_LENGTH
+
 ## Length of each axis arrow in local mesh units.
 const _ARROW_LENGTH: float = 0.8
 
@@ -240,3 +247,52 @@ func _draw_transform_handles(centroid: Vector3, plugin: EditorNode3DGizmoPlugin)
 			PackedInt32Array([AXIS_HANDLE_OFFSET + 1]), true)
 	add_handles(PackedVector3Array([tip_z]), plugin.get("mat_axis_z"),
 			PackedInt32Array([AXIS_HANDLE_OFFSET + 2]), true)
+
+	_draw_rotate_rings(centroid, plugin)
+
+
+## Draw three rotation-ring overlays (one per axis) centred on [param centroid].
+##
+## Ring colour matches the corresponding axis material.
+## The handle dot for each ring sits at the first point on the ring
+## (angle = 0), which lies along the chosen tangent direction:
+## - X ring (YZ plane): handle dot at [code]centroid + UP * radius[/code]
+## - Y ring (XZ plane): handle dot at [code]centroid + BACK * radius[/code]
+## - Z ring (XY plane): handle dot at [code]centroid + RIGHT * radius[/code]
+func _draw_rotate_rings(centroid: Vector3, plugin: EditorNode3DGizmoPlugin) -> void:
+	# X-axis rotation ring — in the YZ plane (tangent=UP, bitangent=BACK).
+	_draw_rotate_ring(centroid, Vector3.UP, Vector3.BACK,
+			_ROT_RING_RADIUS, plugin.get("mat_axis_line_x"),
+			ROT_HANDLE_OFFSET + 0, plugin.get("mat_axis_x"))
+	# Y-axis rotation ring — in the XZ plane (tangent=BACK, bitangent=RIGHT).
+	_draw_rotate_ring(centroid, Vector3.BACK, Vector3.RIGHT,
+			_ROT_RING_RADIUS, plugin.get("mat_axis_line_y"),
+			ROT_HANDLE_OFFSET + 1, plugin.get("mat_axis_y"))
+	# Z-axis rotation ring — in the XY plane (tangent=RIGHT, bitangent=UP).
+	_draw_rotate_ring(centroid, Vector3.RIGHT, Vector3.UP,
+			_ROT_RING_RADIUS, plugin.get("mat_axis_line_z"),
+			ROT_HANDLE_OFFSET + 2, plugin.get("mat_axis_z"))
+
+
+## Draw a single rotation ring as [_ROT_RING_SEGMENTS] line segments, plus a
+## billboard handle dot at the zero-angle position ([param tangent] direction).
+func _draw_rotate_ring(
+		centre: Vector3,
+		tangent: Vector3,
+		bitangent: Vector3,
+		radius: float,
+		mat_line: Variant,
+		handle_id: int,
+		mat_dot: Variant,
+) -> void:
+	var lines := PackedVector3Array()
+	lines.resize(_ROT_RING_SEGMENTS * 2)
+	for i: int in _ROT_RING_SEGMENTS:
+		var a0: float = float(i)       / _ROT_RING_SEGMENTS * TAU
+		var a1: float = float(i + 1)   / _ROT_RING_SEGMENTS * TAU
+		lines[i * 2]     = centre + (tangent * cos(a0) + bitangent * sin(a0)) * radius
+		lines[i * 2 + 1] = centre + (tangent * cos(a1) + bitangent * sin(a1)) * radius
+	add_lines(lines, mat_line)
+	# Handle dot at angle = 0 (tangent direction).
+	add_handles(PackedVector3Array([centre + tangent * radius]),
+			mat_dot, PackedInt32Array([handle_id]), true)

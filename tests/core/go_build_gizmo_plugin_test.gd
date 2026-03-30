@@ -121,6 +121,83 @@ func test_handle_name_non_axis_handle_returns_empty() -> void:
 	assert_str(plugin._get_handle_name(null, 42, false)).is_equal("")
 
 
+func test_handle_name_rotate_x() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null, GoBuildGizmoPlugin.ROT_HANDLE_OFFSET + 0, false
+	)).is_equal("Rotate X")
+
+
+func test_handle_name_rotate_y() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null, GoBuildGizmoPlugin.ROT_HANDLE_OFFSET + 1, false
+	)).is_equal("Rotate Y")
+
+
+func test_handle_name_rotate_z() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null, GoBuildGizmoPlugin.ROT_HANDLE_OFFSET + 2, false
+	)).is_equal("Rotate Z")
+
+
+# ---------------------------------------------------------------------------
+# _ray_plane_intersect
+# ---------------------------------------------------------------------------
+
+func test_ray_plane_hit_perpendicular() -> void:
+	# Ray from (0,5,0) pointing straight down, plane at Y=0 normal (0,1,0).
+	# Expected hit: (0,0,0), t = 5.
+	var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+		Vector3(0.0, 5.0, 0.0), Vector3(0.0, -1.0, 0.0),
+		Vector3.ZERO, Vector3.UP
+	)
+	assert_vector3(hit).is_equal_approx(Vector3.ZERO, 0.001)
+
+
+func test_ray_plane_hit_offset_origin() -> void:
+	# Ray from (3,5,0) pointing straight down, plane at Y=0.
+	# Expected hit: (3,0,0).
+	var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+		Vector3(3.0, 5.0, 0.0), Vector3(0.0, -1.0, 0.0),
+		Vector3.ZERO, Vector3.UP
+	)
+	assert_vector3(hit).is_equal_approx(Vector3(3.0, 0.0, 0.0), 0.001)
+
+
+func test_ray_plane_parallel_returns_inf() -> void:
+	# Ray travelling along +X is parallel to XZ plane (normal = UP).
+	var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+		Vector3(0.0, 1.0, 0.0), Vector3(1.0, 0.0, 0.0),
+		Vector3.ZERO, Vector3.UP
+	)
+	assert_bool(hit == Vector3.INF).is_true()
+
+
+func test_ray_plane_behind_camera_returns_inf() -> void:
+	# Ray from (0,-5,0) pointing further down (-Y); plane at Y=0 is above.
+	# The intersection would be at t < 0 (behind origin).
+	var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+		Vector3(0.0, -5.0, 0.0), Vector3(0.0, -1.0, 0.0),
+		Vector3.ZERO, Vector3.UP
+	)
+	assert_bool(hit == Vector3.INF).is_true()
+
+
+func test_ray_plane_diagonal_hit() -> void:
+	# Ray from (0,4,0) at 45° toward the XZ plane.
+	# dir = (1,-1,0).normalized() = (0.707, -0.707, 0)
+	# Plane: Y=0, normal=UP.  t = 4 / 0.707 ≈ 5.657; hit_x = 4.
+	var dir := Vector3(1.0, -1.0, 0.0).normalized()
+	var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+		Vector3(0.0, 4.0, 0.0), dir, Vector3.ZERO, Vector3.UP
+	)
+	assert_float(hit.x).is_equal_approx(4.0, 0.01)
+	assert_float(hit.y).is_equal_approx(0.0, 0.001)
+
+
+
 # ---------------------------------------------------------------------------
 # _get_affected_vertex_indices
 # ---------------------------------------------------------------------------

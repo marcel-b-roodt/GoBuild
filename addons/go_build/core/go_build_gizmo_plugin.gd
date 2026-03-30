@@ -18,6 +18,8 @@ const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh
 
 ## Must match [constant GoBuildGizmo.AXIS_HANDLE_OFFSET].
 const AXIS_HANDLE_OFFSET: int = 1_000_000
+## Must match [constant GoBuildGizmo.ROT_HANDLE_OFFSET].
+const ROT_HANDLE_OFFSET: int  = 2_000_000
 
 # ── Colour palette ────────────────────────────────────────────────────────
 const COLOR_UNSELECTED  := Color(0.85, 0.85, 0.85, 1.0)
@@ -51,8 +53,13 @@ var _editor_plugin: EditorPlugin = null
 ## Vertex index → original position before the current drag started.
 var _drag_initial_verts: Dictionary = {}
 ## Axis-line parameter at the moment the drag began (set on first _set_handle call).
+## Also used as an "uninitialised" sentinel (value == INF).
 var _drag_initial_t: float = INF
-
+## World-space direction from the selection centroid to the first rotate-plane
+## hit point. Initialised on the first [_set_handle] call of a rotate drag.
+var _drag_start_dir: Vector3 = Vector3.ZERO
+## World-space rotation axis captured in [_get_handle_value] for rotate drags.
+var _drag_world_axis: Vector3 = Vector3.ZERO
 
 func setup(plugin: EditorPlugin) -> void:
 	_editor_plugin      = plugin
@@ -103,10 +110,14 @@ func _get_handle_name(
 		handle_id: int,
 		_secondary: bool,
 ) -> String:
-	match handle_id - AXIS_HANDLE_OFFSET:
-		0: return "Move X"
-		1: return "Move Y"
-		2: return "Move Z"
+	const MOVE_NAMES = ["Move X",   "Move Y",   "Move Z"]
+	const ROT_NAMES  = ["Rotate X", "Rotate Y", "Rotate Z"]
+	if handle_id >= ROT_HANDLE_OFFSET:
+		var rot_idx: int = handle_id - ROT_HANDLE_OFFSET
+		return ROT_NAMES[rot_idx] if rot_idx < 3 else ""
+	var move_idx: int = handle_id - AXIS_HANDLE_OFFSET
+	if move_idx >= 0 and move_idx < 3:
+		return MOVE_NAMES[move_idx]
 	return ""
 
 
@@ -127,12 +138,18 @@ func _get_handle_value(
 	if node == null or node.go_build_mesh == null:
 		return null
 
-	# Cache per-vertex initial positions so _set_handle can restore + re-translate.
+	# Cache per-vertex initial positions so _set_handle can restore + re-apply.
 	_drag_initial_verts.clear()
 	_drag_initial_t = INF
+	_drag_start_dir = Vector3.ZERO
 	var affected := _get_affected_vertex_indices(node)
 	for idx: int in affected:
 		_drag_initial_verts[idx] = node.go_build_mesh.vertices[idx]
+
+	# For rotate drags, pre-compute the world axis so _set_handle can use it.
+	if handle_id >= ROT_HANDLE_OFFSET:
+		var local_axis: Vector3 = _get_local_axis(handle_id - ROT_HANDLE_OFFSET)
+		_drag_world_axis = (node.global_transform.basis * local_axis).normalized()
 
 	# Return a full snapshot for undo/cancel.
 	return node.go_build_mesh.take_snapshot()
@@ -142,8 +159,8 @@ func _get_handle_value(
 # Drag: live update
 # ---------------------------------------------------------------------------
 
-## Called every frame while the user drags an axis handle.
-## Projects the mouse onto the constrained axis and applies a live translation.
+## Called every frame while the user drags a handle.
+## Dispatches to translate or rotate sub-logic based on [param handle_id].
 func _set_handle(
 		gizmo: EditorNode3DGizmo,
 		handle_id: int,
@@ -157,33 +174,10 @@ func _set_handle(
 	if node == null:
 		return
 
-	var axis_idx: int = handle_id - AXIS_HANDLE_OFFSET
-	var local_axis: Vector3 = _get_local_axis(axis_idx)
-	var gbm: GoBuildMesh = node.go_build_mesh
-
-	# Compute initial centroid from stored positions.
-	var local_centroid := Vector3.ZERO
-	for idx: int in _drag_initial_verts:
-		local_centroid += _drag_initial_verts[idx]
-	local_centroid /= _drag_initial_verts.size()
-
-	var world_centroid: Vector3 = node.global_transform * local_centroid
-	var world_axis: Vector3    = (node.global_transform.basis * local_axis).normalized()
-
-	var t_now: float = _project_to_axis(camera, screen_pos, world_centroid, world_axis)
-
-	# Initialise the "zero" on the first call of this drag.
-	if _drag_initial_t == INF:
-		_drag_initial_t = t_now
-
-	var delta_world: Vector3 = world_axis * (t_now - _drag_initial_t)
-	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
-
-	# Restore initial positions then apply the new delta.
-	for idx: int in _drag_initial_verts:
-		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
-
-	node.bake()
+	if handle_id >= ROT_HANDLE_OFFSET:
+		_apply_rotate_drag(node, handle_id - ROT_HANDLE_OFFSET, camera, screen_pos)
+	else:
+		_apply_translate_drag(node, handle_id - AXIS_HANDLE_OFFSET, camera, screen_pos)
 
 
 # ---------------------------------------------------------------------------
@@ -210,13 +204,17 @@ func _commit_handle(
 	else:
 		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
 		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
-		ur.create_action("Move Elements")
+		var action_name: String = \
+				"Rotate Elements" if handle_id >= ROT_HANDLE_OFFSET else "Move Elements"
+		ur.create_action(action_name)
 		ur.add_do_method(node, "restore_and_bake", snapshot_after)
 		ur.add_undo_method(node, "restore_and_bake", restore as Dictionary)
 		ur.commit_action()
 
 	_drag_initial_t = INF
 	_drag_initial_verts.clear()
+	_drag_start_dir  = Vector3.ZERO
+	_drag_world_axis = Vector3.ZERO
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +228,81 @@ func _get_local_axis(axis_idx: int) -> Vector3:
 		1: return Vector3.UP
 		2: return Vector3.BACK
 	return Vector3.ZERO
+
+
+## Apply a translate drag along axis [param axis_idx] to all cached vertices.
+func _apply_translate_drag(
+		node: GoBuildMeshInstance,
+		axis_idx: int,
+		camera: Camera3D,
+		screen_pos: Vector2,
+) -> void:
+	var local_axis: Vector3  = _get_local_axis(axis_idx)
+	var gbm: GoBuildMesh     = node.go_build_mesh
+	var local_centroid: Vector3 = _compute_drag_centroid()
+	var world_centroid: Vector3 = node.global_transform * local_centroid
+	var world_axis: Vector3  = (node.global_transform.basis * local_axis).normalized()
+
+	var t_now: float = _project_to_axis(camera, screen_pos, world_centroid, world_axis)
+
+	if _drag_initial_t == INF:
+		_drag_initial_t = t_now
+
+	var delta_world: Vector3 = world_axis * (t_now - _drag_initial_t)
+	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
+
+	for idx: int in _drag_initial_verts:
+		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+
+	node.bake()
+
+
+## Apply a rotate drag around axis [param axis_idx] to all cached vertices.
+## Uses [method Vector3.signed_angle_to] to compute the delta angle each frame.
+func _apply_rotate_drag(
+		node: GoBuildMeshInstance,
+		axis_idx: int,
+		camera: Camera3D,
+		screen_pos: Vector2,
+) -> void:
+	var local_axis: Vector3  = _get_local_axis(axis_idx)
+	var gbm: GoBuildMesh     = node.go_build_mesh
+	var local_centroid: Vector3 = _compute_drag_centroid()
+	var world_centroid: Vector3 = node.global_transform * local_centroid
+
+	# Project mouse ray onto the plane perpendicular to the rotation axis.
+	var hit: Vector3 = _project_to_rotation_plane(
+			camera, screen_pos, world_centroid, _drag_world_axis)
+	if hit == Vector3.INF:
+		return
+
+	var dir: Vector3 = hit - world_centroid
+	if dir.length_squared() < 1e-7:
+		return
+	dir = dir.normalized()
+
+	# Initialise the reference direction on the first frame.
+	if _drag_initial_t == INF:
+		_drag_start_dir = dir
+		_drag_initial_t = 0.0
+		return
+
+	# delta_angle is signed: positive = CCW around the world axis.
+	var delta_angle: float = _drag_start_dir.signed_angle_to(dir, _drag_world_axis)
+
+	for idx: int in _drag_initial_verts:
+		var local_pos: Vector3 = _drag_initial_verts[idx] - local_centroid
+		gbm.vertices[idx] = local_centroid + local_pos.rotated(local_axis, delta_angle)
+
+	node.bake()
+
+
+## Return the arithmetic mean of the cached initial vertex positions.
+func _compute_drag_centroid() -> Vector3:
+	var c := Vector3.ZERO
+	for idx: int in _drag_initial_verts:
+		c += _drag_initial_verts[idx]
+	return c / _drag_initial_verts.size()
 
 
 ## Project [param screen_pos] onto the world-space line through
@@ -251,6 +324,39 @@ func _project_to_axis(
 	if abs(denom) < 1e-7:
 		return 0.0  # Axis and camera ray are nearly parallel.
 	return (b * f - c) / denom
+
+
+## Project [param screen_pos] onto the plane defined by [param plane_origin]
+## and [param plane_normal].  Returns [code]Vector3.INF[/code] if the camera
+## ray is parallel to the plane or hits from behind.
+func _project_to_rotation_plane(
+		camera: Camera3D,
+		screen_pos: Vector2,
+		plane_origin: Vector3,
+		plane_normal: Vector3,
+) -> Vector3:
+	var ray_origin: Vector3 = camera.project_ray_origin(screen_pos)
+	var ray_dir: Vector3    = camera.project_ray_normal(screen_pos)
+	return _ray_plane_intersect(ray_origin, ray_dir, plane_origin, plane_normal)
+
+
+## Pure-math ray-plane intersection (no camera dependency).
+## Returns [code]Vector3.INF[/code] when the ray is parallel to the plane or
+## the intersection is behind [param ray_origin].
+## Public so it can be unit-tested directly.
+static func _ray_plane_intersect(
+		ray_origin: Vector3,
+		ray_dir: Vector3,
+		plane_origin: Vector3,
+		plane_normal: Vector3,
+) -> Vector3:
+	var denom: float = plane_normal.dot(ray_dir)
+	if abs(denom) < 1e-7:
+		return Vector3.INF   # Ray is parallel to the plane.
+	var t: float = plane_normal.dot(plane_origin - ray_origin) / denom
+	if t < 0.0:
+		return Vector3.INF   # Intersection is behind the camera.
+	return ray_origin + ray_dir * t
 
 
 ## Collect unique vertex indices affected by the current selection on [param node].

@@ -20,9 +20,19 @@ const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_help
 const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_panel.gd")
 const _ICON                 := preload("res://icon.svg")
 
+## Minimum squared pixel distance the mouse must travel before a left-drag
+## is treated as a box select rather than a point click.
+const BOX_SELECT_DRAG_THRESHOLD_SQ: float = 25.0  # 5 px
+
 var _panel: GoBuildPanel = null
 var _edited_node: GoBuildMeshInstance = null
 var _gizmo_plugin: GoBuildGizmoPlugin = null
+
+# Box-select tracking state.
+var _box_select_started: bool  = false  # mouse button is currently held
+var _box_select_active:  bool  = false  # drag threshold has been exceeded
+var _box_select_start:   Vector2 = Vector2.ZERO
+var _box_select_current: Vector2 = Vector2.ZERO
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +125,7 @@ func _make_visible(visible: bool) -> void:
 ## - Keys [b]1–4[/b]: switch edit mode (mirrors Blender muscle-memory).
 ## - [b]Left-click[/b]: pick vertex / edge / face depending on active mode.
 ##   [kbd]Shift[/kbd] adds to the selection; [kbd]Ctrl[/kbd] toggles.
+## - [b]Left-drag[/b]: rubber-band box select in element modes.
 ##
 ## Returns a non-zero int to consume the event.
 func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
@@ -125,9 +136,22 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 		return key_result
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
-			return _handle_pick(camera, mb.position, mb.shift_pressed, mb.ctrl_pressed)
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
+				return _handle_mouse_press(camera, mb)
+			return _handle_mouse_release(camera, mb)
+	elif event is InputEventMouseMotion:
+		return _handle_mouse_motion(event as InputEventMouseMotion)
 	return 0
+
+
+## Draw the box-select rectangle overlay while a drag is in progress.
+func _forward_3d_draw_over_viewport(overlay: Control) -> void:
+	if not _box_select_active:
+		return
+	var rect: Rect2 = _get_box_select_rect()
+	overlay.draw_rect(rect, Color(0.25, 0.45, 0.8, 0.15), true)
+	overlay.draw_rect(rect, Color(0.5, 0.7, 1.0, 0.85), false)
 
 
 ## Handle keyboard mode-switch shortcuts (1–4). Returns 1 if consumed, 0 if not.
@@ -238,7 +262,7 @@ func _on_selection_changed() -> void:
 ## Triggered when the edited node's [SelectionManager] emits
 ## [signal SelectionManager.mode_changed].
 func _on_mode_changed(_mode: SelectionManager.Mode) -> void:
-	update_overlays()
+	_cancel_box_select()
 
 
 ## Triggered when the currently edited node exits the scene tree
@@ -246,6 +270,8 @@ func _on_mode_changed(_mode: SelectionManager.Mode) -> void:
 func _on_edited_node_removed() -> void:
 	# At this point _edited_node is still valid (tree_exiting fires before free),
 	# but we clear it so the panel stops referencing a dead node.
+	_box_select_started = false
+	_box_select_active  = false
 	_edited_node = null
 	if _panel:
 		_panel.set_target(null)
@@ -263,3 +289,115 @@ func _disconnect_node_signals() -> void:
 		_edited_node.selection.mode_changed.disconnect(_on_mode_changed)
 	if _edited_node.tree_exiting.is_connected(_on_edited_node_removed):
 		_edited_node.tree_exiting.disconnect(_on_edited_node_removed)
+
+
+# ---------------------------------------------------------------------------
+# Mouse input helpers
+# ---------------------------------------------------------------------------
+
+## Handle a left-mouse-button press in element mode.
+## Begins tracking a potential box select; consumes the event so the editor
+## does not deselect the [GoBuildMeshInstance].
+func _handle_mouse_press(_camera: Camera3D, mb: InputEventMouseButton) -> int:
+	var mode: SelectionManager.Mode = _edited_node.selection.get_mode()
+	# In object mode let Godot handle its own node-selection click.
+	if mode == SelectionManager.Mode.OBJECT:
+		return 0
+	_box_select_started = true
+	_box_select_active  = false
+	_box_select_start   = mb.position
+	_box_select_current = mb.position
+	return 1
+
+
+## Handle a left-mouse-button release.
+## Completes a box select if a drag was in progress; otherwise delegates to
+## the existing point-pick logic.
+func _handle_mouse_release(camera: Camera3D, mb: InputEventMouseButton) -> int:
+	if not _box_select_started:
+		return 0
+	_box_select_started = false
+	if _box_select_active:
+		_box_select_active = false
+		update_overlays()
+		_finish_box_select(camera, mb.shift_pressed, mb.ctrl_pressed)
+		return 1
+	# No significant drag — treat as a plain point pick at the press position.
+	return _handle_pick(camera, _box_select_start, mb.shift_pressed, mb.ctrl_pressed)
+
+
+## Track mouse movement. Activates the box select once the drag exceeds the
+## pixel threshold; redraws the overlay every frame while active.
+func _handle_mouse_motion(mm: InputEventMouseMotion) -> int:
+	if not _box_select_started:
+		return 0
+	_box_select_current = mm.position
+	if not _box_select_active:
+		if _box_select_start.distance_squared_to(_box_select_current) > BOX_SELECT_DRAG_THRESHOLD_SQ:
+			_box_select_active = true
+	if _box_select_active:
+		update_overlays()
+		return 1
+	return 0
+
+
+# ---------------------------------------------------------------------------
+# Box select
+# ---------------------------------------------------------------------------
+
+## Return the normalised screen-space [Rect2] for the current box-select drag.
+func _get_box_select_rect() -> Rect2:
+	return Rect2(
+		Vector2(
+			min(_box_select_start.x, _box_select_current.x),
+			min(_box_select_start.y, _box_select_current.y),
+		),
+		Vector2(
+			abs(_box_select_current.x - _box_select_start.x),
+			abs(_box_select_current.y - _box_select_start.y),
+		),
+	)
+
+
+## Select all elements inside the current box-select rect and apply the
+## result to the [SelectionManager] using the appropriate modifier logic.
+func _finish_box_select(camera: Camera3D, additive: bool, toggle: bool) -> void:
+	var sel: SelectionManager = _edited_node.selection
+	var mode: SelectionManager.Mode = sel.get_mode()
+	var gbm: GoBuildMesh = _edited_node.go_build_mesh
+	if gbm == null:
+		return
+
+	var rect: Rect2 = _get_box_select_rect()
+	var hit_indices: Array[int] = []
+	match mode:
+		SelectionManager.Mode.VERTEX:
+			hit_indices = PickingHelper.find_vertices_in_rect(camera, rect, _edited_node, gbm)
+		SelectionManager.Mode.EDGE:
+			hit_indices = PickingHelper.find_edges_in_rect(camera, rect, _edited_node, gbm)
+		SelectionManager.Mode.FACE:
+			hit_indices = PickingHelper.find_faces_in_rect(camera, rect, _edited_node, gbm)
+
+	# Plain drag (no modifier) clears first, then selects all hits.
+	if not additive and not toggle:
+		sel.clear()
+
+	for idx: int in hit_indices:
+		if toggle:
+			match mode:
+				SelectionManager.Mode.VERTEX: sel.toggle_vertex(idx)
+				SelectionManager.Mode.EDGE:   sel.toggle_edge(idx)
+				SelectionManager.Mode.FACE:   sel.toggle_face(idx)
+		else:
+			match mode:
+				SelectionManager.Mode.VERTEX: sel.select_vertex(idx)
+				SelectionManager.Mode.EDGE:   sel.select_edge(idx)
+				SelectionManager.Mode.FACE:   sel.select_face(idx)
+
+
+## Cancel any in-progress box select and clear the overlay.
+func _cancel_box_select() -> void:
+	_box_select_started = false
+	_box_select_active  = false
+	update_overlays()
+

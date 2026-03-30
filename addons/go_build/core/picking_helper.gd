@@ -141,6 +141,82 @@ static func find_nearest_face(
 
 
 # ---------------------------------------------------------------------------
+# Box / rect picking  (camera-dependent; scene-runner tests deferred)
+# ---------------------------------------------------------------------------
+
+## Return indices of all vertices whose projected screen position falls inside
+## [param rect] (a normalised [Rect2] in viewport pixels).
+##
+## Vertices behind the camera are skipped via [method Camera3D.is_position_in_frustum].
+static func find_vertices_in_rect(
+		camera: Camera3D,
+		rect: Rect2,
+		node: GoBuildMeshInstance,
+		gbm: GoBuildMesh,
+) -> Array[int]:
+	var result: Array[int] = []
+	var gt: Transform3D = node.global_transform
+	for idx: int in gbm.vertices.size():
+		var world_pos: Vector3 = gt * gbm.vertices[idx]
+		if not camera.is_position_in_frustum(world_pos):
+			continue
+		if rect.has_point(camera.unproject_position(world_pos)):
+			result.append(idx)
+	return result
+
+
+## Return indices of all edges where at least one endpoint projects into [param rect].
+##
+## This matches Blender's "touch" box-select behaviour for edges.
+static func find_edges_in_rect(
+		camera: Camera3D,
+		rect: Rect2,
+		node: GoBuildMeshInstance,
+		gbm: GoBuildMesh,
+) -> Array[int]:
+	var result: Array[int] = []
+	var gt: Transform3D = node.global_transform
+	for idx: int in gbm.edges.size():
+		var edge: GoBuildEdge = gbm.edges[idx]
+		var wa: Vector3 = gt * gbm.vertices[edge.vertex_a]
+		var wb: Vector3 = gt * gbm.vertices[edge.vertex_b]
+		var in_a: bool = camera.is_position_in_frustum(wa) \
+				and rect.has_point(camera.unproject_position(wa))
+		var in_b: bool = camera.is_position_in_frustum(wb) \
+				and rect.has_point(camera.unproject_position(wb))
+		if in_a or in_b:
+			result.append(idx)
+	return result
+
+
+## Return indices of all faces whose screen-projected centroid falls inside [param rect].
+##
+## The centroid is the arithmetic mean of the face's vertex positions.
+static func find_faces_in_rect(
+		camera: Camera3D,
+		rect: Rect2,
+		node: GoBuildMeshInstance,
+		gbm: GoBuildMesh,
+) -> Array[int]:
+	var result: Array[int] = []
+	var gt: Transform3D = node.global_transform
+	for idx: int in gbm.faces.size():
+		var face: GoBuildFace = gbm.faces[idx]
+		if face.vertex_indices.is_empty():
+			continue
+		var centroid: Vector3 = Vector3.ZERO
+		for vi: int in face.vertex_indices:
+			centroid += gbm.vertices[vi]
+		centroid /= float(face.vertex_indices.size())
+		var world_pos: Vector3 = gt * centroid
+		if not camera.is_position_in_frustum(world_pos):
+			continue
+		if rect.has_point(camera.unproject_position(world_pos)):
+			result.append(idx)
+	return result
+
+
+# ---------------------------------------------------------------------------
 # Pure-math helpers (public for unit tests)
 # ---------------------------------------------------------------------------
 
