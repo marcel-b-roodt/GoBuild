@@ -38,6 +38,8 @@ var mat_vertex_normal:   StandardMaterial3D
 var mat_vertex_selected: StandardMaterial3D
 var mat_face_normal:     StandardMaterial3D
 var mat_face_selected:   StandardMaterial3D
+## Filled semi-transparent overlay for selected faces (Face mode).
+var mat_face_fill:        StandardMaterial3D
 ## Axis shaft line materials.
 var mat_axis_line_x:     StandardMaterial3D
 var mat_axis_line_y:     StandardMaterial3D
@@ -64,12 +66,13 @@ var _drag_world_axis: Vector3 = Vector3.ZERO
 func setup(plugin: EditorPlugin) -> void:
 	_editor_plugin      = plugin
 	mat_edge_normal     = _line_mat(COLOR_UNSELECTED)
-	mat_edge_selected   = _line_mat(COLOR_SELECTED)
+	mat_edge_selected   = _line_mat_nodepth(COLOR_SELECTED)    # highlights through geometry
 	mat_edge_context    = _line_mat(COLOR_CONTEXT)
-	mat_vertex_normal   = _point_mat(COLOR_UNSELECTED)
-	mat_vertex_selected = _point_mat(COLOR_SELECTED)
+	mat_vertex_normal   = _line_mat(COLOR_UNSELECTED)           # cube wireframe, depth-tested
+	mat_vertex_selected = _line_mat_nodepth(COLOR_SELECTED)    # cube wireframe, always visible
 	mat_face_normal     = _point_mat(COLOR_FACE_HINT)
 	mat_face_selected   = _point_mat(COLOR_SELECTED)
+	mat_face_fill       = _face_fill_mat()
 	mat_axis_line_x     = _line_mat(COLOR_AXIS_X)
 	mat_axis_line_y     = _line_mat(COLOR_AXIS_Y)
 	mat_axis_line_z     = _line_mat(COLOR_AXIS_Z)
@@ -401,3 +404,29 @@ func _point_mat(color: Color) -> StandardMaterial3D:
 	mat.no_depth_test   = true
 	mat.render_priority = 2
 	return mat
+
+
+## Create an unshaded line material that ignores depth — always drawn on top.
+## Used for selected-element highlights so they are never hidden by geometry.
+func _line_mat_nodepth(color: Color) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode    = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color    = color
+	mat.no_depth_test   = true
+	mat.render_priority = 3
+	return mat
+
+
+## Create a semi-transparent filled surface material for face selection overlays.
+## Uses the same hue as [constant COLOR_SELECTED] at 30 % opacity, rendered
+## double-sided and always on top of geometry.
+func _face_fill_mat() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode    = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color    = Color(COLOR_SELECTED.r, COLOR_SELECTED.g, COLOR_SELECTED.b, 0.3)
+	mat.transparency    = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode       = BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test   = true
+	mat.render_priority = 2
+	return mat
+

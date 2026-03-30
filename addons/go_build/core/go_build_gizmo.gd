@@ -51,6 +51,8 @@ const _ROT_RING_RADIUS: float = 1.05  # slightly larger than _ARROW_LENGTH
 
 ## Length of each axis arrow in local mesh units.
 const _ARROW_LENGTH: float = 0.8
+## Half-size (local mesh units) of the wireframe cube drawn at each vertex.
+const _VERTEX_CUBE_HALF: float = 0.03
 
 
 ## Rebuild all viewport overlays for the attached [GoBuildMeshInstance].
@@ -86,8 +88,8 @@ func _redraw() -> void:
 			_draw_edges(gbm, sel, plugin.mat_edge_normal, plugin.mat_edge_selected)
 
 		SelectionManager.Mode.FACE:
-			_draw_context_edges(gbm, plugin.mat_edge_context)
-			_draw_face_centres(gbm, sel, plugin.mat_face_normal, plugin.mat_face_selected)
+				_draw_context_edges(gbm, plugin.mat_edge_context)
+				_draw_face_centres(gbm, sel, plugin.mat_face_normal, plugin.mat_face_fill)
 
 	# Draw the 3-axis translate handle whenever any sub-element is selected.
 	if sel.get_mode() != SelectionManager.Mode.OBJECT and not sel.is_empty():
@@ -140,71 +142,103 @@ func _draw_edges(
 		add_lines(lines_selected, mat_selected)
 
 
-## Draw all vertices as billboard handle dots.
-## Selected vertices are orange; unselected are white.
-## Handle IDs equal the vertex index in [member GoBuildMesh.vertices].
+## Return the 24 line-segment endpoints (12 edges × 2 points) that form a
+## wireframe cube of half-size [param half] centred on [param pos].
+func _cube_lines_at(pos: Vector3, half: float) -> PackedVector3Array:
+	var h: float = half
+	# 8 corners labelled by the sign-combination of each axis component.
+	var c: Array[Vector3] = [
+		pos + Vector3(-h, -h, -h), pos + Vector3( h, -h, -h),
+		pos + Vector3( h,  h, -h), pos + Vector3(-h,  h, -h),
+		pos + Vector3(-h, -h,  h), pos + Vector3( h, -h,  h),
+		pos + Vector3( h,  h,  h), pos + Vector3(-h,  h,  h),
+	]
+	return PackedVector3Array([
+		c[0], c[1],  c[1], c[2],  c[2], c[3],  c[3], c[0],   # back face
+		c[4], c[5],  c[5], c[6],  c[6], c[7],  c[7], c[4],   # front face
+		c[0], c[4],  c[1], c[5],  c[2], c[6],  c[3], c[7],   # connecting edges
+	])
+
+
+## Draw all vertices as cube-wireframe widgets.
+## Selected vertices use the highlight material (orange, no depth test) so they
+## are always visible even when inside geometry.
+## Unselected vertices use the normal line material (white, depth-tested).
 func _draw_vertices(
 		gbm: GoBuildMesh,
 		sel: SelectionManager,
 		mat_normal: Material,
 		mat_selected: Material,
 ) -> void:
-	var pts_normal   := PackedVector3Array()
-	var ids_normal   := PackedInt32Array()
-	var pts_selected := PackedVector3Array()
-	var ids_selected := PackedInt32Array()
+	var lines_normal   := PackedVector3Array()
+	var lines_selected := PackedVector3Array()
 
 	for idx: int in gbm.vertices.size():
+		var cube := _cube_lines_at(gbm.vertices[idx], _VERTEX_CUBE_HALF)
 		if sel.is_vertex_selected(idx):
-			pts_selected.append(gbm.vertices[idx])
-			ids_selected.append(idx)
+			lines_selected.append_array(cube)
 		else:
-			pts_normal.append(gbm.vertices[idx])
-			ids_normal.append(idx)
+			lines_normal.append_array(cube)
 
-	if not pts_normal.is_empty():
-		add_handles(pts_normal, mat_normal, ids_normal, true)
-	if not pts_selected.is_empty():
-		add_handles(pts_selected, mat_selected, ids_selected, true)
+	if not lines_normal.is_empty():
+		add_lines(lines_normal, mat_normal)
+	if not lines_selected.is_empty():
+		add_lines(lines_selected, mat_selected)
 
 
-## Draw face-centre dots as billboard handles.
-## Selected centres are orange; unselected are teal.
-## Handle IDs = [code]gbm.vertices.size() + face_index[/code] to avoid collision
-## with vertex handle IDs.
+## Draw face overlays in Face mode.
+##
+## - Unselected faces: a billboard centre dot (teal) so the user can see all
+##   faces even when none are selected.
+## - Selected faces: a fan-triangulated semi-transparent filled mesh so the
+##   entire face surface is highlighted, plus no centre dot (the fill is
+##   visually sufficient).
+##
+## [param mat_normal] — billboard dot material for unselected face centres.
+## [param mat_fill]   — alpha-transparent surface material for selected faces.
 func _draw_face_centres(
 		gbm: GoBuildMesh,
 		sel: SelectionManager,
 		mat_normal: Material,
-		mat_selected: Material,
+		mat_fill: Variant,
 ) -> void:
-	var pts_normal   := PackedVector3Array()
-	var ids_normal   := PackedInt32Array()
-	var pts_selected := PackedVector3Array()
-	var ids_selected := PackedInt32Array()
+	var pts_normal := PackedVector3Array()
+	var ids_normal := PackedInt32Array()
+	var fill_verts := PackedVector3Array()
 
-	# Offset face IDs so they cannot collide with vertex IDs.
 	var id_offset: int = gbm.vertices.size()
 
 	for idx: int in gbm.faces.size():
 		var face: GoBuildFace = gbm.faces[idx]
-		# Compute face centre as the mean of its vertex positions.
-		var centre := Vector3.ZERO
-		for vi: int in face.vertex_indices:
-			centre += gbm.vertices[vi]
-		centre /= face.vertex_indices.size()
+		if face.vertex_indices.size() < 3:
+			continue
 
 		if sel.is_face_selected(idx):
-			pts_selected.append(centre)
-			ids_selected.append(id_offset + idx)
+			# Fan-triangulate the face to build the fill mesh.
+			var v0: Vector3 = gbm.vertices[face.vertex_indices[0]]
+			for tri: int in range(face.vertex_indices.size() - 2):
+				fill_verts.append(v0)
+				fill_verts.append(gbm.vertices[face.vertex_indices[tri + 1]])
+				fill_verts.append(gbm.vertices[face.vertex_indices[tri + 2]])
 		else:
+			# Centre dot for unselected faces.
+			var centre := Vector3.ZERO
+			for vi: int in face.vertex_indices:
+				centre += gbm.vertices[vi]
+			centre /= face.vertex_indices.size()
 			pts_normal.append(centre)
 			ids_normal.append(id_offset + idx)
 
 	if not pts_normal.is_empty():
 		add_handles(pts_normal, mat_normal, ids_normal, true)
-	if not pts_selected.is_empty():
-		add_handles(pts_selected, mat_selected, ids_selected, true)
+
+	if not fill_verts.is_empty():
+		var arrays: Array = []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = fill_verts
+		var fill_mesh := ArrayMesh.new()
+		fill_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		add_mesh(fill_mesh, mat_fill)
 
 
 # ---------------------------------------------------------------------------
