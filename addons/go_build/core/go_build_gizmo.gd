@@ -9,8 +9,13 @@
 ## - EDGE mode   — edge lines only (selected = orange, unselected = white).
 ## - FACE mode   — faint context edges + face-centre handle dots.
 ##
-## Redraw is triggered from [code]plugin.gd[/code] via [method EditorPlugin.update_overlays]
+## Redraw is triggered from [code]plugin.gd[/code] via [method Node3D.update_gizmos]
 ## whenever the [SelectionManager] emits a signal.
+##
+## [b]Note:[/b] [method EditorPlugin.update_overlays] only repaints the 2D
+## screen-space overlay ([method EditorPlugin._forward_3d_draw_over_viewport]).
+## To repaint these gizmo handles you must call [method Node3D.update_gizmos]
+## on the [GoBuildMeshInstance] node directly.
 ##
 ## [b]Note:[/b] The plugin is accessed via the untyped [method get_plugin] call
 ## (no [code]GoBuildGizmoPlugin[/code] type annotation here) to avoid a circular
@@ -49,7 +54,7 @@ const _ARROW_LENGTH: float = 0.8
 
 
 ## Rebuild all viewport overlays for the attached [GoBuildMeshInstance].
-## Called by the editor when [method EditorPlugin.update_overlays] is invoked.
+## Called by the editor when [method Node3D.update_gizmos] is invoked.
 func _redraw() -> void:
 	clear()
 

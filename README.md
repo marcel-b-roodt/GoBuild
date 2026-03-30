@@ -1,8 +1,8 @@
 # GoBuild
 
-**A free, open-source ProBuilder equivalent for Godot 4.**
+**Free, open-source in-editor mesh modelling for Godot 4.**
 
-> Model, edit, and ship game-ready geometry without leaving the Godot editor.
+> Block out levels, sculpt geometry, and ship game-ready meshes without leaving the Godot editor.
 
 [![CI](https://github.com/marcel-b-roodt/GoBuild/actions/workflows/ci.yml/badge.svg)](https://github.com/marcel-b-roodt/GoBuild/actions/workflows/ci.yml)
 
@@ -10,34 +10,37 @@
 
 ## What is GoBuild?
 
-GoBuild is a Godot 4 EditorPlugin that brings in-editor mesh modelling to Godot — the same way Unity's ProBuilder does for Unity. Block out levels, extrude faces, bevel edges, unwrap UVs, and assign per-face materials, all inside the editor you already use.
+GoBuild is a Godot 4 EditorPlugin that brings in-editor mesh modelling directly into Godot. Create and edit 3D geometry at the vertex, edge, and face level — select elements, move and rotate them, and build scenes out of solid shapes, all without leaving the editor.
 
-No Blender round-trips required for common geometry tasks.
+Designed for level blockout, architecture, and game-ready props. No external tools required for common geometry tasks.
 
 ## Status
 
-🚧 **Early development — Stage 0 (Foundation).** The plugin is not yet functional. Star/watch the repo to follow progress.
+🔧 **Active development — Stage 2 (Element Selection & Transform).**
 
-See the [roadmap](docs/roadmap.md) for the planned feature stages.
+Primitive shapes, sub-element selection, move handles, rotate handles, and box select are working. See [GUIDE.md](GUIDE.md) for what you can do right now.
 
-## Installation (once released)
+## Installation
 
+**From the Godot Asset Library** *(once listed)*:
 1. Open **Project → AssetLib** inside Godot.
 2. Search for **GoBuild** and install.
 3. Enable the plugin under **Project → Project Settings → Plugins**.
-4. A **GoBuild** toolbar appears at the top of the 3D viewport.
 
-Or download the latest zip from [Releases](https://github.com/marcel-b-roodt/GoBuild/releases) and drop the `addons/go_build/` folder into your project.
+**From a release zip**:
+1. Download the latest zip from [Releases](https://github.com/marcel-b-roodt/GoBuild/releases).
+2. Drop the `addons/go_build/` folder into your project's `addons/` directory.
+3. Enable the plugin under **Project → Project Settings → Plugins**.
 
-## Building from source
-
+**From source**:
 ```bash
 git clone https://github.com/marcel-b-roodt/GoBuild.git
-cd GoBuild
-dotnet test Tests/GoBuild.Tests/
 ```
+Open `project.godot` in Godot 4. The plugin activates automatically.
 
-Open `project.godot` in Godot 4 to run the development harness.
+## Quick Start
+
+See **[GUIDE.md](GUIDE.md)** for a full walkthrough — creating shapes, selecting elements, moving and rotating geometry, and all keyboard shortcuts.
 
 ## Contributing
 
@@ -50,4 +53,3 @@ GoBuild is free and open-source. If it saves you time, consider supporting devel
 ## License
 
 MIT — see [LICENSE](LICENSE).
-

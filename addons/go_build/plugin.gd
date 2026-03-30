@@ -3,7 +3,7 @@
 ## Registers the GoBuildMeshInstance custom type, adds the side-panel dock,
 ## and wires editor selection so the panel updates when a mesh is selected.
 ##
-## This script MUST remain GDScript. See copilot-instructions § Editor plugin rules.
+## This script MUST remain GDScript — the plugin must work in every Godot 4
 @tool
 extends EditorPlugin
 
@@ -24,6 +24,13 @@ const _ICON                 := preload("res://icon.svg")
 ## is treated as a box select rather than a point click.
 const BOX_SELECT_DRAG_THRESHOLD_SQ: float = 25.0  # 5 px
 
+## EditorSettings keys for the four mode-switch shortcuts.
+## Users can change the bound key under Editor → Editor Settings → gobuild.
+const _SHORTCUT_OBJECT := "gobuild/shortcuts/object_mode"
+const _SHORTCUT_VERTEX := "gobuild/shortcuts/vertex_mode"
+const _SHORTCUT_EDGE   := "gobuild/shortcuts/edge_mode"
+const _SHORTCUT_FACE   := "gobuild/shortcuts/face_mode"
+
 var _panel: GoBuildPanel = null
 var _edited_node: GoBuildMeshInstance = null
 var _gizmo_plugin: GoBuildGizmoPlugin = null
@@ -33,6 +40,12 @@ var _box_select_started: bool  = false  # mouse button is currently held
 var _box_select_active:  bool  = false  # drag threshold has been exceeded
 var _box_select_start:   Vector2 = Vector2.ZERO
 var _box_select_current: Vector2 = Vector2.ZERO
+
+# Mode-switch shortcuts (initialised in _enter_tree via EditorSettings).
+var _shortcut_object: Shortcut
+var _shortcut_vertex: Shortcut
+var _shortcut_edge:   Shortcut
+var _shortcut_face:   Shortcut
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +60,9 @@ func _enter_tree() -> void:
 		_MESH_INSTANCE_SCRIPT,
 		_ICON,
 	)
+
+	# Load (or create) mode-switch shortcuts from EditorSettings.
+	_init_shortcuts()
 
 	# Create and dock the side panel.
 	_panel = _PANEL_SCRIPT.new()
@@ -99,6 +115,9 @@ func _edit(object: Object) -> void:
 		# Clear our reference if the node is removed from the scene tree
 		# (e.g. the user presses Delete in the scene panel).
 		_edited_node.tree_exiting.connect(_on_edited_node_removed)
+		# Force an immediate gizmo redraw so element overlays appear
+		# as soon as the node is selected (not only after the first operation).
+		_edited_node.update_gizmos()
 
 	if _panel:
 		_panel.set_target(_edited_node)
@@ -154,20 +173,59 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 	overlay.draw_rect(rect, Color(0.5, 0.7, 1.0, 0.85), false)
 
 
-## Handle keyboard mode-switch shortcuts (1–4). Returns 1 if consumed, 0 if not.
+## Handle keyboard mode-switch shortcuts. Returns 1 if consumed, 0 if not.
+##
+## Shortcuts default to 1/2/3/4 but are rebindable via
+## Editor → Editor Settings → gobuild → shortcuts.
 func _handle_keyboard(event: InputEvent) -> int:
 	if not (event is InputEventKey):
 		return 0
 	var key := event as InputEventKey
 	if not key.pressed or key.echo:
 		return 0
-	match key.keycode:
-		KEY_1: _set_mode(SelectionManager.Mode.OBJECT)
-		KEY_2: _set_mode(SelectionManager.Mode.VERTEX)
-		KEY_3: _set_mode(SelectionManager.Mode.EDGE)
-		KEY_4: _set_mode(SelectionManager.Mode.FACE)
-		_:     return 0
+	if _shortcut_object.matches_event(event):
+		_set_mode(SelectionManager.Mode.OBJECT)
+	elif _shortcut_vertex.matches_event(event):
+		_set_mode(SelectionManager.Mode.VERTEX)
+	elif _shortcut_edge.matches_event(event):
+		_set_mode(SelectionManager.Mode.EDGE)
+	elif _shortcut_face.matches_event(event):
+		_set_mode(SelectionManager.Mode.FACE)
+	else:
+		return 0
 	return 1
+
+
+# ---------------------------------------------------------------------------
+# Shortcut initialisation
+# ---------------------------------------------------------------------------
+
+## Create or load the four mode-switch shortcuts from EditorSettings.
+## Settings persist across editor sessions under the [code]gobuild/shortcuts[/code]
+## category.  Users can rebind them in Editor → Editor Settings.
+func _init_shortcuts() -> void:
+	var es := EditorInterface.get_editor_settings()
+	_shortcut_object = _require_shortcut(es, _SHORTCUT_OBJECT, KEY_1)
+	_shortcut_vertex = _require_shortcut(es, _SHORTCUT_VERTEX, KEY_2)
+	_shortcut_edge   = _require_shortcut(es, _SHORTCUT_EDGE,   KEY_3)
+	_shortcut_face   = _require_shortcut(es, _SHORTCUT_FACE,   KEY_4)
+
+
+## Return the persisted [Shortcut] for [param setting].
+## If the setting does not yet exist, create a default bound to [param default_key]
+## with [constant KEY_LOCATION_UNSPECIFIED] so it never matches numpad events.
+func _require_shortcut(es: EditorSettings, setting: String, default_key: Key) -> Shortcut:
+	if es.has_setting(setting):
+		var existing: Variant = es.get_setting(setting)
+		if existing is Shortcut:
+			return existing as Shortcut
+	var ev := InputEventKey.new()
+	ev.keycode = default_key
+	var sc := Shortcut.new()
+	sc.events = [ev]
+	es.set_setting(setting, sc)
+	es.set_initial_value(setting, sc, false)
+	return sc
 
 
 func _set_mode(mode: SelectionManager.Mode) -> void:
@@ -256,6 +314,11 @@ func _apply_pick(
 ## Triggered when the edited node's [SelectionManager] emits
 ## [signal SelectionManager.selection_changed].
 func _on_selection_changed() -> void:
+	# update_overlays() repaints the 2D box-select overlay.
+	# update_gizmos() triggers _redraw() on EditorNode3DGizmo instances
+	# so vertex/edge/face highlights stay in sync with the selection.
+	if _edited_node:
+		_edited_node.update_gizmos()
 	update_overlays()
 
 
@@ -396,8 +459,11 @@ func _finish_box_select(camera: Camera3D, additive: bool, toggle: bool) -> void:
 
 
 ## Cancel any in-progress box select and clear the overlay.
+## Also triggers a gizmo redraw so the element overlay matches the new mode.
 func _cancel_box_select() -> void:
 	_box_select_started = false
 	_box_select_active  = false
+	if _edited_node:
+		_edited_node.update_gizmos()
 	update_overlays()
 
