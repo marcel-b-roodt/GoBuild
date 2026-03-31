@@ -219,6 +219,11 @@ func _cube_lines_at(pos: Vector3, half: float) -> PackedVector3Array:
 ## [param scale] is the gizmo scale factor from
 ## [method GoBuildGizmoPlugin.compute_world_gizmo_scale], which makes the
 ## cubes appear at a roughly constant screen size regardless of camera distance.
+##
+## Deduplicates by [member GoBuildMesh.coincident_groups] so that split vertices
+## at the same 3D position (e.g. the three copies of each cube corner produced by
+## [CubeGenerator]) are drawn as a single handle rather than three overlapping ones.
+## A group is considered selected if [b]any[/b] of its member indices is selected.
 func _draw_vertices(
 		gbm: GoBuildMesh,
 		sel: SelectionManager,
@@ -230,9 +235,30 @@ func _draw_vertices(
 	var lines_selected := PackedVector3Array()
 	var cube_half: float = _VERTEX_CUBE_HALF * scale
 
+	# Determine whether the coincident-group map is ready.
+	# When built (parallel to vertices), use it to deduplicate overlapping handles.
+	# When absent (manually constructed mesh, pre-rebuild_edges), fall back to
+	# one handle per raw vertex index.
+	var has_groups: bool = gbm.coincident_groups.size() == gbm.vertices.size()
+
+	# group_id → { "pos": Vector3, "selected": bool }
+	# Populated in one forward pass; we only store the first position seen for
+	# each group (all coincident verts share the same position by definition).
+	var group_data: Dictionary = {}
+
 	for idx: int in gbm.vertices.size():
-		var cube := _cube_lines_at(gbm.vertices[idx], cube_half)
-		if sel.is_vertex_selected(idx):
+		var group_id: int = gbm.coincident_groups[idx] if has_groups else idx
+		var is_sel: bool = sel.is_vertex_selected(idx)
+		if group_data.has(group_id):
+			# A group is selected as soon as any member is selected.
+			if is_sel and not group_data[group_id]["selected"]:
+				group_data[group_id]["selected"] = true
+		else:
+			group_data[group_id] = { "pos": gbm.vertices[idx], "selected": is_sel }
+
+	for entry: Dictionary in group_data.values():
+		var cube := _cube_lines_at(entry["pos"], cube_half)
+		if entry["selected"]:
 			lines_selected.append_array(cube)
 		else:
 			lines_normal.append_array(cube)

@@ -48,14 +48,14 @@ var _box_select_active:  bool  = false  # drag threshold has been exceeded
 var _box_select_start:   Vector2 = Vector2.ZERO
 var _box_select_current: Vector2 = Vector2.ZERO
 
-# Transform-handle drag state (owned by this plugin — not delegated to Godot's gizmo system).
-# Drag is initialised lazily: the handle ID is recorded on press but begin_drag is only
-# called once the mouse moves past the drag threshold.  A click-and-release on a handle
-# falls through to normal element picking instead of being swallowed by the drag system.
-var _dragging_handle:   bool    = false          # begin_drag was called; drag is live
-var _active_handle_id:  int     = -1             # handle currently being dragged
-var _pressed_handle_id: int     = -1             # handle pressed; drag not yet started
-var _handle_press_pos:  Vector2 = Vector2.ZERO   # screen position of the handle press
+# Handle-drag tracking state.
+# Godot's native _set_handle pipeline only fires in Move mode (KEY_W).
+# We run in Select mode (KEY_Q) to hide the node-level transform widget,
+# so we manage handle dragging ourselves via begin_drag/update_drag/commit_drag.
+var _dragging_handle:   bool    = false  # drag threshold exceeded and drag started
+var _active_handle_id:  int     = -1     # handle ID being dragged
+var _pressed_handle_id: int     = -1     # handle ID under the cursor at press time
+var _handle_press_pos:  Vector2 = Vector2.ZERO
 
 # Mode-switch shortcuts (initialised in _enter_tree via EditorSettings).
 var _shortcut_object: Shortcut
@@ -124,8 +124,8 @@ func _notification(what: int) -> void:
 ## the transform handles appear frozen.  This method:
 ##
 ## 1. Validates [member _edited_node] — clears it if the instance is gone.
-## 2. Cancels any in-progress drag (input events from before the focus loss
-##    are gone; the drag cannot be completed cleanly).
+## 2. Resets any in-progress native gizmo drag state (drag events from before
+##    the focus loss are gone; the drag cannot be completed cleanly).
 ## 3. Cycles the gizmo plugin registration so Godot re-scans the scene and
 ##    calls [method GoBuildGizmoPlugin._has_gizmo] on every node.
 ## 4. Fires [method _force_gizmo_redraw_deferred] to recreate or refresh the
@@ -144,12 +144,16 @@ func _on_editor_focus_regained() -> void:
 
 	GoBuildDebug.log("[GoBuild] PLUGIN._on_editor_focus_regained  node=%s" % _edited_node.name)
 
-	# ── Step 2: cancel stale drag ────────────────────────────────────────────
+	# ── Step 2: reset stale drag / box-select state ──────────────────────────
+	# Input events from before the focus loss are gone; any in-progress drag
+	# cannot be completed cleanly.  Cancel and clear all drag state.
 	if _dragging_handle and _gizmo_plugin != null:
-		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)  # cancel
+		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
 	_dragging_handle   = false
 	_active_handle_id  = -1
 	_pressed_handle_id = -1
+	if _gizmo_plugin != null:
+		_gizmo_plugin.reset_drag_state()
 	_box_select_started = false
 	_box_select_active  = false
 
@@ -302,7 +306,11 @@ func _make_visible(visible: bool) -> void:
 ## Intercept input in the 3D viewport.
 ##
 ## - Keys [b]1–4[/b]: switch edit mode (mirrors Blender muscle-memory).
-## - [b]Left-click[/b]: pick vertex / edge / face depending on active mode.
+## - [b]Escape[/b]: cancel an in-progress handle drag.
+## - [b]Left-click on a transform handle[/b]: consume and begin a custom drag
+##   via [method GoBuildGizmoPlugin.begin_drag] (Godot's native _set_handle
+##   pipeline is disabled in SELECT mode which we use to hide the node gizmo).
+## - [b]Left-click elsewhere[/b]: pick vertex / edge / face depending on active mode.
 ##   [kbd]Shift[/kbd] adds to the selection; [kbd]Ctrl[/kbd] toggles.
 ## - [b]Left-drag[/b]: rubber-band box select in element modes.
 ##
@@ -333,7 +341,8 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 	overlay.draw_rect(rect, Color(0.5, 0.7, 1.0, 0.85), false)
 
 
-## Handle keyboard mode-switch shortcuts. Returns 1 if consumed, 0 if not.
+## Handle keyboard mode-switch shortcuts and drag cancellation.
+## Returns 1 if consumed, 0 if not.
 ##
 ## Shortcuts default to 1/2/3/4 but are rebindable via
 ## Editor → Editor Settings → gobuild → shortcuts.
@@ -345,7 +354,7 @@ func _handle_keyboard(event: InputEvent) -> int:
 		return 0
 	# Cancel an active handle drag with Escape.
 	if key.keycode == KEY_ESCAPE and (_dragging_handle or _pressed_handle_id != -1):
-		if _dragging_handle:
+		if _dragging_handle and _gizmo_plugin != null and _edited_node != null:
 			_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
 		_dragging_handle   = false
 		_active_handle_id  = -1
@@ -521,16 +530,16 @@ func _on_selection_changed() -> void:
 func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 	GoBuildDebug.log("[GoBuild] PLUGIN._on_mode_changed  mode=%d  edited_null=%s" \
 			% [mode, str(_edited_node == null)])
-	# Cancel any in-progress handle drag so stale drag state never persists
-	# across mode switches (e.g. dragging vertices then pressing 3 for Face mode).
+	# Cancel any in-progress handle drag before the mode changes.
 	if _dragging_handle and _gizmo_plugin != null and _edited_node != null:
 		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
 	_dragging_handle   = false
 	_active_handle_id  = -1
 	_pressed_handle_id = -1
+	# Reset the gizmo plugin's drag state as a safety measure.
+	if _gizmo_plugin != null:
+		_gizmo_plugin.reset_drag_state()
 	# Stop-gap: hide / restore Godot's built-in transform widget.
-	# Centralised here so the shortcut fires whether the mode changed from a
-	# keyboard shortcut, a panel button click, or any future API caller.
 	if mode == SelectionManager.Mode.OBJECT:
 		_send_editor_tool_shortcut(KEY_W)
 	else:
@@ -546,12 +555,13 @@ func _on_edited_node_removed() -> void:
 	_dragging_handle   = false
 	_active_handle_id  = -1
 	_pressed_handle_id = -1
+	if _gizmo_plugin != null:
+		_gizmo_plugin.reset_drag_state()
 	_box_select_started = false
 	_box_select_active  = false
 	_edited_node = null
 	if _panel:
 		_panel.set_target(null)
-	# Restore the built-in transform widget now that the edited node is gone.
 	_send_editor_tool_shortcut(KEY_W)
 	update_overlays()
 
@@ -575,19 +585,21 @@ func _disconnect_node_signals() -> void:
 
 ## Handle a left-mouse-button press in element mode.
 ##
-## If the click lands on a transform handle, record the handle and position but
-## do NOT start the drag yet (lazy initiation — see [method _handle_mouse_motion]).
-## Otherwise begin box-select tracking as usual.
+## If the click lands on a transform handle, consume and record the handle so
+## [method _handle_mouse_motion] can start a custom drag once the threshold is
+## exceeded.  We must consume (return 1) rather than pass through because
+## Godot's native _set_handle pipeline requires Move mode (KEY_W), but we run
+## in Select mode (KEY_Q) to hide the node-level transform widget.
+## Otherwise begin box-select tracking.
 func _handle_mouse_press(camera: Camera3D, mb: InputEventMouseButton) -> int:
 	var mode: SelectionManager.Mode = _edited_node.selection.get_mode()
 	if mode == SelectionManager.Mode.OBJECT:
 		return 0
 	var hit_id: int = _find_hovered_handle_id(camera, mb.position)
 	if hit_id != -1:
-		# Record the handle press but defer begin_drag until the drag threshold is exceeded.
+		GoBuildDebug.log("[GoBuild] PLUGIN._handle_mouse_press  hit_id=%d → custom drag armed" % hit_id)
 		_pressed_handle_id = hit_id
 		_handle_press_pos  = mb.position
-		GoBuildDebug.log("[GoBuild] PLUGIN._handle_mouse_press  hit_id=%d (handle)" % hit_id)
 		return 1
 	# No handle hit — start box-select tracking.
 	GoBuildDebug.log("[GoBuild] PLUGIN._handle_mouse_press  mode=%d  pos=%s  (box-select start)" \
@@ -646,24 +658,46 @@ func _find_hovered_handle_id(camera: Camera3D, click_pos: Vector2) -> int:
 ## Simulate pressing [param keycode] to switch Godot's built-in 3D editor tool mode.
 ##
 ## Stop-gap for the lack of a public [EditorPlugin] API to set the tool mode directly.
-## The event feeds into the editor's [code]_unhandled_input[/code] chain where
-## [code]Node3DEditorViewport[/code] processes it and switches the active tool.
+##
+## Uses [method Object.call_deferred] so the key event fires in the next frame,
+## after any dock-panel button press has finished processing and settled its focus
+## state.  The 3D viewport container is explicitly focused before dispatching the
+## event so that [code]Node3DEditorViewport._gui_input()[/code] receives it
+## regardless of which dock control previously held keyboard focus.
 ##
 ## Typical use: KEY_Q = "Select" (hides transform arrows during element editing),
 ## KEY_W = "Move" (restores transform arrows on return to Object mode).
 func _send_editor_tool_shortcut(keycode: Key) -> void:
+	call_deferred("_do_send_editor_tool_shortcut", keycode)
+
+
+## Deferred body for [method _send_editor_tool_shortcut].
+## Runs in the next frame so button-press focus has settled before we redirect it.
+func _do_send_editor_tool_shortcut(keycode: Key) -> void:
+	# Focus the 3D viewport container so Node3DEditorViewport._gui_input()
+	# receives the key event.  Without this, clicking a dock button shifts
+	# keyboard focus to the dock, and Input.parse_input_event never reaches
+	# the viewport's shortcut handler.
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if sv != null:
+		var parent: Node = sv.get_parent()
+		if parent is Control:
+			(parent as Control).grab_focus()
 	var ev := InputEventKey.new()
-	ev.keycode = keycode
-	ev.pressed = true
+	ev.keycode          = keycode
+	ev.physical_keycode = keycode   # also set for cross-platform reliability
+	ev.pressed          = true
+	ev.echo             = false
 	Input.parse_input_event(ev)
 
 
 ## Handle a left-mouse-button release.
-## - Active drag  → commit it.
-## - Pending handle press (click without drag) → treat as a normal element pick.
-## - Box select   → finish or delegate to point-pick.
+## If a handle drag was active  → commit it.
+## If a handle was pressed but no drag threshold → treat as element-pick fallback.
+## If box-select was active    → finish it.
+## If box-select started but no drag threshold → delegate to point-pick.
 func _handle_mouse_release(camera: Camera3D, mb: InputEventMouseButton) -> int:
-	# Commit an active handle drag.
+	# ── Handle drag commit ────────────────────────────────────────────────────
 	if _dragging_handle:
 		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, false)
 		_dragging_handle  = false
@@ -671,12 +705,14 @@ func _handle_mouse_release(camera: Camera3D, mb: InputEventMouseButton) -> int:
 		if _edited_node:
 			_edited_node.update_gizmos()
 		return 1
-	# Click on a handle without dragging — fall through to element pick so the
-	# user can select elements that happen to be near a transform handle.
+	# ── Handle press without drag → element pick ──────────────────────────────
 	if _pressed_handle_id != -1:
 		var press_pos: Vector2 = _handle_press_pos
 		_pressed_handle_id = -1
+		# Fall through to element picking so a click near a handle can still
+		# select an element that happens to be close to the gizmo.
 		return _handle_pick(camera, press_pos, mb.shift_pressed, mb.ctrl_pressed)
+	# ── Box-select ────────────────────────────────────────────────────────────
 	if not _box_select_started:
 		return 0
 	_box_select_started = false
@@ -691,36 +727,29 @@ func _handle_mouse_release(camera: Camera3D, mb: InputEventMouseButton) -> int:
 	return _handle_pick(camera, _box_select_start, mb.shift_pressed, mb.ctrl_pressed)
 
 
-## Track mouse movement.
-##
-## Pending handle press: start the drag once the distance threshold is exceeded
-## (lazy initiation).  Before the threshold, consume to prevent camera orbit.
-## Active drag: update vertex positions every frame.
-## Otherwise: box-select threshold / overlay update logic.
+## Track mouse movement for box-select and handle drags.
 func _handle_mouse_motion(camera: Camera3D, mm: InputEventMouseMotion) -> int:
-	# ── Active drag ──────────────────────────────────────────────────────────
+	# ── Handle drag ───────────────────────────────────────────────────────────
 	if _dragging_handle:
 		_gizmo_plugin.update_drag(_edited_node, _active_handle_id, camera, mm.position)
 		if _edited_node:
 			_edited_node.update_gizmos()
 		return 1
-
-	# ── Pending handle press — wait for drag threshold ────────────────────────
+	# ── Handle press pending drag start ────────────────────────────────────────
 	if _pressed_handle_id != -1:
 		if _handle_press_pos.distance_squared_to(mm.position) > BOX_SELECT_DRAG_THRESHOLD_SQ:
-			# Threshold exceeded — begin_drag and immediately apply this frame.
-			if _gizmo_plugin.begin_drag(_edited_node, _pressed_handle_id):
+			var started: bool = _gizmo_plugin.begin_drag(_edited_node, _pressed_handle_id)
+			if started:
 				_dragging_handle  = true
 				_active_handle_id = _pressed_handle_id
-			_pressed_handle_id = -1
-			if _dragging_handle:
+				_pressed_handle_id = -1
 				_gizmo_plugin.update_drag(_edited_node, _active_handle_id, camera, mm.position)
 				if _edited_node:
 					_edited_node.update_gizmos()
 				return 1
-			# begin_drag failed (e.g. empty selection) — nothing to drag.
-		return 1  # Consume while pending to prevent accidental camera orbit.
-
+			# begin_drag failed (no selection?) — discard the press
+			_pressed_handle_id = -1
+		return 1  # Still consuming during the ramp-up window
 	# ── Box-select ────────────────────────────────────────────────────────────
 	if not _box_select_started:
 		return 0

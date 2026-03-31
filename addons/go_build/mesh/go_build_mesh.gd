@@ -22,6 +22,20 @@ var edges: Array[GoBuildEdge] = []
 ## Slot 0 is always the default material (may be null).
 var material_slots: Array[Material] = []
 
+## Coincident-vertex group map.  Parallel to [member vertices] — same size.
+## [code]coincident_groups[i][/code] is the canonical group ID for vertex [code]i[/code],
+## defined as the lowest vertex index in the coincident set.
+## Vertices that share the same 3D position (within a small epsilon) belong to
+## the same group and must be moved together during mesh editing operations.
+##
+## Generators like [CubeGenerator] create per-face vertex grids (via
+## [MeshGeneratorUtils.add_quad_grid]) resulting in duplicate vertex positions
+## at shared corners (e.g. 24 verts for a cube that has 8 unique corners).
+## This map is how the drag system knows to move all copies of a corner together.
+##
+## Rebuilt automatically by [method rebuild_edges].  Empty until that call.
+var coincident_groups: Array[int] = []
+
 
 # ---------------------------------------------------------------------------
 # Bake
@@ -168,7 +182,8 @@ func compute_face_normal(face: GoBuildFace) -> Vector3:
 # Edge derivation
 # ---------------------------------------------------------------------------
 
-## Rebuild [member edges] from the current [member faces] data.
+## Rebuild [member edges] from the current [member faces] data, then rebuild
+## [member coincident_groups] so the two derived structures stay in sync.
 ## Call this after any operation that adds, removes, or modifies faces.
 func rebuild_edges() -> void:
 	edges.clear()
@@ -193,6 +208,65 @@ func rebuild_edges() -> void:
 				edge.face_indices.append(fi)
 				edge_map[key] = edges.size()
 				edges.append(edge)
+
+	rebuild_coincident_groups()
+
+
+# ---------------------------------------------------------------------------
+# Coincident vertex groups
+# ---------------------------------------------------------------------------
+
+## Rebuild [member coincident_groups] by detecting all vertex pairs that share
+## the same 3D position (within [param epsilon]).
+##
+## The canonical group ID for each group is the lowest vertex index in that
+## group, so [code]coincident_groups[i] == i[/code] means vertex [code]i[/code]
+## is either unique or is the canonical representative of its group.
+##
+## Uses a union–find approach: O(n²) comparisons then one path-compression
+## pass.  Acceptable for typical GoBuild mesh sizes (< 2 k vertices).
+##
+## Called automatically at the end of [method rebuild_edges].
+func rebuild_coincident_groups(epsilon: float = 1e-5) -> void:
+	var n: int = vertices.size()
+	coincident_groups.resize(n)
+	# Initialise: every vertex is its own group.
+	for i: int in n:
+		coincident_groups[i] = i
+
+	var eps_sq: float = epsilon * epsilon
+	for i: int in n:
+		for j: int in range(i + 1, n):
+			if vertices[i].distance_squared_to(vertices[j]) <= eps_sq:
+				# Merge groups: replace every occurrence of the higher canonical
+				# ID with the lower one so the invariant (canonical = lowest index)
+				# is always maintained.
+				var ci: int = coincident_groups[i]
+				var cj: int = coincident_groups[j]
+				if ci == cj:
+					continue
+				var lo: int = mini(ci, cj)
+				var hi: int = maxi(ci, cj)
+				for k: int in n:
+					if coincident_groups[k] == hi:
+						coincident_groups[k] = lo
+
+
+## Return all vertex indices that share the same coincident group as
+## [param vertex_index], including [param vertex_index] itself.
+##
+## Returns a single-element array if the vertex has no coincident partners,
+## or if [member coincident_groups] has not yet been built.
+func get_coincident_vertices(vertex_index: int) -> Array[int]:
+	var result: Array[int] = []
+	if coincident_groups.size() != vertices.size() or vertex_index >= vertices.size():
+		result.append(vertex_index)
+		return result
+	var group_id: int = coincident_groups[vertex_index]
+	for i: int in vertices.size():
+		if coincident_groups[i] == group_id:
+			result.append(i)
+	return result
 
 
 # ---------------------------------------------------------------------------

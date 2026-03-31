@@ -293,3 +293,129 @@ func test_centroid_empty_returns_zero() -> void:
 	assert_vector3(m.compute_centroid(indices)).is_equal(Vector3.ZERO)
 
 
+# ---------------------------------------------------------------------------
+# rebuild_coincident_groups
+# ---------------------------------------------------------------------------
+
+func test_coincident_groups_single_vertex_is_own_group() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0)]
+	m.rebuild_coincident_groups()
+	assert_int(m.coincident_groups[0]).is_equal(0)
+
+
+func test_coincident_groups_two_distinct_vertices_have_different_groups() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0), Vector3(1, 0, 0)]
+	m.rebuild_coincident_groups()
+	assert_bool(m.coincident_groups[0] != m.coincident_groups[1]).is_true()
+
+
+func test_coincident_groups_two_coincident_vertices_share_group() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0), Vector3(0, 0, 0)]
+	m.rebuild_coincident_groups()
+	assert_int(m.coincident_groups[0]).is_equal(m.coincident_groups[1])
+
+
+func test_coincident_groups_canonical_id_is_lowest_member() -> void:
+	# The canonical group ID must be the lowest vertex index in the group.
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(1, 2, 3), Vector3(1, 2, 3), Vector3(1, 2, 3)]
+	m.rebuild_coincident_groups()
+	assert_int(m.coincident_groups[0]).is_equal(0)
+	assert_int(m.coincident_groups[1]).is_equal(0)
+	assert_int(m.coincident_groups[2]).is_equal(0)
+
+
+func test_coincident_groups_mixed_mesh_correct_grouping() -> void:
+	# Vertices 0 and 2 share a position; vertex 1 is unique.
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(0, 0, 0)]
+	m.rebuild_coincident_groups()
+	assert_int(m.coincident_groups[0]).is_equal(m.coincident_groups[2])
+	assert_bool(m.coincident_groups[1] != m.coincident_groups[0]).is_true()
+
+
+func test_coincident_groups_cube_has_eight_unique_groups() -> void:
+	# CubeGenerator: 24 verts (4 per face × 6 faces) at only 8 unique corners.
+	var mesh := CubeGenerator.generate(1.0, 1.0, 1.0, 0)
+	var seen: Dictionary = {}
+	for g: int in mesh.coincident_groups:
+		seen[g] = true
+	assert_int(seen.size()).is_equal(8)
+
+
+func test_coincident_groups_built_by_rebuild_edges() -> void:
+	# rebuild_edges() must call rebuild_coincident_groups() automatically.
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0), Vector3(0, 0, 0)]
+	var f := GoBuildFace.new()
+	f.vertex_indices = [0, 1]
+	f.uvs = [Vector2.ZERO, Vector2.ZERO]
+	m.faces.append(f)
+	m.rebuild_edges()
+	assert_int(m.coincident_groups.size()).is_equal(2)
+	assert_int(m.coincident_groups[0]).is_equal(m.coincident_groups[1])
+
+
+func test_coincident_groups_rebuilt_after_snapshot_restore() -> void:
+	# restore_snapshot → rebuild_edges → rebuild_coincident_groups.
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0), Vector3(0, 0, 0), Vector3(1, 0, 0)]
+	var f := GoBuildFace.new()
+	f.vertex_indices = [0, 1, 2]
+	f.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2(1, 0)]
+	m.faces.append(f)
+	m.rebuild_edges()
+
+	var snap := m.take_snapshot()
+	m.coincident_groups.clear()
+	m.restore_snapshot(snap)
+
+	assert_int(m.coincident_groups.size()).is_equal(3)
+	assert_int(m.coincident_groups[0]).is_equal(m.coincident_groups[1])
+
+
+# ---------------------------------------------------------------------------
+# get_coincident_vertices
+# ---------------------------------------------------------------------------
+
+func test_get_coincident_vertices_unique_vertex_returns_self() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0), Vector3(1, 0, 0)]
+	m.rebuild_coincident_groups()
+	var result := m.get_coincident_vertices(0)
+	assert_int(result.size()).is_equal(1)
+	assert_bool(result.has(0)).is_true()
+
+
+func test_get_coincident_vertices_returns_all_group_members() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(0, 0, 0)]
+	m.rebuild_coincident_groups()
+	var result := m.get_coincident_vertices(0)
+	assert_int(result.size()).is_equal(2)
+	assert_bool(result.has(0)).is_true()
+	assert_bool(result.has(2)).is_true()
+
+
+func test_get_coincident_vertices_non_canonical_member_returns_full_group() -> void:
+	# Querying via index 2 (non-canonical) should return the same group as index 0.
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(5, 5, 5), Vector3(5, 5, 5), Vector3(5, 5, 5)]
+	m.rebuild_coincident_groups()
+	var result := m.get_coincident_vertices(2)
+	assert_int(result.size()).is_equal(3)
+
+
+func test_get_coincident_vertices_fallback_when_groups_not_built() -> void:
+	# If coincident_groups hasn't been built, returns single-element array.
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0)]
+	# Do NOT call rebuild_coincident_groups() — groups remain empty.
+	var result := m.get_coincident_vertices(0)
+	assert_int(result.size()).is_equal(1)
+	assert_bool(result.has(0)).is_true()
+
+

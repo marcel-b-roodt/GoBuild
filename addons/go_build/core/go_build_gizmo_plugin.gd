@@ -73,7 +73,7 @@ var mat_cone_z:          StandardMaterial3D
 
 var _editor_plugin: EditorPlugin = null
 
-# ── Drag state (populated by begin_drag / _get_handle_value, cleared by commit_drag) ──
+## Drag state (populated by begin_drag / _get_handle_value, cleared by commit_drag) ──
 ## Vertex index → original position before the current drag started.
 var _drag_initial_verts: Dictionary = {}
 ## Axis-line parameter at the moment the drag began (set on first _set_handle call).
@@ -230,8 +230,13 @@ func _get_handle_value(
 # Drag: live update
 # ---------------------------------------------------------------------------
 
-## Called every frame while the user drags a handle.
-## Dispatches to translate or rotate sub-logic based on [param handle_id].
+## Called every frame while the user drags a handle (native Godot pipeline).
+##
+## Guard: skips if [member _drag_initial_verts] is already populated — meaning
+## our custom [method begin_drag] path (plugin.gd) owns the current drag and
+## is already applying it.  Prevents two systems writing contradictory deltas.
+## In practice this guard is never hit: we run in SELECT mode (KEY_Q) which
+## suppresses the native drag pipeline entirely.
 func _set_handle(
 		gizmo: EditorNode3DGizmo,
 		handle_id: int,
@@ -252,11 +257,15 @@ func _set_handle(
 
 
 # ---------------------------------------------------------------------------
-# Drag: commit or cancel
+# Drag: commit or cancel (native Godot pipeline path)
 # ---------------------------------------------------------------------------
 
 ## Called when the drag ends.  On cancel, restores the mesh to [param restore].
 ## On confirm, pushes a single undo/redo action.
+##
+## If [member _drag_initial_t] is still [constant @GDScript.INF] (meaning
+## [method _set_handle] was never called — i.e. the user clicked but did not
+## drag), no undo action is pushed and the mesh is left unchanged.
 func _commit_handle(
 		gizmo: EditorNode3DGizmo,
 		handle_id: int,
@@ -272,7 +281,8 @@ func _commit_handle(
 
 	if cancel:
 		node.restore_and_bake(restore as Dictionary)
-	else:
+		node.update_gizmos()
+	elif _drag_initial_t != INF:
 		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
 		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
 		var action_name: String = \
@@ -282,10 +292,93 @@ func _commit_handle(
 		ur.add_undo_method(node, "restore_and_bake", restore as Dictionary)
 		ur.commit_action()
 
+	reset_drag_state()
+
+
+## Clear all in-progress drag state.
+## Called on mode change, focus loss, and node removal to ensure a stale drag
+## does not corrupt subsequent operations.
+func reset_drag_state() -> void:
 	_drag_initial_t = INF
 	_drag_initial_verts.clear()
 	_drag_start_dir  = Vector3.ZERO
 	_drag_world_axis = Vector3.ZERO
+	_drag_restore    = {}
+
+
+# ---------------------------------------------------------------------------
+# Public drag API — used by plugin.gd (custom drag path for SELECT mode)
+# ---------------------------------------------------------------------------
+## Godot's native _set_handle pipeline only fires in Move mode (KEY_W).
+## We keep the editor in Select mode (KEY_Q) to suppress the node-level
+## transform widget, so plugin.gd drives all handle drags through this API.
+
+## Initialise a handle drag for [param handle_id] on [param node].
+## Caches initial vertex positions and a full mesh snapshot for undo/cancel.
+## Returns [code]true[/code] if the drag was successfully started.
+func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
+	if handle_id < AXIS_HANDLE_OFFSET:
+		return false
+	if node == null or node.go_build_mesh == null:
+		return false
+	var affected: Array[int] = _get_affected_vertex_indices(node)
+	if affected.is_empty():
+		return false
+
+	_drag_initial_verts.clear()
+	_drag_initial_t   = INF
+	_drag_start_dir   = Vector3.ZERO
+	_drag_world_axis  = Vector3.ZERO
+	for idx: int in affected:
+		_drag_initial_verts[idx] = node.go_build_mesh.vertices[idx]
+
+	if handle_id >= ROT_HANDLE_OFFSET:
+		var local_axis: Vector3 = _get_local_axis(handle_id - ROT_HANDLE_OFFSET)
+		_drag_world_axis = (node.global_transform.basis * local_axis).normalized()
+
+	_drag_restore = node.go_build_mesh.take_snapshot()
+	return true
+
+
+## Apply the in-progress drag to [param node] given the current [param camera]
+## and mouse [param screen_pos].  Rebuilds the mesh and gizmo overlay immediately.
+func update_drag(
+		node: GoBuildMeshInstance,
+		handle_id: int,
+		camera: Camera3D,
+		screen_pos: Vector2,
+) -> void:
+	if handle_id < AXIS_HANDLE_OFFSET or _drag_initial_verts.is_empty():
+		return
+	if node == null:
+		return
+	if handle_id >= ROT_HANDLE_OFFSET:
+		_apply_rotate_drag(node, handle_id - ROT_HANDLE_OFFSET, camera, screen_pos)
+	else:
+		_apply_translate_drag(node, handle_id - AXIS_HANDLE_OFFSET, camera, screen_pos)
+
+
+## Finalise or cancel the current drag on [param node].
+## On [param cancel], restores the mesh to the snapshot taken in [method begin_drag].
+## On confirm, pushes a single undo/redo action.
+func commit_drag(node: GoBuildMeshInstance, handle_id: int, cancel: bool) -> void:
+	if handle_id < AXIS_HANDLE_OFFSET or node == null:
+		return
+
+	if cancel:
+		node.restore_and_bake(_drag_restore)
+		node.update_gizmos()
+	elif _drag_initial_t != INF:
+		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
+		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
+		var action_name: String = \
+				"Rotate Elements" if handle_id >= ROT_HANDLE_OFFSET else "Move Elements"
+		ur.create_action(action_name)
+		ur.add_do_method(node, "restore_and_bake", snapshot_after)
+		ur.add_undo_method(node, "restore_and_bake", _drag_restore)
+		ur.commit_action()
+
+	reset_drag_state()
 
 
 # ---------------------------------------------------------------------------
@@ -377,80 +470,6 @@ func compute_node_gizmo_scale(node: GoBuildMeshInstance) -> float:
 	return compute_world_gizmo_scale(node.global_position)
 
 
-# ---------------------------------------------------------------------------
-# Public drag API — owned by plugin.gd instead of Godot's gizmo drag system
-# ---------------------------------------------------------------------------
-
-## Initialise a handle drag for [param handle_id] on [param node].
-## Caches initial vertex positions and a full mesh snapshot for undo/cancel.
-## Returns [code]true[/code] if the drag was successfully started.
-func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
-	if handle_id < AXIS_HANDLE_OFFSET:
-		return false
-	if node == null or node.go_build_mesh == null:
-		return false
-	var affected: Array[int] = _get_affected_vertex_indices(node)
-	if affected.is_empty():
-		return false
-
-	_drag_initial_verts.clear()
-	_drag_initial_t   = INF
-	_drag_start_dir   = Vector3.ZERO
-	_drag_world_axis  = Vector3.ZERO
-	for idx: int in affected:
-		_drag_initial_verts[idx] = node.go_build_mesh.vertices[idx]
-
-	if handle_id >= ROT_HANDLE_OFFSET:
-		var local_axis: Vector3 = _get_local_axis(handle_id - ROT_HANDLE_OFFSET)
-		_drag_world_axis = (node.global_transform.basis * local_axis).normalized()
-
-	_drag_restore = node.go_build_mesh.take_snapshot()
-	return true
-
-
-## Apply the in-progress drag to [param node] given the current [param camera]
-## and mouse [param screen_pos].  Rebuilds the mesh immediately.
-func update_drag(
-		node: GoBuildMeshInstance,
-		handle_id: int,
-		camera: Camera3D,
-		screen_pos: Vector2,
-) -> void:
-	if handle_id < AXIS_HANDLE_OFFSET or _drag_initial_verts.is_empty():
-		return
-	if node == null:
-		return
-	if handle_id >= ROT_HANDLE_OFFSET:
-		_apply_rotate_drag(node, handle_id - ROT_HANDLE_OFFSET, camera, screen_pos)
-	else:
-		_apply_translate_drag(node, handle_id - AXIS_HANDLE_OFFSET, camera, screen_pos)
-
-
-## Finalise or cancel the current drag on [param node].
-## On [param cancel], restores the mesh to the snapshot taken in [method begin_drag].
-## On confirm, pushes a single undo/redo action.
-func commit_drag(node: GoBuildMeshInstance, handle_id: int, cancel: bool) -> void:
-	if handle_id < AXIS_HANDLE_OFFSET or node == null:
-		return
-
-	if cancel:
-		node.restore_and_bake(_drag_restore)
-	else:
-		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
-		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
-		var action_name: String = \
-				"Rotate Elements" if handle_id >= ROT_HANDLE_OFFSET else "Move Elements"
-		ur.create_action(action_name)
-		ur.add_do_method(node, "restore_and_bake", snapshot_after)
-		ur.add_undo_method(node, "restore_and_bake", _drag_restore)
-		ur.commit_action()
-
-	_drag_initial_t = INF
-	_drag_initial_verts.clear()
-	_drag_start_dir  = Vector3.ZERO
-	_drag_world_axis = Vector3.ZERO
-	_drag_restore    = {}
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -490,6 +509,7 @@ func _apply_translate_drag(
 		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
 
 	node.bake()
+	node.update_gizmos()  # keep element overlay in sync with moved vertices
 
 
 ## Apply a rotate drag around axis [param axis_idx] to all cached vertices.
@@ -530,6 +550,7 @@ func _apply_rotate_drag(
 		gbm.vertices[idx] = local_centroid + local_pos.rotated(local_axis, delta_angle)
 
 	node.bake()
+	node.update_gizmos()  # keep element overlay in sync with rotated vertices
 
 
 ## Return the arithmetic mean of the cached initial vertex positions.
@@ -594,12 +615,21 @@ static func _ray_plane_intersect(
 	return ray_origin + ray_dir * t
 
 
-## Collect unique vertex indices affected by the current selection on [param node].
+## Collect unique vertex indices affected by the current selection on [param node],
+## then expand each to include all coincident partners from
+## [member GoBuildMesh.coincident_groups].
+##
+## Generators like [CubeGenerator] create split (per-face) vertex grids, so a
+## single logical corner may be represented by several vertex indices at the same
+## 3D position.  Without the expansion, dragging vertex 0 of a cube would leave
+## the copies on adjacent faces behind.
 func _get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]:
 	var sel: SelectionManager = node.selection
 	var gbm: GoBuildMesh = node.go_build_mesh
 	if gbm == null:
 		return []
+
+	# ── Step 1: collect directly selected / implied vertex indices ──────────
 	var result: Array[int] = []
 	match sel.get_mode():
 		SelectionManager.Mode.VERTEX:
@@ -616,6 +646,28 @@ func _get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]:
 				for vidx: int in gbm.faces[fidx].vertex_indices:
 					if not result.has(vidx):
 						result.append(vidx)
+
+	# ── Step 2: expand to coincident partners ───────────────────────────────
+	# coincident_groups is parallel to vertices (same size) when built.
+	# Skip expansion when the map hasn't been built yet (e.g. manually
+	# constructed test meshes that never called rebuild_edges).
+	if gbm.coincident_groups.size() == gbm.vertices.size():
+		# Build a set of the group IDs we need to include.
+		var groups_needed: Dictionary = {}
+		for idx: int in result:
+			groups_needed[gbm.coincident_groups[idx]] = true
+
+		# Build a fast-lookup set of what's already in result.
+		var already_included: Dictionary = {}
+		for idx: int in result:
+			already_included[idx] = true
+
+		# Add every vertex whose group is in groups_needed but isn't yet included.
+		for idx: int in gbm.vertices.size():
+			if gbm.coincident_groups[idx] in groups_needed and not already_included.has(idx):
+				result.append(idx)
+				already_included[idx] = true
+
 	return result
 
 

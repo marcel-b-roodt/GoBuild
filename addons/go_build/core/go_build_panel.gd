@@ -228,17 +228,20 @@ func _insert_shape(mesh_callable: Callable, node_name: String) -> void:
 
 
 ## Called when one of the mode radio buttons is pressed.
-## Routes through the plugin's switch_mode() so update_gizmos() is always
-## called — even when the mode is unchanged (noop in SelectionManager).
-## Previously this called _target.selection.set_mode() directly; that path
-## skipped update_gizmos() when mode_changed was not emitted (same-mode press).
+##
+## Routes through the plugin's [method EditorPlugin.switch_mode] so that
+## [method Node3D.update_gizmos] is always called — even when the mode is
+## unchanged (a no-op in SelectionManager).  Falls back to direct
+## [method SelectionManager.set_mode] if the plugin reference is not set.
+##
+## The plugin's [method _on_mode_changed] handler (connected to the
+## [signal SelectionManager.mode_changed] signal) takes care of the editor
+## tool shortcut and gizmo refresh for all sources.
 func _on_mode_button_pressed(mode_index: int) -> void:
 	var new_mode: SelectionManager.Mode = mode_index as SelectionManager.Mode
 	GoBuildDebug.log("[GoBuild] PANEL._on_mode_button_pressed  mode_index=%d  target_null=%s" \
 			% [mode_index, str(_target == null)])
 	if _plugin != null:
-		# switch_mode() always calls update_gizmos() via _set_mode(),
-		# regardless of whether the mode actually changes.
 		_plugin.call("switch_mode", new_mode)
 	elif _target != null:
 		_target.selection.set_mode(new_mode)
