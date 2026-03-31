@@ -13,6 +13,7 @@ extends EditorPlugin
 # are registered in the global registry before they are referenced by a later
 # script in the chain.
 # ---------------------------------------------------------------------------
+const _DEBUG_SCRIPT        := preload("res://addons/go_build/core/go_build_debug.gd")
 const _SEL_MGR_SCRIPT      := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
@@ -20,9 +21,15 @@ const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_help
 const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_panel.gd")
 const _ICON                 := preload("res://icon.svg")
 
-## Minimum squared pixel distance the mouse must travel before a left-drag
+## Squared pixel distance the mouse must travel before a left-drag
 ## is treated as a box select rather than a point click.
 const BOX_SELECT_DRAG_THRESHOLD_SQ: float = 25.0  # 5 px
+
+## Screen-space pixel radius used when testing whether a left-click press
+## falls on a translate cone handle (line-segment check along the cone body).
+const _TRANSLATE_HANDLE_PICK_RADIUS_PX: float = 10.0
+## Squared screen-space pixel radius for rotate-ring dot handle picking (point check).
+const _ROTATE_HANDLE_PICK_RADIUS_SQ: float = 144.0  # 12 px
 
 ## EditorSettings keys for the four mode-switch shortcuts.
 ## Users can change the bound key under Editor → Editor Settings → gobuild.
@@ -40,6 +47,15 @@ var _box_select_started: bool  = false  # mouse button is currently held
 var _box_select_active:  bool  = false  # drag threshold has been exceeded
 var _box_select_start:   Vector2 = Vector2.ZERO
 var _box_select_current: Vector2 = Vector2.ZERO
+
+# Transform-handle drag state (owned by this plugin — not delegated to Godot's gizmo system).
+# Drag is initialised lazily: the handle ID is recorded on press but begin_drag is only
+# called once the mouse moves past the drag threshold.  A click-and-release on a handle
+# falls through to normal element picking instead of being swallowed by the drag system.
+var _dragging_handle:   bool    = false          # begin_drag was called; drag is live
+var _active_handle_id:  int     = -1             # handle currently being dragged
+var _pressed_handle_id: int     = -1             # handle pressed; drag not yet started
+var _handle_press_pos:  Vector2 = Vector2.ZERO   # screen position of the handle press
 
 # Mode-switch shortcuts (initialised in _enter_tree via EditorSettings).
 var _shortcut_object: Shortcut
@@ -91,6 +107,63 @@ func _exit_tree() -> void:
 		_gizmo_plugin = null
 
 
+## Detect OS-level window focus changes (e.g. alt-tab back into the editor).
+## [constant NOTIFICATION_APPLICATION_FOCUS_IN] fires on [Node] when the
+## application window regains focus after losing it to another OS window.
+## Godot does NOT re-call [method _edit] for the already-selected node on
+## focus return, so gizmos go stale.  We trigger a full refresh here.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		_on_editor_focus_regained()
+
+
+## Recover from a stale-gizmo state caused by alt-tab / OS window focus change.
+##
+## After the application regains focus Godot does NOT re-call [method _edit]
+## for the currently selected node, so [GoBuildGizmo._redraw] never fires and
+## the transform handles appear frozen.  This method:
+##
+## 1. Validates [member _edited_node] — clears it if the instance is gone.
+## 2. Cancels any in-progress drag (input events from before the focus loss
+##    are gone; the drag cannot be completed cleanly).
+## 3. Cycles the gizmo plugin registration so Godot re-scans the scene and
+##    calls [method GoBuildGizmoPlugin._has_gizmo] on every node.
+## 4. Fires [method _force_gizmo_redraw_deferred] to recreate or refresh the
+##    gizmo in the next frame.
+func _on_editor_focus_regained() -> void:
+	# ── Step 1: validate the edited-node reference ──────────────────────────
+	if _edited_node != null and not is_instance_valid(_edited_node):
+		GoBuildDebug.log("[GoBuild] PLUGIN._on_editor_focus_regained  edited_node gone — clearing")
+		_disconnect_node_signals()
+		_edited_node = null
+		if _panel:
+			_panel.set_target(null)
+
+	if _edited_node == null:
+		return
+
+	GoBuildDebug.log("[GoBuild] PLUGIN._on_editor_focus_regained  node=%s" % _edited_node.name)
+
+	# ── Step 2: cancel stale drag ────────────────────────────────────────────
+	if _dragging_handle and _gizmo_plugin != null:
+		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)  # cancel
+	_dragging_handle   = false
+	_active_handle_id  = -1
+	_pressed_handle_id = -1
+	_box_select_started = false
+	_box_select_active  = false
+
+	# ── Step 3: cycle plugin registration to flush Godot's gizmo cache ───────
+	# Same technique used in _edit(): forces Node3DEditor to re-run _has_gizmo()
+	# on every scene node, ensuring our gizmo exists before the redraw fires.
+	if _gizmo_plugin:
+		remove_node_3d_gizmo_plugin(_gizmo_plugin)
+		add_node_3d_gizmo_plugin(_gizmo_plugin)
+
+	# ── Step 4: deferred redraw ──────────────────────────────────────────────
+	_force_gizmo_redraw_deferred(_edited_node)
+
+
 # ---------------------------------------------------------------------------
 # Selection / editing
 # ---------------------------------------------------------------------------
@@ -107,17 +180,56 @@ func _edit(object: Object) -> void:
 	_disconnect_node_signals()
 
 	_edited_node = object as GoBuildMeshInstance
+	var dbg_mode: int = _edited_node.selection.get_mode() if _edited_node else -1
+	var dbg_script: Script = _edited_node.get_script() if _edited_node else null
+	var dbg_path: String = dbg_script.resource_path if dbg_script else "null"
+	GoBuildDebug.log("[GoBuild] PLUGIN._edit  node=%s  is_null=%s  mode=%d  script_path=%s" \
+			% [str(object), str(_edited_node == null), dbg_mode, dbg_path])
 
 	if _edited_node != null:
 		# Drive viewport redraws whenever selection or mode changes.
 		_edited_node.selection.selection_changed.connect(_on_selection_changed)
 		_edited_node.selection.mode_changed.connect(_on_mode_changed)
-		# Clear our reference if the node is removed from the scene tree
-		# (e.g. the user presses Delete in the scene panel).
+		# Clear our reference if the node is removed from the scene tree.
 		_edited_node.tree_exiting.connect(_on_edited_node_removed)
-		# Force an immediate gizmo redraw so element overlays appear
-		# as soon as the node is selected (not only after the first operation).
+
+		# ── Force gizmo redraw ───────────────────────────────────────────
+		# When the user physically clicks the node in the 3D viewport, Godot
+		# creates the gizmo BEFORE calling _edit().  Previously we cycled the
+		# plugin registration (remove + add) here to force gizmo creation for
+		# programmatic selections.  That approach was actively harmful: the
+		# remove step destroyed the gizmo that Godot had just created, and
+		# the add step did NOT synchronously re-create it (evidenced by the
+		# absence of any GIZMO_PLUGIN._has_gizmo log entries after the cycle).
+		# The result was update_gizmos() finding an empty gizmo list → no redraw.
+		#
+		# The correct approach:
+		#   1. Immediate update_gizmos() — works when the gizmo already exists
+		#      (physical viewport click, or the node was in the scene before the
+		#      plugin was registered and got a gizmo on _enter_tree).
+		#   2. Deferred update_gizmos() — catches programmatic-selection cases
+		#      where Godot defers gizmo creation to the next frame (e.g. after
+		#      EditorSelection.add_node() or an undo/redo insertion).
+		# Godot only calls _has_gizmo() when the plugin is first registered
+		_force_gizmo_redraw_deferred(_edited_node)
+		# OR when the user physically clicks a node in the 3D viewport.
+		# Programmatic selection (EditorSelection.add_node, scene-tree click)
+		# does NOT trigger the Node3DEditor gizmo-creation pipeline.
+		# Additionally, our _forward_3d_gui_input consumes clicks in element
+		# modes, so Godot never gets a viewport click to trigger it either.
+		# Cycling the plugin registration forces Node3DEditor to call
+		# _has_gizmo() on all scene nodes right now, creating the gizmo.
+		if _gizmo_plugin:
+			remove_node_3d_gizmo_plugin(_gizmo_plugin)
+			add_node_3d_gizmo_plugin(_gizmo_plugin)
+
 		_edited_node.update_gizmos()
+
+		# If the node is already in a non-OBJECT mode (persisted from a
+		# previous session), mode_changed never fires so the tool shortcut
+		# and overlay refresh must be done manually here.
+		if _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+			_send_editor_tool_shortcut(KEY_Q)
 
 	if _panel:
 		_panel.set_target(_edited_node)
@@ -125,6 +237,54 @@ func _edit(object: Object) -> void:
 
 ## Called by the editor to show or hide our UI when selection changes.
 ## Note: _make_visible is the bottom-panel API. We use a dock control instead,
+## Wait one frame, then ensure a [GoBuildGizmo] is attached to [param node]
+## and trigger a redraw — but only while [param node] is still the currently
+## edited node.
+##
+## Two paths:
+##  - Gizmo already exists (normal engine-managed creation): call
+##    [method Node3D.update_gizmos] to trigger [method GoBuildGizmo._redraw].
+##  - Gizmo missing (engine scan didn't fire — e.g. programmatic selection,
+##    undo/redo timing, scene-load race): create one via
+##    [method GoBuildGizmoPlugin._create_gizmo] and attach it with
+##    [method Node3D.add_gizmo].  [method Node3D.add_gizmo] calls
+##    [method GoBuildGizmo._redraw] immediately, so no extra
+##    [method Node3D.update_gizmos] call is needed.
+func _force_gizmo_redraw_deferred(node: Node3D) -> void:
+	await get_tree().process_frame
+	if not is_instance_valid(node) or node != _edited_node:
+		return
+	if _gizmo_plugin == null:
+		return
+
+	var has_gizmo: bool = _gizmo_plugin.has_our_gizmo(node)
+	GoBuildDebug.log("[GoBuild] PLUGIN._force_gizmo_redraw_deferred  node_valid=true  has_gizmo=%s" \
+			% str(has_gizmo))
+
+	if has_gizmo:
+		# Gizmo exists — just trigger a redraw.
+		node.update_gizmos()
+		return
+
+	# No GoBuild gizmo on this node yet.  The engine's gizmo-creation pipeline
+	# (triggered by add_node_3d_gizmo_plugin scanning the scene) apparently did
+	# not fire for this node in time — or at all.  Create one manually.
+	#
+	# We call _create_gizmo() directly (bypassing the C++ pipeline), so the
+	# normal internal set_plugin() step is skipped.  We compensate by writing
+	# the plugin reference into GoBuildGizmo._manual_plugin_ref directly, which
+	# _redraw() uses as a fallback when get_plugin() returns null.
+	GoBuildDebug.log("[GoBuild] PLUGIN._force_gizmo_redraw_deferred  no gizmo — force-creating")
+	var gizmo: EditorNode3DGizmo = _gizmo_plugin._create_gizmo(node)
+	if gizmo == null:
+		GoBuildDebug.log("[GoBuild] PLUGIN._force_gizmo_redraw_deferred  _create_gizmo null — giving up")
+		return
+	# Set the plugin reference so _redraw() can access shared materials.
+	gizmo.set("_manual_plugin_ref", _gizmo_plugin)
+	# add_gizmo() calls _redraw() immediately when the node is inside the world.
+	node.add_gizmo(gizmo)
+
+
 ## so we deliberately do NOT hide _panel here — the dock tab must always show
 ## content. We only clear the selection when another node type is selected.
 func _make_visible(visible: bool) -> void:
@@ -133,8 +293,8 @@ func _make_visible(visible: bool) -> void:
 		_edited_node = null
 		if _panel:
 			_panel.set_target(null)
-
-
+		# Restore the built-in transform widget now that GoBuild is no longer active.
+		_send_editor_tool_shortcut(KEY_W)
 # ---------------------------------------------------------------------------
 # Viewport input — keyboard shortcuts
 # ---------------------------------------------------------------------------
@@ -160,7 +320,7 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 				return _handle_mouse_press(camera, mb)
 			return _handle_mouse_release(camera, mb)
 	elif event is InputEventMouseMotion:
-		return _handle_mouse_motion(event as InputEventMouseMotion)
+		return _handle_mouse_motion(camera, event as InputEventMouseMotion)
 	return 0
 
 
@@ -183,14 +343,24 @@ func _handle_keyboard(event: InputEvent) -> int:
 	var key := event as InputEventKey
 	if not key.pressed or key.echo:
 		return 0
+	# Cancel an active handle drag with Escape.
+	if key.keycode == KEY_ESCAPE and (_dragging_handle or _pressed_handle_id != -1):
+		if _dragging_handle:
+			_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
+		_dragging_handle   = false
+		_active_handle_id  = -1
+		_pressed_handle_id = -1
+		if _edited_node:
+			_edited_node.update_gizmos()
+		return 1
 	if _shortcut_object.matches_event(event):
-		_set_mode(SelectionManager.Mode.OBJECT)
+		switch_mode(SelectionManager.Mode.OBJECT)
 	elif _shortcut_vertex.matches_event(event):
-		_set_mode(SelectionManager.Mode.VERTEX)
+		switch_mode(SelectionManager.Mode.VERTEX)
 	elif _shortcut_edge.matches_event(event):
-		_set_mode(SelectionManager.Mode.EDGE)
+		switch_mode(SelectionManager.Mode.EDGE)
 	elif _shortcut_face.matches_event(event):
-		_set_mode(SelectionManager.Mode.FACE)
+		switch_mode(SelectionManager.Mode.FACE)
 	else:
 		return 0
 	return 1
@@ -228,11 +398,26 @@ func _require_shortcut(es: EditorSettings, setting: String, default_key: Key) ->
 	return sc
 
 
+## Public entry point for changing edit mode.
+## Called by keyboard shortcuts (via [method _handle_keyboard]) and by
+## [GoBuildPanel] mode buttons.  Always use this instead of setting
+## [member SelectionManager.mode] directly so the editor tool shortcut and
+## the explicit gizmo refresh both fire regardless of call origin.
+func switch_mode(mode: SelectionManager.Mode) -> void:
+	_set_mode(mode)
+
+
 func _set_mode(mode: SelectionManager.Mode) -> void:
 	if _edited_node == null:
+		GoBuildDebug.log("[GoBuild] PLUGIN._set_mode  SKIPPED — _edited_node is null")
 		return
+	GoBuildDebug.log("[GoBuild] PLUGIN._set_mode  mode=%d  node=%s" % [mode, _edited_node.name])
 	_edited_node.selection.set_mode(mode)
-	# The panel listens to selection.mode_changed, so it updates automatically.
+	# Belt-and-suspenders: force a gizmo redraw immediately after the mode
+	# switch.  The signal chain (mode_changed → _on_mode_changed → update_gizmos)
+	# already handles this, but an explicit call here guarantees element overlays
+	# appear on the very next frame even if the editor's signal delivery is deferred.
+	_edited_node.update_gizmos()
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +438,9 @@ func _handle_pick(
 	var mode: SelectionManager.Mode = sel.get_mode()
 	var gbm: GoBuildMesh = _edited_node.go_build_mesh
 
+	GoBuildDebug.log("[GoBuild] PLUGIN._handle_pick  mode=%d  gbm_null=%s  verts=%d  faces=%d" \
+			% [mode, str(gbm == null), gbm.vertices.size() if gbm else -1, gbm.faces.size() if gbm else -1])
+
 	# Object mode: let Godot handle its own node-selection click.
 	if mode == SelectionManager.Mode.OBJECT:
 		return 0
@@ -269,6 +457,9 @@ func _handle_pick(
 			hit_idx = PickingHelper.find_nearest_edge(camera, click_pos, _edited_node, gbm)
 		SelectionManager.Mode.FACE:
 			hit_idx = PickingHelper.find_nearest_face(camera, click_pos, _edited_node, gbm)
+
+	GoBuildDebug.log("[GoBuild] PLUGIN._handle_pick  hit=%d  pos=%s" \
+			% [hit_idx, str(click_pos)])
 
 	if hit_idx == -1:
 		# Missed everything — clear selection on a plain click.
@@ -324,20 +515,44 @@ func _on_selection_changed() -> void:
 
 ## Triggered when the edited node's [SelectionManager] emits
 ## [signal SelectionManager.mode_changed].
-func _on_mode_changed(_mode: SelectionManager.Mode) -> void:
+## This fires for every mode change regardless of source (panel button, keyboard
+## shortcut, or direct API call), so it is the canonical place for side-effects
+## that must always accompany a mode switch.
+func _on_mode_changed(mode: SelectionManager.Mode) -> void:
+	GoBuildDebug.log("[GoBuild] PLUGIN._on_mode_changed  mode=%d  edited_null=%s" \
+			% [mode, str(_edited_node == null)])
+	# Cancel any in-progress handle drag so stale drag state never persists
+	# across mode switches (e.g. dragging vertices then pressing 3 for Face mode).
+	if _dragging_handle and _gizmo_plugin != null and _edited_node != null:
+		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
+	_dragging_handle   = false
+	_active_handle_id  = -1
+	_pressed_handle_id = -1
+	# Stop-gap: hide / restore Godot's built-in transform widget.
+	# Centralised here so the shortcut fires whether the mode changed from a
+	# keyboard shortcut, a panel button click, or any future API caller.
+	if mode == SelectionManager.Mode.OBJECT:
+		_send_editor_tool_shortcut(KEY_W)
+	else:
+		_send_editor_tool_shortcut(KEY_Q)
 	_cancel_box_select()
 
 
 ## Triggered when the currently edited node exits the scene tree
 ## (user deleted it or unloaded the scene).  Clears stale editing state.
 func _on_edited_node_removed() -> void:
-	# At this point _edited_node is still valid (tree_exiting fires before free),
-	# but we clear it so the panel stops referencing a dead node.
+	if _dragging_handle and _gizmo_plugin != null and _edited_node != null:
+		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
+	_dragging_handle   = false
+	_active_handle_id  = -1
+	_pressed_handle_id = -1
 	_box_select_started = false
 	_box_select_active  = false
 	_edited_node = null
 	if _panel:
 		_panel.set_target(null)
+	# Restore the built-in transform widget now that the edited node is gone.
+	_send_editor_tool_shortcut(KEY_W)
 	update_overlays()
 
 
@@ -359,13 +574,24 @@ func _disconnect_node_signals() -> void:
 # ---------------------------------------------------------------------------
 
 ## Handle a left-mouse-button press in element mode.
-## Begins tracking a potential box select; consumes the event so the editor
-## does not deselect the [GoBuildMeshInstance].
-func _handle_mouse_press(_camera: Camera3D, mb: InputEventMouseButton) -> int:
+##
+## If the click lands on a transform handle, record the handle and position but
+## do NOT start the drag yet (lazy initiation — see [method _handle_mouse_motion]).
+## Otherwise begin box-select tracking as usual.
+func _handle_mouse_press(camera: Camera3D, mb: InputEventMouseButton) -> int:
 	var mode: SelectionManager.Mode = _edited_node.selection.get_mode()
-	# In object mode let Godot handle its own node-selection click.
 	if mode == SelectionManager.Mode.OBJECT:
 		return 0
+	var hit_id: int = _find_hovered_handle_id(camera, mb.position)
+	if hit_id != -1:
+		# Record the handle press but defer begin_drag until the drag threshold is exceeded.
+		_pressed_handle_id = hit_id
+		_handle_press_pos  = mb.position
+		GoBuildDebug.log("[GoBuild] PLUGIN._handle_mouse_press  hit_id=%d (handle)" % hit_id)
+		return 1
+	# No handle hit — start box-select tracking.
+	GoBuildDebug.log("[GoBuild] PLUGIN._handle_mouse_press  mode=%d  pos=%s  (box-select start)" \
+			% [_edited_node.selection.get_mode(), str(mb.position)])
 	_box_select_started = true
 	_box_select_active  = false
 	_box_select_start   = mb.position
@@ -373,25 +599,129 @@ func _handle_mouse_press(_camera: Camera3D, mb: InputEventMouseButton) -> int:
 	return 1
 
 
+## Return the [constant GoBuildGizmoPlugin.AXIS_HANDLE_OFFSET] + axis or
+## [constant GoBuildGizmoPlugin.ROT_HANDLE_OFFSET] + axis for the handle
+## nearest to [param click_pos], or [code]-1[/code] if no handle is hit.
+##
+## Translate handles use a screen-space line-segment check along the cone body.
+## Rotate ring handles use a screen-space point-distance check.
+func _find_hovered_handle_id(camera: Camera3D, click_pos: Vector2) -> int:
+	if _gizmo_plugin == null or _edited_node == null:
+		return -1
+	var positions: Array[Vector3] = \
+			_gizmo_plugin.get_transform_handle_world_positions(_edited_node)
+	if positions.is_empty():
+		return -1
+
+	var gt: Transform3D = _edited_node.global_transform
+	var s: float        = _gizmo_plugin.compute_node_gizmo_scale(_edited_node)
+	var cone_h: float   = GoBuildGizmoPlugin.CONE_HEIGHT * s
+
+	# Translate handles — indices 0, 1, 2 → IDs AXIS_HANDLE_OFFSET + 0/1/2.
+	var local_axes: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
+	for i: int in 3:
+		var apex_world: Vector3 = positions[i]
+		if not camera.is_position_in_frustum(apex_world):
+			continue
+		var world_axis: Vector3  = (gt.basis * local_axes[i]).normalized()
+		var base_world: Vector3  = apex_world - world_axis * cone_h
+		var apex_screen: Vector2 = camera.unproject_position(apex_world)
+		var base_screen: Vector2 = camera.unproject_position(base_world)
+		if PickingHelper.point_to_segment_dist(click_pos, base_screen, apex_screen) \
+				<= _TRANSLATE_HANDLE_PICK_RADIUS_PX:
+			return GoBuildGizmoPlugin.AXIS_HANDLE_OFFSET + i
+
+	# Rotate ring handles — indices 3, 4, 5 → IDs ROT_HANDLE_OFFSET + 0/1/2.
+	for i: int in range(3, positions.size()):
+		var world_pos: Vector3 = positions[i]
+		if not camera.is_position_in_frustum(world_pos):
+			continue
+		var screen_pos: Vector2 = camera.unproject_position(world_pos)
+		if screen_pos.distance_squared_to(click_pos) <= _ROTATE_HANDLE_PICK_RADIUS_SQ:
+			return GoBuildGizmoPlugin.ROT_HANDLE_OFFSET + (i - 3)
+
+	return -1
+
+
+## Simulate pressing [param keycode] to switch Godot's built-in 3D editor tool mode.
+##
+## Stop-gap for the lack of a public [EditorPlugin] API to set the tool mode directly.
+## The event feeds into the editor's [code]_unhandled_input[/code] chain where
+## [code]Node3DEditorViewport[/code] processes it and switches the active tool.
+##
+## Typical use: KEY_Q = "Select" (hides transform arrows during element editing),
+## KEY_W = "Move" (restores transform arrows on return to Object mode).
+func _send_editor_tool_shortcut(keycode: Key) -> void:
+	var ev := InputEventKey.new()
+	ev.keycode = keycode
+	ev.pressed = true
+	Input.parse_input_event(ev)
+
+
 ## Handle a left-mouse-button release.
-## Completes a box select if a drag was in progress; otherwise delegates to
-## the existing point-pick logic.
+## - Active drag  → commit it.
+## - Pending handle press (click without drag) → treat as a normal element pick.
+## - Box select   → finish or delegate to point-pick.
 func _handle_mouse_release(camera: Camera3D, mb: InputEventMouseButton) -> int:
+	# Commit an active handle drag.
+	if _dragging_handle:
+		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, false)
+		_dragging_handle  = false
+		_active_handle_id = -1
+		if _edited_node:
+			_edited_node.update_gizmos()
+		return 1
+	# Click on a handle without dragging — fall through to element pick so the
+	# user can select elements that happen to be near a transform handle.
+	if _pressed_handle_id != -1:
+		var press_pos: Vector2 = _handle_press_pos
+		_pressed_handle_id = -1
+		return _handle_pick(camera, press_pos, mb.shift_pressed, mb.ctrl_pressed)
 	if not _box_select_started:
 		return 0
 	_box_select_started = false
 	if _box_select_active:
 		_box_select_active = false
 		update_overlays()
+		GoBuildDebug.log("[GoBuild] PLUGIN._handle_mouse_release  → _finish_box_select")
 		_finish_box_select(camera, mb.shift_pressed, mb.ctrl_pressed)
 		return 1
-	# No significant drag — treat as a plain point pick at the press position.
+	GoBuildDebug.log("[GoBuild] PLUGIN._handle_mouse_release  → _handle_pick  pos=%s" \
+			% str(_box_select_start))
 	return _handle_pick(camera, _box_select_start, mb.shift_pressed, mb.ctrl_pressed)
 
 
-## Track mouse movement. Activates the box select once the drag exceeds the
-## pixel threshold; redraws the overlay every frame while active.
-func _handle_mouse_motion(mm: InputEventMouseMotion) -> int:
+## Track mouse movement.
+##
+## Pending handle press: start the drag once the distance threshold is exceeded
+## (lazy initiation).  Before the threshold, consume to prevent camera orbit.
+## Active drag: update vertex positions every frame.
+## Otherwise: box-select threshold / overlay update logic.
+func _handle_mouse_motion(camera: Camera3D, mm: InputEventMouseMotion) -> int:
+	# ── Active drag ──────────────────────────────────────────────────────────
+	if _dragging_handle:
+		_gizmo_plugin.update_drag(_edited_node, _active_handle_id, camera, mm.position)
+		if _edited_node:
+			_edited_node.update_gizmos()
+		return 1
+
+	# ── Pending handle press — wait for drag threshold ────────────────────────
+	if _pressed_handle_id != -1:
+		if _handle_press_pos.distance_squared_to(mm.position) > BOX_SELECT_DRAG_THRESHOLD_SQ:
+			# Threshold exceeded — begin_drag and immediately apply this frame.
+			if _gizmo_plugin.begin_drag(_edited_node, _pressed_handle_id):
+				_dragging_handle  = true
+				_active_handle_id = _pressed_handle_id
+			_pressed_handle_id = -1
+			if _dragging_handle:
+				_gizmo_plugin.update_drag(_edited_node, _active_handle_id, camera, mm.position)
+				if _edited_node:
+					_edited_node.update_gizmos()
+				return 1
+			# begin_drag failed (e.g. empty selection) — nothing to drag.
+		return 1  # Consume while pending to prevent accidental camera orbit.
+
+	# ── Box-select ────────────────────────────────────────────────────────────
 	if not _box_select_started:
 		return 0
 	_box_select_current = mm.position

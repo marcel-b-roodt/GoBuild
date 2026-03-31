@@ -47,34 +47,80 @@ const _AXIS_Z_ID: int = AXIS_HANDLE_OFFSET + 2
 ## Matches [constant GoBuildGizmoPlugin.ROT_HANDLE_OFFSET].
 const ROT_HANDLE_OFFSET: int  = 2_000_000
 const _ROT_RING_SEGMENTS: int = 32
-const _ROT_RING_RADIUS: float = 1.05  # slightly larger than _ARROW_LENGTH
+## Radius of the rotation ring in local mesh units.
+## Public so [GoBuildGizmoPlugin] can compute handle screen positions for hit-testing.
+## Also mirrored as [constant GoBuildGizmoPlugin.ROT_RING_RADIUS].
+const ROT_RING_RADIUS: float = 1.05  # slightly larger than ARROW_LENGTH
 
 ## Length of each axis arrow in local mesh units.
-const _ARROW_LENGTH: float = 0.8
-## Half-size (local mesh units) of the wireframe cube drawn at each vertex.
-const _VERTEX_CUBE_HALF: float = 0.03
+## Public so [GoBuildGizmoPlugin] can compute handle screen positions for hit-testing.
+## Also mirrored as [constant GoBuildGizmoPlugin.ARROW_LENGTH].
+const ARROW_LENGTH: float = 0.8
+## Height of the cone arrowhead along the axis direction.
+## Also mirrored as [constant GoBuildGizmoPlugin.CONE_HEIGHT].
+const CONE_HEIGHT: float  = 0.18
+## Base radius of the cone arrowhead.
+const _CONE_RADIUS: float   = 0.07
+## Number of segments around the cone base (higher = smoother).
+const _CONE_SEGMENTS: int   = 8
+## Half-size coefficient for the wireframe cube drawn at each vertex handle.
+## This value is multiplied by the gizmo scale factor (camera-distance-dependent)
+## in [method _draw_vertices] so the cubes appear at a roughly constant screen
+## size regardless of zoom level.
+## Calibrated so that at GIZMO_SCREEN_FACTOR = 0.25 and a typical working
+## distance the cube projects to ~12 px on screen (small but clearly visible).
+const _VERTEX_CUBE_HALF: float = 0.09
+## Direct plugin reference — set only when the gizmo is created via the
+## manual [method Node3D.add_gizmo] path in [code]plugin.gd[/code].
+## When Godot creates the gizmo through the normal [method _create_gizmo]
+## pipeline it sets the plugin reference internally, so [method get_plugin]
+## works.  When we call [method Node3D.add_gizmo] directly (bypassing the
+## C++ pipeline), [method get_plugin] returns null — this field is the
+## fallback.  Left null for the engine-managed creation path.
+##
+## Untyped to avoid a circular script-load dependency with GoBuildGizmoPlugin.
+var _manual_plugin_ref = null
 
 
 ## Rebuild all viewport overlays for the attached [GoBuildMeshInstance].
 ## Called by the editor when [method Node3D.update_gizmos] is invoked.
 func _redraw() -> void:
 	clear()
+	GoBuildDebug.log("[GoBuild] GIZMO._redraw  called")
 
 	var node := get_node_3d() as GoBuildMeshInstance
 	if node == null:
+		GoBuildDebug.log("[GoBuild] GIZMO._redraw  EARLY RETURN — node is null")
 		return
 
 	var gbm: GoBuildMesh = node.go_build_mesh
 	if gbm == null or gbm.vertices.is_empty():
+		GoBuildDebug.log("[GoBuild] GIZMO._redraw  EARLY RETURN — gbm null=%s  verts=%d" \
+				% [str(gbm == null), gbm.vertices.size() if gbm else -1])
 		return
 
 	# Access the plugin without a type annotation — GoBuildGizmoPlugin is the
 	# runtime type, but importing it here would create a circular script dependency.
-	var plugin = get_plugin()
+	# _manual_plugin_ref is set when the gizmo was attached via Node3D.add_gizmo()
+	# directly (bypassing Godot's internal pipeline which normally sets this).
+	var plugin = _manual_plugin_ref if _manual_plugin_ref != null else get_plugin()
 	if plugin == null:
+		GoBuildDebug.log("[GoBuild] GIZMO._redraw  EARLY RETURN — plugin is null")
 		return
 
 	var sel: SelectionManager = node.selection
+	GoBuildDebug.log("[GoBuild] GIZMO._redraw  mode=%d  verts=%d  faces=%d  sel_empty=%s" \
+			% [sel.get_mode(), gbm.vertices.size(), gbm.faces.size(), str(sel.is_empty())])
+
+	# Compute a uniform gizmo scale so vertex cubes and other screen-space
+	# elements appear at a constant perceived size regardless of camera distance.
+	# Using the node's world origin as the distance reference is a cheap
+	# approximation that is close enough for per-vertex sizing.
+	# Guard: if the dynamic call returns null (failed lookup) it becomes 0.0 in
+	# a typed float, which would make all cubes zero-size and invisible.
+	var gizmo_s: float = plugin.call("compute_world_gizmo_scale", node.global_position)
+	if gizmo_s < 0.01:
+		gizmo_s = 1.0   # safe fallback — method missing or returned null
 
 	match sel.get_mode():
 		SelectionManager.Mode.OBJECT:
@@ -82,19 +128,24 @@ func _redraw() -> void:
 
 		SelectionManager.Mode.VERTEX:
 			_draw_context_edges(gbm, plugin.mat_edge_context)
-			_draw_vertices(gbm, sel, plugin.mat_vertex_normal, plugin.mat_vertex_selected)
+			_draw_vertices(gbm, sel, plugin.mat_vertex_normal, plugin.mat_vertex_selected, gizmo_s)
 
 		SelectionManager.Mode.EDGE:
 			_draw_edges(gbm, sel, plugin.mat_edge_normal, plugin.mat_edge_selected)
 
 		SelectionManager.Mode.FACE:
-				_draw_context_edges(gbm, plugin.mat_edge_context)
-				_draw_face_centres(gbm, sel, plugin.mat_face_normal, plugin.mat_face_fill)
+			_draw_context_edges(gbm, plugin.mat_edge_context)
+			_draw_face_centres(gbm, sel, plugin.mat_face_normal, plugin.mat_face_fill)
 
 	# Draw the 3-axis translate handle whenever any sub-element is selected.
 	if sel.get_mode() != SelectionManager.Mode.OBJECT and not sel.is_empty():
-		var centroid := _compute_selection_centroid(gbm, sel)
-		_draw_transform_handles(centroid, plugin)
+		var centroid: Vector3 = _compute_selection_centroid(gbm, sel)
+		var world_centroid: Vector3 = node.global_transform * centroid
+		# Dynamic call — avoids a circular preload dependency with GoBuildGizmoPlugin.
+		var s: float = plugin.call("compute_world_gizmo_scale", world_centroid)
+		if s < 0.01:
+			s = 1.0
+		_draw_transform_handles(centroid, s, plugin)
 
 
 # ---------------------------------------------------------------------------
@@ -161,20 +212,26 @@ func _cube_lines_at(pos: Vector3, half: float) -> PackedVector3Array:
 
 
 ## Draw all vertices as cube-wireframe widgets.
-## Selected vertices use the highlight material (orange, no depth test) so they
-## are always visible even when inside geometry.
-## Unselected vertices use the normal line material (white, depth-tested).
+## Both materials use [code]no_depth_test[/code] so cubes are always visible
+## on top of the mesh geometry (the vertex positions are exactly on the surface
+## and would otherwise z-fight with or be occluded by the opaque mesh faces).
+##
+## [param scale] is the gizmo scale factor from
+## [method GoBuildGizmoPlugin.compute_world_gizmo_scale], which makes the
+## cubes appear at a roughly constant screen size regardless of camera distance.
 func _draw_vertices(
 		gbm: GoBuildMesh,
 		sel: SelectionManager,
 		mat_normal: Material,
 		mat_selected: Material,
+		scale: float = 1.0,
 ) -> void:
 	var lines_normal   := PackedVector3Array()
 	var lines_selected := PackedVector3Array()
+	var cube_half: float = _VERTEX_CUBE_HALF * scale
 
 	for idx: int in gbm.vertices.size():
-		var cube := _cube_lines_at(gbm.vertices[idx], _VERTEX_CUBE_HALF)
+		var cube := _cube_lines_at(gbm.vertices[idx], cube_half)
 		if sel.is_vertex_selected(idx):
 			lines_selected.append_array(cube)
 		else:
@@ -184,6 +241,8 @@ func _draw_vertices(
 		add_lines(lines_normal, mat_normal)
 	if not lines_selected.is_empty():
 		add_lines(lines_selected, mat_selected)
+	GoBuildDebug.log("[GoBuild] GIZMO._draw_vertices  n=%d  sel=%d  half=%.4f" \
+			% [lines_normal.size(), lines_selected.size(), cube_half])
 
 
 ## Draw face overlays in Face mode.
@@ -269,17 +328,28 @@ func _compute_selection_centroid(gbm: GoBuildMesh, sel: SelectionManager) -> Vec
 
 
 ## Draw the 3-axis translate widget centred on [param centroid].
+## [param s] is the gizmo scale factor from [method GoBuildGizmoPlugin.compute_world_gizmo_scale]
+## so the handles appear at a constant screen size.
 ## Materials are accessed via untyped [method Object.get] to avoid a circular
 ## import dependency with [GoBuildGizmoPlugin].
-func _draw_transform_handles(centroid: Vector3, plugin: EditorNode3DGizmoPlugin) -> void:
-	var tip_x := centroid + Vector3(_ARROW_LENGTH, 0.0, 0.0)
-	var tip_y := centroid + Vector3(0.0, _ARROW_LENGTH, 0.0)
-	var tip_z := centroid + Vector3(0.0, 0.0, _ARROW_LENGTH)
+func _draw_transform_handles(centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin) -> void:
+	var arr: float = ARROW_LENGTH * s
+	var tip_x := centroid + Vector3(arr, 0.0, 0.0)
+	var tip_y := centroid + Vector3(0.0, arr, 0.0)
+	var tip_z := centroid + Vector3(0.0, 0.0, arr)
 
 	add_lines(PackedVector3Array([centroid, tip_x]), plugin.get("mat_axis_line_x"))
 	add_lines(PackedVector3Array([centroid, tip_y]), plugin.get("mat_axis_line_y"))
 	add_lines(PackedVector3Array([centroid, tip_z]), plugin.get("mat_axis_line_z"))
 
+	# Solid cone arrowheads — each cone's apex is at the tip; base reaches back CONE_HEIGHT units.
+	var cone_h: float = CONE_HEIGHT * s
+	var cone_r: float = _CONE_RADIUS * s
+	add_mesh(_build_cone_mesh(tip_x, Vector3.RIGHT, cone_h, cone_r), plugin.get("mat_cone_x"))
+	add_mesh(_build_cone_mesh(tip_y, Vector3.UP,    cone_h, cone_r), plugin.get("mat_cone_y"))
+	add_mesh(_build_cone_mesh(tip_z, Vector3.BACK,  cone_h, cone_r), plugin.get("mat_cone_z"))
+
+	# Billboard handle dots remain at the apex — kept for visual consistency.
 	add_handles(PackedVector3Array([tip_x]), plugin.get("mat_axis_x"),
 			PackedInt32Array([AXIS_HANDLE_OFFSET + 0]), true)
 	add_handles(PackedVector3Array([tip_y]), plugin.get("mat_axis_y"),
@@ -287,7 +357,51 @@ func _draw_transform_handles(centroid: Vector3, plugin: EditorNode3DGizmoPlugin)
 	add_handles(PackedVector3Array([tip_z]), plugin.get("mat_axis_z"),
 			PackedInt32Array([AXIS_HANDLE_OFFSET + 2]), true)
 
-	_draw_rotate_rings(centroid, plugin)
+	_draw_rotate_rings(centroid, s, plugin)
+
+
+## Build a small solid cone [ArrayMesh] with its apex at [param apex] pointing
+## along [param axis_dir] in local gizmo space.
+##
+## [param cone_h] and [param cone_r] are the already-scaled height and base radius.
+## Both the lateral surface and the base cap are triangulated so the cone looks
+## solid from all viewing angles.  The material applied via
+## [method EditorNode3DGizmo.add_mesh] must use CULL_DISABLED.
+func _build_cone_mesh(
+		apex: Vector3,
+		axis_dir: Vector3,
+		cone_h: float,
+		cone_r: float,
+) -> ArrayMesh:
+	var base_center: Vector3 = apex - axis_dir * cone_h
+
+	var raw_perp: Vector3 = axis_dir.cross(Vector3.UP)
+	var perp1: Vector3
+	if raw_perp.length_squared() < 0.001:
+		perp1 = axis_dir.cross(Vector3.RIGHT).normalized()
+	else:
+		perp1 = raw_perp.normalized()
+	var perp2: Vector3 = axis_dir.cross(perp1).normalized()
+
+	var verts := PackedVector3Array()
+	verts.resize(_CONE_SEGMENTS * 6)
+	var vi := 0
+
+	for i: int in _CONE_SEGMENTS:
+		var a0: float = float(i)       / _CONE_SEGMENTS * TAU
+		var a1: float = float(i + 1)   / _CONE_SEGMENTS * TAU
+		var rim0: Vector3 = base_center + (perp1 * cos(a0) + perp2 * sin(a0)) * cone_r
+		var rim1: Vector3 = base_center + (perp1 * cos(a1) + perp2 * sin(a1)) * cone_r
+		verts[vi]     = apex;  verts[vi + 1] = rim0;  verts[vi + 2] = rim1
+		verts[vi + 3] = base_center;  verts[vi + 4] = rim1;  verts[vi + 5] = rim0
+		vi += 6
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 
 ## Draw three rotation-ring overlays (one per axis) centred on [param centroid].
@@ -298,18 +412,19 @@ func _draw_transform_handles(centroid: Vector3, plugin: EditorNode3DGizmoPlugin)
 ## - X ring (YZ plane): handle dot at [code]centroid + UP * radius[/code]
 ## - Y ring (XZ plane): handle dot at [code]centroid + BACK * radius[/code]
 ## - Z ring (XY plane): handle dot at [code]centroid + RIGHT * radius[/code]
-func _draw_rotate_rings(centroid: Vector3, plugin: EditorNode3DGizmoPlugin) -> void:
+func _draw_rotate_rings(centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin) -> void:
+	var ring_r: float = ROT_RING_RADIUS * s
 	# X-axis rotation ring — in the YZ plane (tangent=UP, bitangent=BACK).
 	_draw_rotate_ring(centroid, Vector3.UP, Vector3.BACK,
-			_ROT_RING_RADIUS, plugin.get("mat_axis_line_x"),
+			ring_r, plugin.get("mat_axis_line_x"),
 			ROT_HANDLE_OFFSET + 0, plugin.get("mat_axis_x"))
 	# Y-axis rotation ring — in the XZ plane (tangent=BACK, bitangent=RIGHT).
 	_draw_rotate_ring(centroid, Vector3.BACK, Vector3.RIGHT,
-			_ROT_RING_RADIUS, plugin.get("mat_axis_line_y"),
+			ring_r, plugin.get("mat_axis_line_y"),
 			ROT_HANDLE_OFFSET + 1, plugin.get("mat_axis_y"))
 	# Z-axis rotation ring — in the XY plane (tangent=RIGHT, bitangent=UP).
 	_draw_rotate_ring(centroid, Vector3.RIGHT, Vector3.UP,
-			_ROT_RING_RADIUS, plugin.get("mat_axis_line_z"),
+			ring_r, plugin.get("mat_axis_line_z"),
 			ROT_HANDLE_OFFSET + 2, plugin.get("mat_axis_z"))
 
 

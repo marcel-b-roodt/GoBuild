@@ -42,6 +42,8 @@ var _selected_faces:    Array[int] = []
 ## Switch to [param new_mode] and clear the selection.
 ## No-op if already in the requested mode.
 func set_mode(new_mode: Mode) -> void:
+	GoBuildDebug.log("[GoBuild] SEL.set_mode  old=%d  new=%d  noop=%s" \
+			% [_mode, new_mode, str(_mode == new_mode)])
 	if _mode == new_mode:
 		return
 	_mode = new_mode

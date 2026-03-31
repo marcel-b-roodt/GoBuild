@@ -11,6 +11,7 @@ extends VBoxContainer
 # selection_manager.gd and go_build_mesh_instance.gd alphabetically.
 # Explicit preloads here ensure those class names are registered before
 # this script's own class-level type annotations are resolved.
+const _DEBUG_SCRIPT        := preload("res://addons/go_build/core/go_build_debug.gd")
 const _SEL_MGR_SCRIPT      := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 
@@ -53,12 +54,19 @@ func _ready() -> void:
 	add_child(mode_row)
 
 	var mode_names: Array[String] = ["Object", "Vertex", "Edge", "Face"]
+	# Default shortcut keys shown in the tooltip.  The actual binding is stored
+	# in EditorSettings and can be changed via Editor → Editor Settings → gobuild/shortcuts.
+	var mode_keys: Array[String]  = ["1", "2", "3", "4"]
 	for i: int in mode_names.size():
 		var btn := Button.new()
 		btn.text = mode_names[i]
 		btn.toggle_mode = true
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.add_theme_font_size_override("font_size", 11)
+		btn.tooltip_text = (
+				"%s mode  (shortcut: %s)\n"
+				+ "Rebind: Editor \u2192 Editor Settings \u2192 gobuild/shortcuts"
+		) % [mode_names[i], mode_keys[i]]
 		btn.pressed.connect(_on_mode_button_pressed.bind(i))
 		mode_row.add_child(btn)
 		_mode_buttons.append(btn)
@@ -121,6 +129,17 @@ func _ready() -> void:
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 11)
 	add_child(hint)
+
+	add_child(HSeparator.new())
+
+	# ── Debug toggle ──────────────────────────────────────────────────────
+	# Routes all [GoBuild] prints through GoBuildDebug.log() — silent when off.
+	var dbg_toggle := CheckBox.new()
+	dbg_toggle.text = "Debug logging"
+	dbg_toggle.button_pressed = GoBuildDebug.enabled
+	dbg_toggle.add_theme_font_size_override("font_size", 11)
+	dbg_toggle.toggled.connect(func(on: bool) -> void: GoBuildDebug.enabled = on)
+	add_child(dbg_toggle)
 
 
 # ---------------------------------------------------------------------------
@@ -209,9 +228,19 @@ func _insert_shape(mesh_callable: Callable, node_name: String) -> void:
 
 
 ## Called when one of the mode radio buttons is pressed.
+## Routes through the plugin's switch_mode() so update_gizmos() is always
+## called — even when the mode is unchanged (noop in SelectionManager).
+## Previously this called _target.selection.set_mode() directly; that path
+## skipped update_gizmos() when mode_changed was not emitted (same-mode press).
 func _on_mode_button_pressed(mode_index: int) -> void:
 	var new_mode: SelectionManager.Mode = mode_index as SelectionManager.Mode
-	if _target != null:
+	GoBuildDebug.log("[GoBuild] PANEL._on_mode_button_pressed  mode_index=%d  target_null=%s" \
+			% [mode_index, str(_target == null)])
+	if _plugin != null:
+		# switch_mode() always calls update_gizmos() via _set_mode(),
+		# regardless of whether the mode actually changes.
+		_plugin.call("switch_mode", new_mode)
+	elif _target != null:
 		_target.selection.set_mode(new_mode)
 	_sync_mode_buttons(new_mode)
 
@@ -227,4 +256,3 @@ func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 func _sync_mode_buttons(active_mode: SelectionManager.Mode) -> void:
 	for i: int in _mode_buttons.size():
 		_mode_buttons[i].set_pressed_no_signal(i == active_mode as int)
-
