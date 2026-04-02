@@ -752,7 +752,11 @@ func _handle_mouse_motion(camera: Camera3D, mm: InputEventMouseMotion) -> int:
 	if _dragging_handle:
 		_gizmo_plugin.update_drag(_edited_node, _active_handle_id, camera, mm.position)
 		if _edited_node:
-			_edited_node.update_gizmos()
+			# Defer the gizmo redraw to once per frame — multiple motion events
+			# can arrive per frame and _redraw() is expensive (array allocations,
+			# cone ArrayMesh creation).  Non-drag paths still call update_gizmos()
+			# directly for immediate feedback.
+			_gizmo_plugin.schedule_gizmo_redraw(_edited_node)
 		return 1
 	# ── Handle press pending drag start ────────────────────────────────────────
 	if _pressed_handle_id != -1:
@@ -764,7 +768,7 @@ func _handle_mouse_motion(camera: Camera3D, mm: InputEventMouseMotion) -> int:
 				_pressed_handle_id = -1
 				_gizmo_plugin.update_drag(_edited_node, _active_handle_id, camera, mm.position)
 				if _edited_node:
-					_edited_node.update_gizmos()
+					_gizmo_plugin.schedule_gizmo_redraw(_edited_node)
 				return 1
 			# begin_drag failed (no selection?) — discard the press
 			_pressed_handle_id = -1

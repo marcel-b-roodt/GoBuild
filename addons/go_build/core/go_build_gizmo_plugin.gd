@@ -31,6 +31,11 @@ const ROT_RING_RADIUS: float = 1.05
 ## Used by [method _is_click_on_transform_handle] in plugin.gd to compute
 ## the cone-base world position for line-segment hit testing.
 const CONE_HEIGHT: float = 0.18
+## Cone geometry constants — kept in sync with the removed per-draw values
+## that previously lived in GoBuildGizmo.  Centralised here because
+## [method _build_unit_cone] is a static method on this class.
+const _CONE_RADIUS:   float = 0.07
+const _CONE_SEGMENTS: int   = 8
 
 ## Scale factor for perspective cameras.
 ## Calibrated so that the base sizes (ARROW_LENGTH = 0.8 etc.) look correct
@@ -71,6 +76,16 @@ var mat_cone_x:          StandardMaterial3D
 var mat_cone_y:          StandardMaterial3D
 var mat_cone_z:          StandardMaterial3D
 
+## Cached unit-scale cone meshes — built once in [method setup] and reused by
+## every [GoBuildGizmo._redraw] call via [method EditorNode3DGizmo.add_mesh]
+## with a per-draw [Transform3D] for position and scale.
+## Eliminates three [ArrayMesh] allocations + GPU uploads per redraw.
+## Canonical geometry: base at local origin, apex at [code]axis * CONE_HEIGHT[/code],
+## radius [code]_CONE_RADIUS[/code], using [code]_CONE_SEGMENTS[/code] around the base.
+var cone_mesh_x: ArrayMesh
+var cone_mesh_y: ArrayMesh
+var cone_mesh_z: ArrayMesh
+
 var _editor_plugin: EditorPlugin = null
 
 ## Drag state (populated by begin_drag / _get_handle_value, cleared by commit_drag) ──
@@ -86,6 +101,27 @@ var _drag_start_dir: Vector3 = Vector3.ZERO
 var _drag_world_axis: Vector3 = Vector3.ZERO
 ## Full mesh snapshot taken at the start of a drag — used for cancel / undo.
 var _drag_restore: Dictionary = {}
+
+## Deferred-bake state ─────────────────────────────────────────────────────
+## During a drag, InputEventMouseMotion can fire many times per engine frame.
+## Calling node.bake() (full ArrayMesh rebuild + GPU upload) on every event is
+## the primary source of frame hitches.  Instead we set a dirty flag and let
+## _flush_pending_bake coalesce all per-event mutations into a single bake at
+## end-of-frame.  The pending node reference is cleared at commit / cancel so
+## a stale flush cannot overwrite a restored or committed mesh state.
+var _bake_pending_node: GoBuildMeshInstance = null
+var _bake_scheduled:    bool = false
+
+## Deferred-gizmo-redraw state ──────────────────────────────────────────────
+## Mirrors the deferred-bake pattern above but for update_gizmos().
+## _redraw() builds PackedVector3Arrays for all edges/vertices and calls
+## add_mesh with new ArrayMesh objects (cones) on every invocation — expensive
+## when called per-motion-event during a drag.  Coalescing to once per frame
+## keeps the overlay responsive without the per-event allocation cost.
+## Non-drag callers (selection changes, mode switches) call update_gizmos()
+## directly and bypass this throttle — they need an immediate redraw.
+var _gizmo_redraw_pending_node: GoBuildMeshInstance = null
+var _gizmo_redraw_scheduled:    bool = false
 
 func setup(plugin: EditorPlugin) -> void:
 	_editor_plugin      = plugin
@@ -110,6 +146,12 @@ func setup(plugin: EditorPlugin) -> void:
 	mat_cone_x          = _cone_mat(COLOR_AXIS_X)
 	mat_cone_y          = _cone_mat(COLOR_AXIS_Y)
 	mat_cone_z          = _cone_mat(COLOR_AXIS_Z)
+	# Build canonical unit-scale cone meshes once.  GoBuildGizmo._draw_transform_handles
+	# applies a per-draw Transform3D to position and scale them, avoiding the
+	# three ArrayMesh allocations + GPU uploads that previously happened every _redraw().
+	cone_mesh_x = _build_unit_cone(Vector3.RIGHT)
+	cone_mesh_y = _build_unit_cone(Vector3.UP)
+	cone_mesh_z = _build_unit_cone(Vector3.BACK)
 
 
 func _get_name() -> String:
@@ -279,10 +321,18 @@ func _commit_handle(
 	if node == null:
 		return
 
+	# Clear the deferred-bake queue before any explicit bake below.
+	_bake_pending_node = null
+	_bake_scheduled    = false
+	# Clear deferred gizmo redraw — explicit update_gizmos calls below cover it.
+	_gizmo_redraw_pending_node = null
+	_gizmo_redraw_scheduled    = false
+
 	if cancel:
 		node.restore_and_bake(restore as Dictionary)
 		node.update_gizmos()
 	elif _drag_initial_t != INF:
+		node.bake()   # ensure final dragged state is visible before snapshot
 		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
 		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
 		var action_name: String = \
@@ -304,6 +354,71 @@ func reset_drag_state() -> void:
 	_drag_start_dir  = Vector3.ZERO
 	_drag_world_axis = Vector3.ZERO
 	_drag_restore    = {}
+	# Clear deferred-bake state.  Any queued _flush_pending_bake call will
+	# find _bake_pending_node == null and exit without baking.
+	_bake_pending_node = null
+	_bake_scheduled    = false
+	# Clear deferred-gizmo-redraw state for the same reason.
+	_gizmo_redraw_pending_node = null
+	_gizmo_redraw_scheduled    = false
+
+
+## Schedule a deferred mesh bake for [param node], coalescing multiple
+## per-motion-event requests into a single bake per rendered frame.
+##
+## During a fast drag, [InputEventMouseMotion] can fire several times between
+## engine frames.  Calling [method GoBuildMeshInstance.bake] on each event
+## rebuilds the full [ArrayMesh] and uploads it to the GPU — O(faces) per event.
+## This method sets a dirty flag and defers the bake to end-of-frame via
+## [method Object.call_deferred], where vertex data has settled to its
+## per-frame final position.  Vertex positions and the gizmo overlay are
+## still updated every event for responsive feedback.
+func _schedule_bake(node: GoBuildMeshInstance) -> void:
+	_bake_pending_node = node
+	if not _bake_scheduled:
+		_bake_scheduled = true
+		call_deferred("_flush_pending_bake")
+
+
+## Flush a pending deferred bake.  Invoked at end-of-frame via call_deferred.
+## Guards against a stale flush after commit / cancel by checking
+## [member _bake_pending_node] — cleared by [method commit_drag] and
+## [method reset_drag_state] before the deferred call fires.
+func _flush_pending_bake() -> void:
+	_bake_scheduled = false
+	if _bake_pending_node != null and is_instance_valid(_bake_pending_node):
+		_bake_pending_node.bake()
+	_bake_pending_node = null
+
+
+## Schedule a deferred gizmo redraw for [param node], coalescing multiple
+## per-motion-event requests into a single [method Node3D.update_gizmos] call
+## per rendered frame.
+##
+## [method Node3D.update_gizmos] triggers [method GoBuildGizmo._redraw], which
+## allocates [PackedVector3Array] objects for all edges and vertex cubes, and
+## calls [method EditorNode3DGizmo.add_mesh] with freshly-built cone meshes
+## (3 × [ArrayMesh]) on every invocation.  Calling this per-motion-event during
+## a drag causes continuous GDScript allocation pressure and GPU resource churn.
+##
+## Only use this from the drag hot-path in [code]plugin.gd[/code].  Non-drag
+## callers (selection changes, mode switches, cancel) should call
+## [method Node3D.update_gizmos] directly — they need an immediate redraw.
+func schedule_gizmo_redraw(node: GoBuildMeshInstance) -> void:
+	_gizmo_redraw_pending_node = node
+	if not _gizmo_redraw_scheduled:
+		_gizmo_redraw_scheduled = true
+		call_deferred("_flush_pending_gizmo_redraw")
+
+
+## Flush a pending deferred gizmo redraw.  Invoked at end-of-frame via call_deferred.
+## Guards against a stale flush after commit / cancel / reset by checking
+## [member _gizmo_redraw_pending_node].
+func _flush_pending_gizmo_redraw() -> void:
+	_gizmo_redraw_scheduled = false
+	if _gizmo_redraw_pending_node != null and is_instance_valid(_gizmo_redraw_pending_node):
+		_gizmo_redraw_pending_node.update_gizmos()
+	_gizmo_redraw_pending_node = null
 
 
 # ---------------------------------------------------------------------------
@@ -365,10 +480,23 @@ func commit_drag(node: GoBuildMeshInstance, handle_id: int, cancel: bool) -> voi
 	if handle_id < AXIS_HANDLE_OFFSET or node == null:
 		return
 
+	# Clear the deferred-bake queue — we handle baking explicitly below so the
+	# final visual state is guaranteed correct regardless of frame timing.
+	# The queued _flush_pending_bake call will see _bake_pending_node == null
+	# and exit without touching the mesh.
+	_bake_pending_node = null
+	_bake_scheduled    = false
+	# Clear the deferred-gizmo-redraw queue for the same reason — the explicit
+	# update_gizmos() calls below cover the post-commit redraw.
+	_gizmo_redraw_pending_node = null
+	_gizmo_redraw_scheduled    = false
+
 	if cancel:
 		node.restore_and_bake(_drag_restore)
 		node.update_gizmos()
 	elif _drag_initial_t != INF:
+		# Explicitly bake the final dragged vertex state before snapshotting.
+		node.bake()
 		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
 		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
 		var action_name: String = \
@@ -508,8 +636,10 @@ func _apply_translate_drag(
 	for idx: int in _drag_initial_verts:
 		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
 
-	node.bake()
-	node.update_gizmos()  # keep element overlay in sync with moved vertices
+	# Defer the full mesh bake to end-of-frame so multiple motion events
+	# per frame coalesce into a single ArrayMesh rebuild + GPU upload.
+	# The gizmo overlay (update_gizmos) is called by the plugin.gd caller.
+	_schedule_bake(node)
 
 
 ## Apply a rotate drag around axis [param axis_idx] to all cached vertices.
@@ -549,8 +679,8 @@ func _apply_rotate_drag(
 		var local_pos: Vector3 = _drag_initial_verts[idx] - local_centroid
 		gbm.vertices[idx] = local_centroid + local_pos.rotated(local_axis, delta_angle)
 
-	node.bake()
-	node.update_gizmos()  # keep element overlay in sync with rotated vertices
+	# Defer bake — same throttle as _apply_translate_drag.
+	_schedule_bake(node)
 
 
 ## Return the arithmetic mean of the cached initial vertex positions.
@@ -669,6 +799,48 @@ func _get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]:
 				already_included[idx] = true
 
 	return result
+
+
+## Build a canonical unit-scale cone [ArrayMesh] for [param axis_dir].
+##
+## Canonical layout: base centre at the local origin, apex at
+## [code]axis_dir * CONE_HEIGHT[/code], base radius [code]_CONE_RADIUS[/code].
+## Built once per axis in [method setup] and cached in [member cone_mesh_x] /
+## [member cone_mesh_y] / [member cone_mesh_z].
+##
+## [GoBuildGizmo._draw_transform_handles] applies a [Transform3D] at draw time
+## — [code]Basis().scaled(Vector3.ONE * s)[/code] for the gizmo scale and a
+## translation that puts the apex exactly at the arrow tip — rather than
+## rebuilding the mesh each redraw.
+static func _build_unit_cone(axis_dir: Vector3) -> ArrayMesh:
+	var apex: Vector3       = axis_dir * CONE_HEIGHT
+	var base_center         := Vector3.ZERO
+	var raw_perp: Vector3   = axis_dir.cross(Vector3.UP)
+	var perp1: Vector3
+	if raw_perp.length_squared() < 0.001:
+		perp1 = axis_dir.cross(Vector3.RIGHT).normalized()
+	else:
+		perp1 = raw_perp.normalized()
+	var perp2: Vector3 = axis_dir.cross(perp1).normalized()
+
+	var verts := PackedVector3Array()
+	verts.resize(_CONE_SEGMENTS * 6)
+	var vi := 0
+	for i: int in _CONE_SEGMENTS:
+		var a0: float = float(i)     / _CONE_SEGMENTS * TAU
+		var a1: float = float(i + 1) / _CONE_SEGMENTS * TAU
+		var rim0: Vector3 = base_center + (perp1 * cos(a0) + perp2 * sin(a0)) * _CONE_RADIUS
+		var rim1: Vector3 = base_center + (perp1 * cos(a1) + perp2 * sin(a1)) * _CONE_RADIUS
+		verts[vi]     = apex;        verts[vi + 1] = rim0;        verts[vi + 2] = rim1
+		verts[vi + 3] = base_center; verts[vi + 4] = rim1;        verts[vi + 5] = rim0
+		vi += 6
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 
 ## Create an unshaded line material.

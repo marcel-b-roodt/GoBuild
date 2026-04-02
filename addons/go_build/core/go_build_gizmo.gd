@@ -59,10 +59,8 @@ const ARROW_LENGTH: float = 0.8
 ## Height of the cone arrowhead along the axis direction.
 ## Also mirrored as [constant GoBuildGizmoPlugin.CONE_HEIGHT].
 const CONE_HEIGHT: float  = 0.18
-## Base radius of the cone arrowhead.
-const _CONE_RADIUS: float   = 0.07
-## Number of segments around the cone base (higher = smoother).
-const _CONE_SEGMENTS: int   = 8
+## Cone constants removed — [GoBuildGizmoPlugin] now owns _CONE_RADIUS and
+## _CONE_SEGMENTS and builds the cones once in setup() as cached ArrayMesh objects.
 ## Half-size coefficient for the wireframe cube drawn at each vertex handle.
 ## This value is multiplied by the gizmo scale factor (camera-distance-dependent)
 ## in [method _draw_vertices] so the cubes appear at a roughly constant screen
@@ -361,6 +359,16 @@ func _compute_selection_centroid(gbm: GoBuildMesh, sel: SelectionManager) -> Vec
 ## so the handles appear at a constant screen size.
 ## Materials are accessed via untyped [method Object.get] to avoid a circular
 ## import dependency with [GoBuildGizmoPlugin].
+##
+## Cones are drawn by reusing the cached [member GoBuildGizmoPlugin.cone_mesh_x/y/z]
+## via [method EditorNode3DGizmo.add_mesh] with a [Transform3D] that scales by [param s]
+## and positions each cone's base so its apex lands exactly at the arrow tip.
+## This avoids three [ArrayMesh] allocations + GPU uploads per redraw.
+##
+## Math: canonical cone has base at origin, apex at [code]axis * CONE_HEIGHT[/code].
+## After [code]Transform3D(Basis().scaled(s), offset)[/code]:
+##   apex_world = axis*CONE_HEIGHT*s + offset = tip  →  offset = tip - axis*CONE_HEIGHT*s
+##             = centroid + axis * (ARROW_LENGTH - CONE_HEIGHT) * s
 func _draw_transform_handles(centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin) -> void:
 	var arr: float = ARROW_LENGTH * s
 	var tip_x := centroid + Vector3(arr, 0.0, 0.0)
@@ -371,12 +379,15 @@ func _draw_transform_handles(centroid: Vector3, s: float, plugin: EditorNode3DGi
 	add_lines(PackedVector3Array([centroid, tip_y]), plugin.get("mat_axis_line_y"))
 	add_lines(PackedVector3Array([centroid, tip_z]), plugin.get("mat_axis_line_z"))
 
-	# Solid cone arrowheads — each cone's apex is at the tip; base reaches back CONE_HEIGHT units.
-	var cone_h: float = CONE_HEIGHT * s
-	var cone_r: float = _CONE_RADIUS * s
-	add_mesh(_build_cone_mesh(tip_x, Vector3.RIGHT, cone_h, cone_r), plugin.get("mat_cone_x"))
-	add_mesh(_build_cone_mesh(tip_y, Vector3.UP,    cone_h, cone_r), plugin.get("mat_cone_y"))
-	add_mesh(_build_cone_mesh(tip_z, Vector3.BACK,  cone_h, cone_r), plugin.get("mat_cone_z"))
+	# Apply a uniform scale + per-axis translation to the cached unit-scale cones.
+	var basis_s := Basis().scaled(Vector3.ONE * s)
+	var off: float = (ARROW_LENGTH - CONE_HEIGHT) * s  # base-centre offset along axis
+	add_mesh(plugin.get("cone_mesh_x"), plugin.get("mat_cone_x"),
+			Transform3D(basis_s, centroid + Vector3(off, 0.0, 0.0)))
+	add_mesh(plugin.get("cone_mesh_y"), plugin.get("mat_cone_y"),
+			Transform3D(basis_s, centroid + Vector3(0.0, off, 0.0)))
+	add_mesh(plugin.get("cone_mesh_z"), plugin.get("mat_cone_z"),
+			Transform3D(basis_s, centroid + Vector3(0.0, 0.0, off)))
 
 	# Billboard handle dots remain at the apex — kept for visual consistency.
 	add_handles(PackedVector3Array([tip_x]), plugin.get("mat_axis_x"),
@@ -389,48 +400,6 @@ func _draw_transform_handles(centroid: Vector3, s: float, plugin: EditorNode3DGi
 	_draw_rotate_rings(centroid, s, plugin)
 
 
-## Build a small solid cone [ArrayMesh] with its apex at [param apex] pointing
-## along [param axis_dir] in local gizmo space.
-##
-## [param cone_h] and [param cone_r] are the already-scaled height and base radius.
-## Both the lateral surface and the base cap are triangulated so the cone looks
-## solid from all viewing angles.  The material applied via
-## [method EditorNode3DGizmo.add_mesh] must use CULL_DISABLED.
-func _build_cone_mesh(
-		apex: Vector3,
-		axis_dir: Vector3,
-		cone_h: float,
-		cone_r: float,
-) -> ArrayMesh:
-	var base_center: Vector3 = apex - axis_dir * cone_h
-
-	var raw_perp: Vector3 = axis_dir.cross(Vector3.UP)
-	var perp1: Vector3
-	if raw_perp.length_squared() < 0.001:
-		perp1 = axis_dir.cross(Vector3.RIGHT).normalized()
-	else:
-		perp1 = raw_perp.normalized()
-	var perp2: Vector3 = axis_dir.cross(perp1).normalized()
-
-	var verts := PackedVector3Array()
-	verts.resize(_CONE_SEGMENTS * 6)
-	var vi := 0
-
-	for i: int in _CONE_SEGMENTS:
-		var a0: float = float(i)       / _CONE_SEGMENTS * TAU
-		var a1: float = float(i + 1)   / _CONE_SEGMENTS * TAU
-		var rim0: Vector3 = base_center + (perp1 * cos(a0) + perp2 * sin(a0)) * cone_r
-		var rim1: Vector3 = base_center + (perp1 * cos(a1) + perp2 * sin(a1)) * cone_r
-		verts[vi]     = apex;  verts[vi + 1] = rim0;  verts[vi + 2] = rim1
-		verts[vi + 3] = base_center;  verts[vi + 4] = rim1;  verts[vi + 5] = rim0
-		vi += 6
-
-	var arrays: Array = []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return mesh
 
 
 ## Draw three rotation-ring overlays (one per axis) centred on [param centroid].
