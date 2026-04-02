@@ -69,7 +69,10 @@ const _CONE_SEGMENTS: int   = 8
 ## size regardless of zoom level.
 ## Calibrated so that at GIZMO_SCREEN_FACTOR = 0.25 and a typical working
 ## distance the cube projects to ~12 px on screen (small but clearly visible).
-const _VERTEX_CUBE_HALF: float = 0.09
+##
+## [b]Public[/b] so [PickingHelper.compute_vertex_pick_radius_px] can derive a
+## matching pick radius — both must stay in sync (see TODO B).
+const VERTEX_CUBE_HALF: float = 0.09
 ## Direct plugin reference — set only when the gizmo is created via the
 ## manual [method Node3D.add_gizmo] path in [code]plugin.gd[/code].
 ## When Godot creates the gizmo through the normal [method _create_gizmo]
@@ -233,7 +236,7 @@ func _draw_vertices(
 ) -> void:
 	var lines_normal   := PackedVector3Array()
 	var lines_selected := PackedVector3Array()
-	var cube_half: float = _VERTEX_CUBE_HALF * scale
+	var cube_half: float = VERTEX_CUBE_HALF * scale
 
 	# Determine whether the coincident-group map is ready.
 	# When built (parallel to vertices), use it to deduplicate overlapping handles.

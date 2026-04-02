@@ -26,9 +26,63 @@ const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 
 ## Screen-space radius (px) within which a vertex handle is selectable.
+## This constant is a fixed fallback used in headless / test contexts where
+## no real camera viewport is available.  Runtime code calls
+## [method compute_vertex_pick_radius_px] instead so the hitbox matches
+## the drawn cube at every viewport size.
 const VERTEX_PICK_RADIUS_PX: float = 12.0
+
+## Half-size of the vertex cube widget in local mesh space.
+## MUST mirror [constant GoBuildGizmo.VERTEX_CUBE_HALF] — kept in sync by
+## convention (see TODO B).  Any change to the draw constant must be
+## reflected here and vice-versa.
+const VERTEX_CUBE_HALF: float = 0.09
+
+## Gizmo scale factors — mirror [constant GoBuildGizmoPlugin.GIZMO_SCREEN_FACTOR]
+## and [constant GoBuildGizmoPlugin.GIZMO_ORTHO_SCALE].  Same sync rule applies.
+const _GIZMO_SCREEN_FACTOR: float = 0.25   # perspective cameras
+const _GIZMO_ORTHO_SCALE:   float = 0.10   # orthographic cameras
+
+## Multiplier from cube half-size (pixels) to pick radius.
+## sqrt(2) ≈ 1.414 would cover the exact corner; 1.5 adds a small tolerance margin
+## so clicking just outside the visual cube corner still registers.
+const _CUBE_PICK_SCALE: float = 1.5
+
 ## Screen-space radius (px) within which an edge line is selectable.
 const EDGE_PICK_RADIUS_PX: float = 8.0
+
+
+## Compute the vertex pick radius in pixels so it matches the drawn cube size.
+##
+## For a perspective camera the cube's screen-space half-size is:
+##   [code]VERTEX_CUBE_HALF × GIZMO_SCREEN_FACTOR × viewport_height / 2[/code]
+## The dist × tan(fov/2) terms in the gizmo-scale formula cancel exactly,
+## making the visual size (and therefore the pick radius) distance-independent.
+##
+## For an orthographic camera:
+##   [code]VERTEX_CUBE_HALF × GIZMO_ORTHO_SCALE × viewport_height[/code]
+##
+## The result is multiplied by [constant _CUBE_PICK_SCALE] (≈ √2 + margin)
+## so that clicking anywhere inside the drawn cube box — including the corners
+## — always registers as a hit.
+##
+## Falls back to [constant VERTEX_PICK_RADIUS_PX] when the camera or its
+## viewport is unavailable (headless / unit-test contexts).
+static func compute_vertex_pick_radius_px(camera: Camera3D) -> float:
+	if camera == null:
+		return VERTEX_PICK_RADIUS_PX
+	var vp: Viewport = camera.get_viewport()
+	if vp == null:
+		return VERTEX_PICK_RADIUS_PX
+	var h: float = vp.get_visible_rect().size.y
+	if h < 1.0:
+		return VERTEX_PICK_RADIUS_PX
+	var half_px: float
+	if camera.projection == Camera3D.PROJECTION_PERSPECTIVE:
+		half_px = VERTEX_CUBE_HALF * _GIZMO_SCREEN_FACTOR * h * 0.5
+	else:
+		half_px = VERTEX_CUBE_HALF * _GIZMO_ORTHO_SCALE * h
+	return half_px * _CUBE_PICK_SCALE
 
 
 # ---------------------------------------------------------------------------
@@ -40,16 +94,22 @@ const EDGE_PICK_RADIUS_PX: float = 8.0
 ##
 ## When multiple candidates are within threshold the one with the smallest
 ## squared screen distance wins.
+##
+## [param threshold_px]: fixed pick radius override in pixels.
+## Pass [code]-1.0[/code] (default) to auto-compute from the camera viewport
+## via [method compute_vertex_pick_radius_px] so the hitbox matches the cube.
 static func find_nearest_vertex(
 		camera: Camera3D,
 		click_pos: Vector2,
 		node: GoBuildMeshInstance,
 		gbm: GoBuildMesh,
-		threshold_px: float = VERTEX_PICK_RADIUS_PX,
+		threshold_px: float = -1.0,
 ) -> int:
+	var pick_r: float = compute_vertex_pick_radius_px(camera) \
+			if threshold_px < 0.0 else threshold_px
 	var gt: Transform3D = node.global_transform
 	var best_idx: int = -1
-	var best_dist_sq: float = threshold_px * threshold_px
+	var best_dist_sq: float = pick_r * pick_r
 
 	for idx: int in gbm.vertices.size():
 		var world_pos: Vector3 = gt * gbm.vertices[idx]

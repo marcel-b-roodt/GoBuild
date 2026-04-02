@@ -147,13 +147,7 @@ func _on_editor_focus_regained() -> void:
 	# ── Step 2: reset stale drag / box-select state ──────────────────────────
 	# Input events from before the focus loss are gone; any in-progress drag
 	# cannot be completed cleanly.  Cancel and clear all drag state.
-	if _dragging_handle and _gizmo_plugin != null:
-		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
-	_dragging_handle   = false
-	_active_handle_id  = -1
-	_pressed_handle_id = -1
-	if _gizmo_plugin != null:
-		_gizmo_plugin.reset_drag_state()
+	_cancel_active_drag()
 	_box_select_started = false
 	_box_select_active  = false
 
@@ -229,11 +223,13 @@ func _edit(object: Object) -> void:
 
 		_edited_node.update_gizmos()
 
-		# If the node is already in a non-OBJECT mode (persisted from a
-		# previous session), mode_changed never fires so the tool shortcut
-		# and overlay refresh must be done manually here.
-		if _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
-			_send_editor_tool_shortcut(KEY_Q)
+		# Always hide Godot's built-in transform widget while a GoBuildMeshInstance
+		# is being edited — our gizmo provides its own handles and the engine
+		# gizmo overlaps and conflicts with them in all edit modes.
+		# KEY_Q = Select mode: no transform arrows shown.
+		# KEY_W is restored in _make_visible(false) and _on_edited_node_removed
+		# once the node is deselected.
+		_send_editor_tool_shortcut(KEY_Q)
 
 	if _panel:
 		_panel.set_target(_edited_node)
@@ -321,14 +317,33 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 	var key_result: int = _handle_keyboard(event)
 	if key_result != 0:
 		return key_result
+	if event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		# Right-button drag = Godot native viewport orbit / freelook.
+		# Never intercept it — any lingering GoBuild state must not steal those events.
+		if mm.button_mask & MOUSE_BUTTON_MASK_RIGHT:
+			return 0
+		return _handle_mouse_motion(camera, mm)
 	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT:
-			if mb.pressed:
-				return _handle_mouse_press(camera, mb)
-			return _handle_mouse_release(camera, mb)
-	elif event is InputEventMouseMotion:
-		return _handle_mouse_motion(camera, event as InputEventMouseMotion)
+		return _handle_mouse_button_event(camera, event as InputEventMouseButton)
+	return 0
+
+
+## Dispatch a mouse-button event received from [method _forward_3d_gui_input].
+##
+## Right-button press: cancel any in-progress GoBuild drag / box-select so
+## Godot's native viewport orbit / freelook can run without interference.
+## Left-button: delegate to the press / release handlers.
+## All other buttons: pass through (return 0).
+func _handle_mouse_button_event(camera: Camera3D, mb: InputEventMouseButton) -> int:
+	if mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+		_cancel_active_drag()
+		_cancel_box_select()
+		return 0
+	if mb.button_index == MOUSE_BUTTON_LEFT:
+		if mb.pressed:
+			return _handle_mouse_press(camera, mb)
+		return _handle_mouse_release(camera, mb)
 	return 0
 
 
@@ -354,11 +369,7 @@ func _handle_keyboard(event: InputEvent) -> int:
 		return 0
 	# Cancel an active handle drag with Escape.
 	if key.keycode == KEY_ESCAPE and (_dragging_handle or _pressed_handle_id != -1):
-		if _dragging_handle and _gizmo_plugin != null and _edited_node != null:
-			_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
-		_dragging_handle   = false
-		_active_handle_id  = -1
-		_pressed_handle_id = -1
+		_cancel_active_drag()
 		if _edited_node:
 			_edited_node.update_gizmos()
 		return 1
@@ -531,32 +542,19 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 	GoBuildDebug.log("[GoBuild] PLUGIN._on_mode_changed  mode=%d  edited_null=%s" \
 			% [mode, str(_edited_node == null)])
 	# Cancel any in-progress handle drag before the mode changes.
-	if _dragging_handle and _gizmo_plugin != null and _edited_node != null:
-		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
-	_dragging_handle   = false
-	_active_handle_id  = -1
-	_pressed_handle_id = -1
-	# Reset the gizmo plugin's drag state as a safety measure.
-	if _gizmo_plugin != null:
-		_gizmo_plugin.reset_drag_state()
-	# Stop-gap: hide / restore Godot's built-in transform widget.
-	if mode == SelectionManager.Mode.OBJECT:
-		_send_editor_tool_shortcut(KEY_W)
-	else:
-		_send_editor_tool_shortcut(KEY_Q)
+	_cancel_active_drag()
+	# Always stay in Select mode (KEY_Q) so Godot's built-in transform widget
+	# never overlaps our custom gizmo handles, regardless of edit mode.
+	# KEY_W is only restored when the node is deselected entirely
+	# (_make_visible(false) / _on_edited_node_removed).
+	_send_editor_tool_shortcut(KEY_Q)
 	_cancel_box_select()
 
 
 ## Triggered when the currently edited node exits the scene tree
 ## (user deleted it or unloaded the scene).  Clears stale editing state.
 func _on_edited_node_removed() -> void:
-	if _dragging_handle and _gizmo_plugin != null and _edited_node != null:
-		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
-	_dragging_handle   = false
-	_active_handle_id  = -1
-	_pressed_handle_id = -1
-	if _gizmo_plugin != null:
-		_gizmo_plugin.reset_drag_state()
+	_cancel_active_drag()
 	_box_select_started = false
 	_box_select_active  = false
 	_edited_node = null
@@ -674,6 +672,14 @@ func _send_editor_tool_shortcut(keycode: Key) -> void:
 ## Deferred body for [method _send_editor_tool_shortcut].
 ## Runs in the next frame so button-press focus has settled before we redirect it.
 func _do_send_editor_tool_shortcut(keycode: Key) -> void:
+	# Guard: when right-click is held the 3D viewport is in "freelook" mode.
+	# In freelook mode KEY_Q = "move camera down", KEY_W = "move forward", etc.
+	# Injecting any tool-switch key during freelook would translate the camera.
+	# Bail out — the native gizmo may flash briefly, but that is far less
+	# disruptive than an unintended camera movement.
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		return
+
 	# Focus the 3D viewport container so Node3DEditorViewport._gui_input()
 	# receives the key event.  Without this, clicking a dock button shifts
 	# keyboard focus to the dock, and Input.parse_input_event never reaches
@@ -683,12 +689,25 @@ func _do_send_editor_tool_shortcut(keycode: Key) -> void:
 		var parent: Node = sv.get_parent()
 		if parent is Control:
 			(parent as Control).grab_focus()
-	var ev := InputEventKey.new()
-	ev.keycode          = keycode
-	ev.physical_keycode = keycode   # also set for cross-platform reliability
-	ev.pressed          = true
-	ev.echo             = false
-	Input.parse_input_event(ev)
+
+	# Send the key press that switches the editor tool mode.
+	var ev_down := InputEventKey.new()
+	ev_down.keycode          = keycode
+	ev_down.physical_keycode = keycode
+	ev_down.pressed          = true
+	ev_down.echo             = false
+	Input.parse_input_event(ev_down)
+
+	# Immediately follow with a key-release so Input.is_key_pressed(keycode)
+	# returns false right away.  Without this the key state stays "held" inside
+	# Godot's Input singleton, and the viewport's freelook update loop would
+	# keep moving the camera for every frame the button appeared held.
+	var ev_up := InputEventKey.new()
+	ev_up.keycode          = keycode
+	ev_up.physical_keycode = keycode
+	ev_up.pressed          = false
+	ev_up.echo             = false
+	Input.parse_input_event(ev_up)
 
 
 ## Handle a left-mouse-button release.
@@ -815,6 +834,18 @@ func _finish_box_select(camera: Camera3D, additive: bool, toggle: bool) -> void:
 				SelectionManager.Mode.VERTEX: sel.select_vertex(idx)
 				SelectionManager.Mode.EDGE:   sel.select_edge(idx)
 				SelectionManager.Mode.FACE:   sel.select_face(idx)
+
+
+## Cancel and clean up any in-progress handle drag.
+## Safe to call when no drag is active.
+func _cancel_active_drag() -> void:
+	if _dragging_handle and _gizmo_plugin != null and _edited_node != null:
+		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
+	_dragging_handle   = false
+	_active_handle_id  = -1
+	_pressed_handle_id = -1
+	if _gizmo_plugin != null:
+		_gizmo_plugin.reset_drag_state()
 
 
 ## Cancel any in-progress box select and clear the overlay.
