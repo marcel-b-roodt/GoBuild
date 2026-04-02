@@ -419,3 +419,78 @@ func test_get_coincident_vertices_fallback_when_groups_not_built() -> void:
 	assert_bool(result.has(0)).is_true()
 
 
+# ---------------------------------------------------------------------------
+# build_vertex_position_buffers
+# ---------------------------------------------------------------------------
+
+func test_vertex_position_buffers_empty_mesh_returns_empty() -> void:
+	var result := GoBuildMesh.new().build_vertex_position_buffers()
+	assert_int(result.size()).is_equal(0)
+
+
+func test_vertex_position_buffers_single_quad_one_buffer() -> void:
+	# One material → one surface → one buffer.
+	var result := _make_xy_quad().build_vertex_position_buffers()
+	assert_int(result.size()).is_equal(1)
+
+
+func test_vertex_position_buffers_quad_byte_count() -> void:
+	# Quad → 2 triangles × 3 verts × 12 bytes/vert = 72 bytes.
+	var result := _make_xy_quad().build_vertex_position_buffers()
+	assert_int(result[0].size()).is_equal(72)
+
+
+func test_vertex_position_buffers_two_materials_two_buffers() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 1, 0), Vector3(0, 1, 0),
+		Vector3(2, 0, 0), Vector3(3, 0, 0), Vector3(3, 1, 0), Vector3(2, 1, 0),
+	]
+	var f0 := GoBuildFace.new()
+	f0.vertex_indices = [0, 1, 2, 3]
+	f0.uvs = [Vector2.ZERO, Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+	f0.material_index = 0
+	var f1 := GoBuildFace.new()
+	f1.vertex_indices = [4, 5, 6, 7]
+	f1.uvs = [Vector2.ZERO, Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+	f1.material_index = 1
+	m.faces.append(f0)
+	m.faces.append(f1)
+	var result := m.build_vertex_position_buffers()
+	assert_int(result.size()).is_equal(2)
+	# Each quad → 6 triangle verts × 12 bytes = 72 bytes.
+	assert_int(result[0].size()).is_equal(72)
+	assert_int(result[1].size()).is_equal(72)
+
+
+func test_vertex_position_buffers_match_bake_vertex_data() -> void:
+	# The buffers from build_vertex_position_buffers must encode exactly the
+	# same vertex positions as the ArrayMesh produced by bake().
+	# Correctness guard: if these diverge, surface_update_vertex_region would
+	# write wrong positions during a drag.
+	var m := _make_xy_quad()
+	var buffer: PackedByteArray = m.build_vertex_position_buffers()[0]
+	var baked_verts: PackedVector3Array = \
+			m.bake().surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+
+	assert_int(buffer.size()).is_equal(baked_verts.size() * 12)
+	for i: int in baked_verts.size():
+		var byte_off: int = i * 12
+		var bx: float = buffer.decode_float(byte_off)
+		var by: float = buffer.decode_float(byte_off + 4)
+		var bz: float = buffer.decode_float(byte_off + 8)
+		assert_float(bx).is_equal_approx(baked_verts[i].x, 0.0001)
+		assert_float(by).is_equal_approx(baked_verts[i].y, 0.0001)
+		assert_float(bz).is_equal_approx(baked_verts[i].z, 0.0001)
+
+
+func test_vertex_position_buffers_surface_count_matches_bake() -> void:
+	# The number of buffers must always equal the surface count from bake()
+	# so that bake_vertex_positions() never hits the mismatch fallback
+	# when topology is unchanged.
+	var m := _make_xy_quad()
+	var buffers := m.build_vertex_position_buffers()
+	var surf_count := m.bake().get_surface_count()
+	assert_int(buffers.size()).is_equal(surf_count)
+
+

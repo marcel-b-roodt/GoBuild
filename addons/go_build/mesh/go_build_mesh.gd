@@ -80,15 +80,8 @@ func bake() -> ArrayMesh:
 		for gid in smooth_normals[vi]:
 			smooth_normals[vi][gid] = (smooth_normals[vi][gid] as Vector3).normalized()
 
-	# Find all material indices in use, sorted so surfaces are deterministic.
-	var mat_indices: Array[int] = []
-	for face in faces:
-		if not mat_indices.has(face.material_index):
-			mat_indices.append(face.material_index)
-	mat_indices.sort()
-
 	# One surface per material index.
-	for mat_idx in mat_indices:
+	for mat_idx in _collect_material_indices():
 		var surface_arrays := _build_surface(mat_idx, face_normals, smooth_normals)
 		if surface_arrays.is_empty():
 			continue
@@ -98,6 +91,56 @@ func bake() -> ArrayMesh:
 			array_mesh.surface_set_material(surf_idx, material_slots[mat_idx])
 
 	return array_mesh
+
+
+## Build packed vertex-position byte arrays for all material surfaces, in the
+## same triangle fan order as [method _build_surface].
+##
+## Returns one [PackedByteArray] per surface (ordered by material index —
+## same order as the surfaces in an [ArrayMesh] produced by [method bake]).
+## Each byte array contains the raw float32 data for the triangle vertex
+## positions ([code]PackedVector3Array.to_byte_array()[/code] layout: 12 bytes
+## per [Vector3], x/y/z as little-endian float32).
+##
+## Used by [method GoBuildMeshInstance.bake_vertex_positions] to update only
+## the vertex buffer of an existing [ArrayMesh] surface during a drag, avoiding
+## the full mesh rebuild that [method bake] performs.  Normals, UVs, and the
+## surface count are left unchanged — call [method bake] on commit to restore
+## correct normals.
+##
+## Returns an empty array if there are no faces.
+func build_vertex_position_buffers() -> Array[PackedByteArray]:
+	var result: Array[PackedByteArray] = []
+	if faces.is_empty():
+		return result
+
+	for mat_idx in _collect_material_indices():
+		var verts := PackedVector3Array()
+		for fi in faces.size():
+			var face: GoBuildFace = faces[fi]
+			if face.material_index != mat_idx:
+				continue
+			var vc: int = face.vertex_indices.size()
+			# Fan triangulation in the same winding order as _build_surface.
+			for tri in range(vc - 2):
+				var local_idx: Array[int] = [0, tri + 2, tri + 1]
+				for li in local_idx:
+					verts.append(vertices[face.vertex_indices[li]])
+		result.append(verts.to_byte_array())
+
+	return result
+
+
+## Return the sorted list of material indices present in [member faces].
+## Extracted so [method bake] and [method build_vertex_position_buffers]
+## iterate surfaces in the same deterministic order.
+func _collect_material_indices() -> Array[int]:
+	var mat_indices: Array[int] = []
+	for face in faces:
+		if not mat_indices.has(face.material_index):
+			mat_indices.append(face.material_index)
+	mat_indices.sort()
+	return mat_indices
 
 
 ## Build the packed vertex/normal/UV arrays for a single material surface.

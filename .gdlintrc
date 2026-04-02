@@ -3,8 +3,11 @@
 
 max-line-length: 100
 
-# SelectionManager exposes ~20 small public methods (select/deselect/toggle ×3
+# SelectionManager exposes ~20 small public methods (select/deselect/toggle 3
 # element types + mode + bulk helpers).  Raise the cap rather than forcing
 # artificial restructuring of a cohesive API.
-max-public-methods: 40
+# GdUnit4 test suites also accumulate many public test_ methods by design;
+# 60 is generous enough for any test class while still catching bloated
+# production classes.
+max-public-methods: 60
 

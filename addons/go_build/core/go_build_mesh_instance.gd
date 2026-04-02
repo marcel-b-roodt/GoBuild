@@ -43,6 +43,35 @@ func bake() -> void:
 	mesh = go_build_mesh.bake()
 
 
+## Fast alternative to [method bake] for use during a vertex-position-only drag.
+##
+## Calls [method GoBuildMesh.build_vertex_position_buffers] to rebuild only the
+## packed vertex positions (same triangle-fan order as [method GoBuildMesh.bake])
+## and applies each buffer to the existing [ArrayMesh] surface via
+## [method ArrayMesh.surface_update_vertex_region].  Normals, UVs, and surface
+## count are left unchanged — they remain from the last full [method bake] call.
+##
+## Falls back to a full [method bake] if [member mesh] is not an [ArrayMesh],
+## or if the surface count has changed (topology mismatch).
+##
+## Always call [method bake] on drag commit to restore correct normals.
+func bake_vertex_positions() -> void:
+	if go_build_mesh == null:
+		mesh = null
+		return
+	if not (mesh is ArrayMesh):
+		bake()
+		return
+	var am := mesh as ArrayMesh
+	var buffers: Array[PackedByteArray] = go_build_mesh.build_vertex_position_buffers()
+	if buffers.size() != am.get_surface_count():
+		# Surface count mismatch — topology must have changed; full rebuild needed.
+		bake()
+		return
+	for si: int in buffers.size():
+		am.surface_update_vertex_region(si, 0, buffers[si])
+
+
 ## Apply [param operation] (a [Callable] that mutates [member go_build_mesh]),
 ## push an undo/redo action via [param ur], and rebake.
 ##

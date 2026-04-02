@@ -111,6 +111,11 @@ var _drag_restore: Dictionary = {}
 ## a stale flush cannot overwrite a restored or committed mesh state.
 var _bake_pending_node: GoBuildMeshInstance = null
 var _bake_scheduled:    bool = false
+## When true, _flush_pending_bake routes to bake_vertex_positions() instead of
+## bake().  Set by begin_drag (vertex positions are the only thing changing);
+## cleared by reset_drag_state so the commit/cancel full-bake is never skipped.
+## bake_vertex_positions() leaves normals stale — always call bake() on commit.
+var _drag_vertex_update_mode: bool = false
 
 ## Deferred-gizmo-redraw state ──────────────────────────────────────────────
 ## Mirrors the deferred-bake pattern above but for update_gizmos().
@@ -354,6 +359,7 @@ func reset_drag_state() -> void:
 	_drag_start_dir  = Vector3.ZERO
 	_drag_world_axis = Vector3.ZERO
 	_drag_restore    = {}
+	_drag_vertex_update_mode = false
 	# Clear deferred-bake state.  Any queued _flush_pending_bake call will
 	# find _bake_pending_node == null and exit without baking.
 	_bake_pending_node = null
@@ -384,10 +390,20 @@ func _schedule_bake(node: GoBuildMeshInstance) -> void:
 ## Guards against a stale flush after commit / cancel by checking
 ## [member _bake_pending_node] — cleared by [method commit_drag] and
 ## [method reset_drag_state] before the deferred call fires.
+##
+## During an active drag ([member _drag_vertex_update_mode] is true), routes to
+## [method GoBuildMeshInstance.bake_vertex_positions] — updates only the GPU
+## vertex buffer, leaving normals and UVs unchanged.  This avoids the full
+## [ArrayMesh] rebuild and cuts GPU upload cost to vertex-positions-only.
+## [method commit_drag] always performs a full [method GoBuildMeshInstance.bake]
+## afterward to restore correct normals.
 func _flush_pending_bake() -> void:
 	_bake_scheduled = false
 	if _bake_pending_node != null and is_instance_valid(_bake_pending_node):
-		_bake_pending_node.bake()
+		if _drag_vertex_update_mode:
+			_bake_pending_node.bake_vertex_positions()
+		else:
+			_bake_pending_node.bake()
 	_bake_pending_node = null
 
 
@@ -452,6 +468,12 @@ func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
 		_drag_world_axis = (node.global_transform.basis * local_axis).normalized()
 
 	_drag_restore = node.go_build_mesh.take_snapshot()
+	# Engage the fast vertex-position-only bake path for the duration of this drag.
+	# _flush_pending_bake will call bake_vertex_positions() each frame instead of
+	# the full bake(), saving the ArrayMesh rebuild and full GPU upload cost.
+	# reset_drag_state() clears this flag; commit_drag() always does a full bake()
+	# before calling reset_drag_state() so the final mesh has correct normals.
+	_drag_vertex_update_mode = true
 	return true
 
 
