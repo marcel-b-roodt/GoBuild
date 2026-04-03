@@ -184,7 +184,7 @@ func test_snapshot_restores_vertices() -> void:
 	m.vertices[0] = Vector3(99, 0, 0)
 	m.restore_snapshot(snap)
 
-	assert_vector3(m.vertices[0]).is_equal(Vector3(0, 0, 0))
+	assert_vector(m.vertices[0]).is_equal(Vector3(0, 0, 0))
 
 
 func test_snapshot_restores_face_count() -> void:
@@ -218,7 +218,7 @@ func test_snapshot_is_deep_copy() -> void:
 	var snap_verts: Array[Vector3] = snap["vertices"]
 	snap_verts[0] = Vector3(99, 0, 0)
 
-	assert_vector3(m.vertices[0]).is_equal(Vector3(0, 0, 0))
+	assert_vector(m.vertices[0]).is_equal(Vector3(0, 0, 0))
 
 
 # ---------------------------------------------------------------------------
@@ -229,8 +229,8 @@ func test_translate_moves_specified_vertices() -> void:
 	var m := _make_xy_quad()
 	var indices: Array[int] = [0, 1]
 	m.translate_vertices(indices, Vector3(1, 2, 3))
-	assert_vector3(m.vertices[0]).is_equal(Vector3(1, 2, 3))
-	assert_vector3(m.vertices[1]).is_equal(Vector3(2, 2, 3))
+	assert_vector(m.vertices[0]).is_equal(Vector3(1, 2, 3))
+	assert_vector(m.vertices[1]).is_equal(Vector3(2, 2, 3))
 
 
 func test_translate_does_not_move_unselected_vertices() -> void:
@@ -238,9 +238,9 @@ func test_translate_does_not_move_unselected_vertices() -> void:
 	var indices: Array[int] = [0]
 	m.translate_vertices(indices, Vector3(10, 0, 0))
 	# vertices 1, 2, 3 should be unchanged.
-	assert_vector3(m.vertices[1]).is_equal(Vector3(1, 0, 0))
-	assert_vector3(m.vertices[2]).is_equal(Vector3(1, 1, 0))
-	assert_vector3(m.vertices[3]).is_equal(Vector3(0, 1, 0))
+	assert_vector(m.vertices[1]).is_equal(Vector3(1, 0, 0))
+	assert_vector(m.vertices[2]).is_equal(Vector3(1, 1, 0))
+	assert_vector(m.vertices[3]).is_equal(Vector3(0, 1, 0))
 
 
 func test_translate_zero_delta_is_noop() -> void:
@@ -248,16 +248,20 @@ func test_translate_zero_delta_is_noop() -> void:
 	var before := m.vertices[0]
 	var indices: Array[int] = [0, 1, 2, 3]
 	m.translate_vertices(indices, Vector3.ZERO)
-	assert_vector3(m.vertices[0]).is_equal(before)
+	assert_vector(m.vertices[0]).is_equal(before)
 
 
 func test_translate_all_vertices() -> void:
 	var m := _make_xy_quad()
+	var before: Array[Vector3] = []
+	before.assign(m.vertices)
 	var indices: Array[int] = [0, 1, 2, 3]
 	m.translate_vertices(indices, Vector3(5, 0, 0))
-	for v in m.vertices:
-		assert_float(v.x).is_equal_approx(
-			m.vertices[0].x, 0.001)  # all shifted by same delta, so same X
+	# Each vertex must have shifted by +5 on X; Y and Z unchanged.
+	for i in m.vertices.size():
+		assert_float(m.vertices[i].x).is_equal_approx(before[i].x + 5.0, 0.001)
+		assert_float(m.vertices[i].y).is_equal_approx(before[i].y, 0.001)
+		assert_float(m.vertices[i].z).is_equal_approx(before[i].z, 0.001)
 
 
 func test_translate_empty_indices_is_safe() -> void:
@@ -266,7 +270,7 @@ func test_translate_empty_indices_is_safe() -> void:
 	var indices: Array[int] = []
 	m.translate_vertices(indices, Vector3(1, 1, 1))
 	for i in m.vertices.size():
-		assert_vector3(m.vertices[i]).is_equal(before[i])
+		assert_vector(m.vertices[i]).is_equal(before[i])
 
 
 # ---------------------------------------------------------------------------
@@ -276,21 +280,21 @@ func test_translate_empty_indices_is_safe() -> void:
 func test_centroid_single_vertex() -> void:
 	var m := _make_xy_quad()
 	var indices: Array[int] = [2]  # (1,1,0)
-	assert_vector3(m.compute_centroid(indices)).is_equal(Vector3(1, 1, 0))
+	assert_vector(m.compute_centroid(indices)).is_equal(Vector3(1, 1, 0))
 
 
 func test_centroid_all_quad_vertices() -> void:
 	var m := _make_xy_quad()
 	# Quad has verts (0,0,0),(1,0,0),(1,1,0),(0,1,0) — centroid = (0.5,0.5,0)
 	var indices: Array[int] = [0, 1, 2, 3]
-	assert_vector3(m.compute_centroid(indices)).is_equal_approx(
-		Vector3(0.5, 0.5, 0.0), 0.001)
+	assert_vector(m.compute_centroid(indices)).is_equal_approx(
+		Vector3(0.5, 0.5, 0.0), Vector3(0.001, 0.001, 0.001))
 
 
 func test_centroid_empty_returns_zero() -> void:
 	var m := _make_xy_quad()
 	var indices: Array[int] = []
-	assert_vector3(m.compute_centroid(indices)).is_equal(Vector3.ZERO)
+	assert_vector(m.compute_centroid(indices)).is_equal(Vector3.ZERO)
 
 
 # ---------------------------------------------------------------------------

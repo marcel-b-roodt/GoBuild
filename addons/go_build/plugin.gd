@@ -30,6 +30,12 @@ const BOX_SELECT_DRAG_THRESHOLD_SQ: float = 25.0  # 5 px
 const _TRANSLATE_HANDLE_PICK_RADIUS_PX: float = 10.0
 ## Squared screen-space pixel radius for rotate-ring dot handle picking (point check).
 const _ROTATE_HANDLE_PICK_RADIUS_SQ: float = 144.0  # 12 px
+## Squared screen-space pixel radius for scale cube handle picking (point check).
+const _SCALE_HANDLE_PICK_RADIUS_SQ: float  = 144.0  # 12 px
+## Squared screen-space pixel radius for planar handle centre picking (point check).
+const _PLANE_HANDLE_PICK_RADIUS_SQ: float  = 225.0  # 15 px — slightly larger (square area)
+## Squared screen-space pixel radius for viewport-plane handle picking.
+const _VIEW_PLANE_PICK_RADIUS_SQ: float    = 196.0  # 14 px
 
 ## EditorSettings keys for the four mode-switch shortcuts.
 ## Users can change the bound key under Editor → Editor Settings → gobuild.
@@ -289,12 +295,15 @@ func _force_gizmo_redraw_deferred(node: Node3D) -> void:
 ## content. We only clear the selection when another node type is selected.
 func _make_visible(visible: bool) -> void:
 	if not visible:
+		_clear_hover()
 		_disconnect_node_signals()
 		_edited_node = null
 		if _panel:
 			_panel.set_target(null)
 		# Restore the built-in transform widget now that GoBuild is no longer active.
 		_send_editor_tool_shortcut(KEY_W)
+
+
 # ---------------------------------------------------------------------------
 # Viewport input — keyboard shortcuts
 # ---------------------------------------------------------------------------
@@ -361,28 +370,52 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 ##
 ## Shortcuts default to 1/2/3/4 but are rebindable via
 ## Editor → Editor Settings → gobuild → shortcuts.
+## W/E/R switch the GoBuild transform mode (Translate/Rotate/Scale) and are
+## consumed so Godot's built-in tool-switch does not also fire (we stay in
+## SELECT mode regardless of transform mode).
 func _handle_keyboard(event: InputEvent) -> int:
 	if not (event is InputEventKey):
 		return 0
 	var key := event as InputEventKey
 	if not key.pressed or key.echo:
 		return 0
-	# Cancel an active handle drag with Escape.
 	if key.keycode == KEY_ESCAPE and (_dragging_handle or _pressed_handle_id != -1):
 		_cancel_active_drag()
 		if _edited_node:
 			_edited_node.update_gizmos()
 		return 1
-	if _shortcut_object.matches_event(event):
+	return _handle_keyboard_shortcut(key)
+
+
+## Dispatch mode-switch and transform-mode shortcuts from [method _handle_keyboard].
+func _handle_keyboard_shortcut(key: InputEventKey) -> int:
+	match key.keycode:
+		KEY_W: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
+		KEY_E: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.ROTATE)
+		KEY_R: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.SCALE)
+	if _shortcut_object.matches_event(key):
 		switch_mode(SelectionManager.Mode.OBJECT)
-	elif _shortcut_vertex.matches_event(event):
+	elif _shortcut_vertex.matches_event(key):
 		switch_mode(SelectionManager.Mode.VERTEX)
-	elif _shortcut_edge.matches_event(event):
+	elif _shortcut_edge.matches_event(key):
 		switch_mode(SelectionManager.Mode.EDGE)
-	elif _shortcut_face.matches_event(event):
+	elif _shortcut_face.matches_event(key):
 		switch_mode(SelectionManager.Mode.FACE)
 	else:
 		return 0
+	return 1
+
+
+## Apply a [GoBuildGizmoPlugin.TransformMode] change and trigger a gizmo redraw.
+## Returns 1 (consumed) always — the mode switch is a GoBuild-internal event.
+func _set_transform_mode(mode: GoBuildGizmoPlugin.TransformMode) -> int:
+	if _gizmo_plugin == null:
+		return 0
+	_cancel_active_drag()
+	_clear_hover()
+	_gizmo_plugin.transform_mode = mode
+	if _edited_node:
+		_edited_node.update_gizmos()
 	return 1
 
 
@@ -543,6 +576,7 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 			% [mode, str(_edited_node == null)])
 	# Cancel any in-progress handle drag before the mode changes.
 	_cancel_active_drag()
+	_clear_hover()
 	# Always stay in Select mode (KEY_Q) so Godot's built-in transform widget
 	# never overlaps our custom gizmo handles, regardless of edit mode.
 	# KEY_W is only restored when the node is deselected entirely
@@ -555,6 +589,7 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 ## (user deleted it or unloaded the scene).  Clears stale editing state.
 func _on_edited_node_removed() -> void:
 	_cancel_active_drag()
+	_clear_hover()
 	_box_select_started = false
 	_box_select_active  = false
 	_edited_node = null
@@ -609,12 +644,11 @@ func _handle_mouse_press(camera: Camera3D, mb: InputEventMouseButton) -> int:
 	return 1
 
 
-## Return the [constant GoBuildGizmoPlugin.AXIS_HANDLE_OFFSET] + axis or
-## [constant GoBuildGizmoPlugin.ROT_HANDLE_OFFSET] + axis for the handle
-## nearest to [param click_pos], or [code]-1[/code] if no handle is hit.
+## Return the handle ID nearest to [param click_pos] for the currently active
+## transform mode, or [code]-1[/code] if no handle is hit.
 ##
-## Translate handles use a screen-space line-segment check along the cone body.
-## Rotate ring handles use a screen-space point-distance check.
+## Dispatches to [method _find_translate_handle], [method _find_rotate_handle],
+## or [method _find_scale_handle] based on [member GoBuildGizmoPlugin.transform_mode].
 func _find_hovered_handle_id(camera: Camera3D, click_pos: Vector2) -> int:
 	if _gizmo_plugin == null or _edited_node == null:
 		return -1
@@ -622,12 +656,20 @@ func _find_hovered_handle_id(camera: Camera3D, click_pos: Vector2) -> int:
 			_gizmo_plugin.get_transform_handle_world_positions(_edited_node)
 	if positions.is_empty():
 		return -1
+	match _gizmo_plugin.transform_mode:
+		GoBuildGizmoPlugin.TransformMode.ROTATE:
+			return _find_rotate_handle(camera, click_pos, positions)
+		GoBuildGizmoPlugin.TransformMode.SCALE:
+			return _find_scale_handle(camera, click_pos, positions)
+		_:  # TRANSLATE
+			return _find_translate_handle(camera, click_pos, positions)
 
+
+## Test translate cone tips (positions 0–2) then plane handles.
+func _find_translate_handle(camera: Camera3D, click_pos: Vector2, positions: Array[Vector3]) -> int:
 	var gt: Transform3D = _edited_node.global_transform
 	var s: float        = _gizmo_plugin.compute_node_gizmo_scale(_edited_node)
 	var cone_h: float   = GoBuildGizmoPlugin.CONE_HEIGHT * s
-
-	# Translate handles — indices 0, 1, 2 → IDs AXIS_HANDLE_OFFSET + 0/1/2.
 	var local_axes: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
 	for i: int in 3:
 		var apex_world: Vector3 = positions[i]
@@ -635,21 +677,110 @@ func _find_hovered_handle_id(camera: Camera3D, click_pos: Vector2) -> int:
 			continue
 		var world_axis: Vector3  = (gt.basis * local_axes[i]).normalized()
 		var base_world: Vector3  = apex_world - world_axis * cone_h
-		var apex_screen: Vector2 = camera.unproject_position(apex_world)
-		var base_screen: Vector2 = camera.unproject_position(base_world)
-		if PickingHelper.point_to_segment_dist(click_pos, base_screen, apex_screen) \
-				<= _TRANSLATE_HANDLE_PICK_RADIUS_PX:
+		if PickingHelper.point_to_segment_dist(
+				click_pos,
+				camera.unproject_position(base_world),
+				camera.unproject_position(apex_world)) <= _TRANSLATE_HANDLE_PICK_RADIUS_PX:
 			return GoBuildGizmoPlugin.AXIS_HANDLE_OFFSET + i
+	return _find_plane_handle(camera, click_pos, s)
 
-	# Rotate ring handles — indices 3, 4, 5 → IDs ROT_HANDLE_OFFSET + 0/1/2.
-	for i: int in range(3, positions.size()):
-		var world_pos: Vector3 = positions[i]
+
+## Test planar handle centres then the viewport-plane handle at the centroid.
+##
+## The viewport-plane handle pick area is enlarged to roughly match the rotation
+## ring's screen-space radius: any click within that radius of the centroid (that
+## does not land on an axis cone or a planar square) starts a camera-plane drag.
+## This mirrors Godot's native inner-sphere viewport-drag UX.
+func _find_plane_handle(camera: Camera3D, click_pos: Vector2, s: float) -> int:
+	var gt: Transform3D = _edited_node.global_transform
+	var lc: Vector3 = _gizmo_plugin.get_selection_local_centroid(_edited_node)
+	var inner: float = GoBuildGizmoPlugin.PLANE_INNER_OFFSET * s
+	var local_centers: Array[Vector3] = [
+		lc + Vector3(inner, inner, 0.0),   # XY
+		lc + Vector3(0.0,  inner, inner),  # YZ
+		lc + Vector3(inner, 0.0,  inner),  # XZ
+	]
+	for i: int in 3:
+		var world_pos: Vector3 = gt * local_centers[i]
 		if not camera.is_position_in_frustum(world_pos):
 			continue
-		var screen_pos: Vector2 = camera.unproject_position(world_pos)
-		if screen_pos.distance_squared_to(click_pos) <= _ROTATE_HANDLE_PICK_RADIUS_SQ:
-			return GoBuildGizmoPlugin.ROT_HANDLE_OFFSET + (i - 3)
+		if camera.unproject_position(world_pos).distance_squared_to(click_pos) \
+				<= _PLANE_HANDLE_PICK_RADIUS_SQ:
+			return GoBuildGizmoPlugin.PLANE_HANDLE_OFFSET + i
 
+	# Viewport-plane handle — accept any click within the ring's screen radius of
+	# the centroid so the inner area behaves like Godot's sphere translate handle.
+	var centroid_world: Vector3 = gt * lc
+	if camera.is_position_in_frustum(centroid_world):
+		var c_screen: Vector2 = camera.unproject_position(centroid_world)
+		# Derive the ring screen radius by projecting a point at ring_r_world from
+		# the centroid (UP direction in local space → world via global_transform.basis).
+		var ring_r_world: float = GoBuildGizmoPlugin.ROT_RING_RADIUS * s
+		var ring_edge_world: Vector3 = gt * (lc + Vector3.UP * ring_r_world)
+		var ring_screen_r_sq: float
+		if camera.is_position_in_frustum(ring_edge_world):
+			ring_screen_r_sq = c_screen.distance_squared_to(
+					camera.unproject_position(ring_edge_world))
+		else:
+			ring_screen_r_sq = _VIEW_PLANE_PICK_RADIUS_SQ   # safe fallback
+		if c_screen.distance_squared_to(click_pos) <= ring_screen_r_sq:
+			return GoBuildGizmoPlugin.VIEW_PLANE_HANDLE_ID
+	return -1
+
+
+## Test rotation ring handles by projecting the mouse ray onto each ring plane
+## and accepting the hit if the intersection lands within a tolerance band of
+## the ring radius (±20 % of the world-space ring radius).
+##
+## Supersedes the old dot-only check (positions[3..5]) — the full-ring approach
+## naturally handles zoom scaling: [code]ring_r_world = ROT_RING_RADIUS * s[/code]
+## is derived from [method GoBuildGizmoPlugin.compute_world_gizmo_scale], so the
+## pick band shrinks / grows in world space exactly as the drawn ring does.
+##
+## Returns the handle ID of the nearest ring that was hit, or [code]-1[/code].
+func _find_rotate_handle(camera: Camera3D, click_pos: Vector2, _positions: Array[Vector3]) -> int:
+	if _gizmo_plugin == null or _edited_node == null:
+		return -1
+	var lc: Vector3          = _gizmo_plugin.get_selection_local_centroid(_edited_node)
+	var gt: Transform3D      = _edited_node.global_transform
+	var world_centroid: Vector3 = gt * lc
+	var s: float             = _gizmo_plugin.compute_world_gizmo_scale(world_centroid)
+	var ring_r_world: float  = GoBuildGizmoPlugin.ROT_RING_RADIUS * s
+	var tol: float           = ring_r_world * 0.2   # ±20 % tolerance band
+
+	var ray_origin: Vector3  = camera.project_ray_origin(click_pos)
+	var ray_dir: Vector3     = camera.project_ray_normal(click_pos)
+
+	# Ring plane normals in local space: X-ring lies in the YZ plane (normal = X),
+	# Y-ring lies in the XZ plane (normal = Y), Z-ring lies in the XY plane (normal = Z).
+	var local_normals: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
+	var best_id:  int   = -1
+	var best_err: float = tol  # start just at tolerance; any tighter hit wins
+
+	for i: int in 3:
+		var world_normal: Vector3 = (gt.basis * local_normals[i]).normalized()
+		var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+				ray_origin, ray_dir, world_centroid, world_normal)
+		if hit == Vector3.INF:
+			continue
+		var dist: float     = hit.distance_to(world_centroid)
+		var ring_err: float = abs(dist - ring_r_world)
+		if ring_err < best_err:
+			best_err = ring_err
+			best_id  = GoBuildGizmoPlugin.ROT_HANDLE_OFFSET + i
+
+	return best_id
+
+
+## Test scale cube tips (positions 0–2 — same world positions as translate tips).
+func _find_scale_handle(camera: Camera3D, click_pos: Vector2, positions: Array[Vector3]) -> int:
+	for i: int in 3:
+		var tip_world: Vector3 = positions[i]
+		if not camera.is_position_in_frustum(tip_world):
+			continue
+		if camera.unproject_position(tip_world).distance_squared_to(click_pos) \
+				<= _SCALE_HANDLE_PICK_RADIUS_SQ:
+			return GoBuildGizmoPlugin.SCALE_HANDLE_OFFSET + i
 	return -1
 
 
@@ -712,7 +843,7 @@ func _do_send_editor_tool_shortcut(keycode: Key) -> void:
 
 ## Handle a left-mouse-button release.
 ## If a handle drag was active  → commit it.
-## If a handle was pressed but no drag threshold → treat as element-pick fallback.
+## If a handle was pressed but no drag threshold → no-op (handle click does not pick geometry).
 ## If box-select was active    → finish it.
 ## If box-select started but no drag threshold → delegate to point-pick.
 func _handle_mouse_release(camera: Camera3D, mb: InputEventMouseButton) -> int:
@@ -724,13 +855,12 @@ func _handle_mouse_release(camera: Camera3D, mb: InputEventMouseButton) -> int:
 		if _edited_node:
 			_edited_node.update_gizmos()
 		return 1
-	# ── Handle press without drag → element pick ──────────────────────────────
+	# ── Handle press without drag → no-op ────────────────────────────────────
+	# Design decision: clicking a transform handle without dragging does not
+	# select geometry.  The event is consumed with no mesh or selection change.
 	if _pressed_handle_id != -1:
-		var press_pos: Vector2 = _handle_press_pos
 		_pressed_handle_id = -1
-		# Fall through to element picking so a click near a handle can still
-		# select an element that happens to be close to the gizmo.
-		return _handle_pick(camera, press_pos, mb.shift_pressed, mb.ctrl_pressed)
+		return 1
 	# ── Box-select ────────────────────────────────────────────────────────────
 	if not _box_select_started:
 		return 0
@@ -775,6 +905,8 @@ func _handle_mouse_motion(camera: Camera3D, mm: InputEventMouseMotion) -> int:
 		return 1  # Still consuming during the ramp-up window
 	# ── Box-select ────────────────────────────────────────────────────────────
 	if not _box_select_started:
+		# Idle motion — update handle hover highlight state.
+		_update_hover(camera, mm.position)
 		return 0
 	_box_select_current = mm.position
 	if not _box_select_active:
@@ -860,4 +992,39 @@ func _cancel_box_select() -> void:
 	if _edited_node:
 		_edited_node.update_gizmos()
 	update_overlays()
+
+
+# ---------------------------------------------------------------------------
+# Hover tracking (TODO F)
+# ---------------------------------------------------------------------------
+
+## Update the hovered-handle state from [param pos] during idle mouse motion.
+##
+## Calls [method _find_hovered_handle_id] and writes the result to
+## [member GoBuildGizmoPlugin._hovered_handle_id].  When the value changes a
+## deferred gizmo redraw is scheduled so the highlight appears at end-of-frame
+## without triggering a per-event [method GoBuildGizmo._redraw].
+## No-op when [member _gizmo_plugin] or [member _edited_node] is null.
+func _update_hover(camera: Camera3D, pos: Vector2) -> void:
+	if _gizmo_plugin == null:
+		return
+	var new_hover: int = _find_hovered_handle_id(camera, pos)
+	if new_hover != _gizmo_plugin._hovered_handle_id:
+		_gizmo_plugin._hovered_handle_id = new_hover
+		if _edited_node != null:
+			_gizmo_plugin.schedule_gizmo_redraw(_edited_node)
+
+
+## Clear the hovered-handle state and schedule a gizmo redraw if needed.
+##
+## Called on mode change, node deselect, and node removal so a stale hover
+## highlight is never left visible after the handles themselves disappear.
+func _clear_hover() -> void:
+	if _gizmo_plugin == null:
+		return
+	if _gizmo_plugin._hovered_handle_id == -1:
+		return
+	_gizmo_plugin._hovered_handle_id = -1
+	if _edited_node != null:
+		_gizmo_plugin.schedule_gizmo_redraw(_edited_node)
 

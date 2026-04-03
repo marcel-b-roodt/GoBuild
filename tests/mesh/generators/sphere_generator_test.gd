@@ -8,15 +8,15 @@ extends GdUnitTestSuite
 
 func test_sphere_face_count() -> void:
 	# rings=4, segments=8:
-	# lateral: (rings-2) × segments = 2 × 8 = 16
-	# south cap: segments = 8
-	# north cap: segments = 8
-	# total: 32
+	# lateral quads: (rings-2) × segments = 2 × 8 = 16  (rows 2..rings-1)
+	# south cap triangles: segments = 8                  (row 0 → row 1)
+	# north cap triangles: segments = 8                  (row rings-1 → row rings)
+	# total: rings × segments = 4 × 8 = 32
 	assert_int(SphereGenerator.generate(0.5, 4, 8).faces.size()).is_equal(32)
 
 
 func test_sphere_minimal_rings_face_count() -> void:
-	# rings=2, segments=6: 0 lateral rings + 6 south + 6 north = 12
+	# rings=2, segments=6: 0 lateral rows + 6 south + 6 north = 12
 	assert_int(SphereGenerator.generate(0.5, 2, 6).faces.size()).is_equal(12)
 
 

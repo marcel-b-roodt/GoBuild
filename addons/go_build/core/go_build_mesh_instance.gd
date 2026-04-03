@@ -97,11 +97,18 @@ func apply_operation(
 func _do_operation(operation: Callable) -> void:
 	operation.call()
 	bake()
+	update_gizmos()
 
 
 ## Restore the mesh from [param snapshot] and rebake.
 ## Called by the undo/redo system; also callable directly for programmatic revert.
+##
+## Calls [method Node3D.update_gizmos] so the selection-highlight gizmo overlay
+## is refreshed to match the restored vertex positions.  Without this call, the
+## gizmo retains the pre-restore (pre-undo/redo) element positions, making
+## selected vertices / edges / faces appear at the wrong location or invisible.
 func restore_and_bake(snapshot: Dictionary) -> void:
 	go_build_mesh.restore_snapshot(snapshot)
 	bake()
+	update_gizmos()
 

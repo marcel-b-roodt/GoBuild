@@ -11,3 +11,9 @@ max-line-length: 100
 # production classes.
 max-public-methods: 60
 
+# GoBuildGizmoPlugin grows legitimately: it owns all gizmo materials, cached
+# meshes, drag-math methods (translate, rotate, plane, scale, viewport-plane),
+# and mesh-builder statics.  1400 lines is a generous ceiling while still
+# catching runaway growth.
+max-file-lines: 1400
+

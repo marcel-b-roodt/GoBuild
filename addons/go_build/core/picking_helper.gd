@@ -36,7 +36,7 @@ const VERTEX_PICK_RADIUS_PX: float = 12.0
 ## MUST mirror [constant GoBuildGizmo.VERTEX_CUBE_HALF] — kept in sync by
 ## convention (see TODO B).  Any change to the draw constant must be
 ## reflected here and vice-versa.
-const VERTEX_CUBE_HALF: float = 0.09
+const VERTEX_CUBE_HALF: float = 0.03
 
 ## Gizmo scale factors — mirror [constant GoBuildGizmoPlugin.GIZMO_SCREEN_FACTOR]
 ## and [constant GoBuildGizmoPlugin.GIZMO_ORTHO_SCALE].  Same sync rule applies.
@@ -44,9 +44,9 @@ const _GIZMO_SCREEN_FACTOR: float = 0.25   # perspective cameras
 const _GIZMO_ORTHO_SCALE:   float = 0.10   # orthographic cameras
 
 ## Multiplier from cube half-size (pixels) to pick radius.
-## sqrt(2) ≈ 1.414 would cover the exact corner; 1.5 adds a small tolerance margin
-## so clicking just outside the visual cube corner still registers.
-const _CUBE_PICK_SCALE: float = 1.5
+## 2.0 gives a pick area ~2× the visual cube's half-extent, keeping click targets
+## comfortable even with the smaller (half-size) solid cubes introduced in TODO-C.
+const _CUBE_PICK_SCALE: float = 2.0
 
 ## Screen-space radius (px) within which an edge line is selectable.
 const EDGE_PICK_RADIUS_PX: float = 8.0

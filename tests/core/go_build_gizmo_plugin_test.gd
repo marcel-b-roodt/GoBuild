@@ -4,6 +4,8 @@
 ## - [method GoBuildGizmoPlugin._get_local_axis]
 ## - [method GoBuildGizmoPlugin._get_handle_name]
 ## - [method GoBuildGizmoPlugin._get_affected_vertex_indices]
+## - [method GoBuildGizmoPlugin.get_selection_local_centroid]
+## - [constant GoBuildGizmoPlugin.TransformMode] existence
 ##
 ## Scene-dependent (deferred to a later scene-runner test):
 ## - [method GoBuildGizmoPlugin._project_to_axis] — requires a live [Camera3D]
@@ -19,6 +21,22 @@ const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh
 const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
+
+
+# ---------------------------------------------------------------------------
+# Suite-level skip: EditorNode3DGizmoPlugin cannot be instantiated headlessly.
+# GdUnit4 reads the 'do_skip' parameter of before() at scan time to decide
+# whether to skip the entire suite.
+# ---------------------------------------------------------------------------
+func before(
+		do_skip := not Engine.is_editor_hint(),
+		skip_reason := "GoBuildGizmoPlugin requires editor context — skipped in headless mode."
+) -> void:
+	# GdUnit4 reads 'do_skip' and 'skip_reason' default values at scan time
+	# to decide whether to skip the entire suite.  The body below is only
+	# reached in editor mode (do_skip=false) and is a harmless no-op.
+	if do_skip:
+		print("[GoBuild test] Skipping gizmo suite: %s" % skip_reason)
 
 
 # ---------------------------------------------------------------------------
@@ -63,23 +81,23 @@ func _make_node_with_quad() -> GoBuildMeshInstance:
 
 func test_axis_0_is_right() -> void:
 	var plugin := _make_plugin()
-	assert_vector3(plugin._get_local_axis(0)).is_equal(Vector3.RIGHT)
+	assert_vector(plugin._get_local_axis(0)).is_equal(Vector3.RIGHT)
 
 
 func test_axis_1_is_up() -> void:
 	var plugin := _make_plugin()
-	assert_vector3(plugin._get_local_axis(1)).is_equal(Vector3.UP)
+	assert_vector(plugin._get_local_axis(1)).is_equal(Vector3.UP)
 
 
 func test_axis_2_is_back() -> void:
 	# Vector3.BACK = (0, 0, 1) — +Z in Godot 4.  See coordinate-system docs.
 	var plugin := _make_plugin()
-	assert_vector3(plugin._get_local_axis(2)).is_equal(Vector3.BACK)
+	assert_vector(plugin._get_local_axis(2)).is_equal(Vector3.BACK)
 
 
 func test_axis_unknown_returns_zero() -> void:
 	var plugin := _make_plugin()
-	assert_vector3(plugin._get_local_axis(99)).is_equal(Vector3.ZERO)
+	assert_vector(plugin._get_local_axis(99)).is_equal(Vector3.ZERO)
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +171,7 @@ func test_ray_plane_hit_perpendicular() -> void:
 		Vector3(0.0, 5.0, 0.0), Vector3(0.0, -1.0, 0.0),
 		Vector3.ZERO, Vector3.UP
 	)
-	assert_vector3(hit).is_equal_approx(Vector3.ZERO, 0.001)
+	assert_vector(hit).is_equal_approx(Vector3.ZERO, Vector3(0.001, 0.001, 0.001))
 
 
 func test_ray_plane_hit_offset_origin() -> void:
@@ -163,7 +181,7 @@ func test_ray_plane_hit_offset_origin() -> void:
 		Vector3(3.0, 5.0, 0.0), Vector3(0.0, -1.0, 0.0),
 		Vector3.ZERO, Vector3.UP
 	)
-	assert_vector3(hit).is_equal_approx(Vector3(3.0, 0.0, 0.0), 0.001)
+	assert_vector(hit).is_equal_approx(Vector3(3.0, 0.0, 0.0), Vector3(0.001, 0.001, 0.001))
 
 
 func test_ray_plane_parallel_returns_inf() -> void:
@@ -273,4 +291,118 @@ func test_affected_indices_null_mesh_returns_empty() -> void:
 
 	var result: Array[int] = plugin._get_affected_vertex_indices(node)
 	assert_array(result).is_empty()
+
+
+# ---------------------------------------------------------------------------
+# _get_handle_name — new handle types (scale, plane, view-plane)
+# ---------------------------------------------------------------------------
+
+func test_handle_name_scale_x() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null, GoBuildGizmoPlugin.SCALE_HANDLE_OFFSET + 0, false
+	)).is_equal("Scale X")
+
+
+func test_handle_name_scale_y() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null, GoBuildGizmoPlugin.SCALE_HANDLE_OFFSET + 1, false
+	)).is_equal("Scale Y")
+
+
+func test_handle_name_scale_z() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null, GoBuildGizmoPlugin.SCALE_HANDLE_OFFSET + 2, false
+	)).is_equal("Scale Z")
+
+
+func test_handle_name_plane_xy() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null, GoBuildGizmoPlugin.PLANE_HANDLE_OFFSET + 0, false
+	)).is_equal("Move XY")
+
+
+func test_handle_name_plane_yz() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null, GoBuildGizmoPlugin.PLANE_HANDLE_OFFSET + 1, false
+	)).is_equal("Move YZ")
+
+
+func test_handle_name_plane_xz() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null, GoBuildGizmoPlugin.PLANE_HANDLE_OFFSET + 2, false
+	)).is_equal("Move XZ")
+
+
+func test_handle_name_view_plane() -> void:
+	var plugin := _make_plugin()
+	assert_str(plugin._get_handle_name(
+		null, GoBuildGizmoPlugin.VIEW_PLANE_HANDLE_ID, false
+	)).is_equal("Move (View Plane)")
+
+
+# ---------------------------------------------------------------------------
+# TransformMode enum
+# ---------------------------------------------------------------------------
+
+func test_transform_mode_default_is_translate() -> void:
+	var plugin := _make_plugin()
+	assert_int(plugin.transform_mode).is_equal(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
+
+
+func test_transform_mode_enum_values() -> void:
+	assert_int(GoBuildGizmoPlugin.TransformMode.TRANSLATE).is_equal(0)
+	assert_int(GoBuildGizmoPlugin.TransformMode.ROTATE).is_equal(1)
+	assert_int(GoBuildGizmoPlugin.TransformMode.SCALE).is_equal(2)
+
+
+# ---------------------------------------------------------------------------
+# get_selection_local_centroid
+# ---------------------------------------------------------------------------
+
+func test_centroid_vertex_mode_single_vertex() -> void:
+	var plugin := _make_plugin()
+	var node   := _make_node_with_quad()
+	node.selection.set_mode(SelectionManager.Mode.VERTEX)
+	node.selection.select_vertex(0)
+	# Vertex 0 of the quad mesh is at (0,0,0).
+	var lc: Vector3 = plugin.get_selection_local_centroid(node)
+	assert_vector(lc).is_equal_approx(Vector3(0.0, 0.0, 0.0), Vector3(0.001, 0.001, 0.001))
+
+
+func test_centroid_vertex_mode_two_vertices() -> void:
+	var plugin := _make_plugin()
+	var node   := _make_node_with_quad()
+	node.selection.set_mode(SelectionManager.Mode.VERTEX)
+	node.selection.select_vertex(0)  # (0,0,0)
+	node.selection.select_vertex(1)  # (1,0,0)
+	var lc: Vector3 = plugin.get_selection_local_centroid(node)
+	assert_vector(lc).is_equal_approx(Vector3(0.5, 0.0, 0.0), Vector3(0.001, 0.001, 0.001))
+
+
+func test_centroid_empty_returns_zero() -> void:
+	var plugin := _make_plugin()
+	var node   := _make_node_with_quad()
+	node.selection.set_mode(SelectionManager.Mode.VERTEX)
+	# No selection.
+	var lc: Vector3 = plugin.get_selection_local_centroid(node)
+	assert_vector(lc).is_equal(Vector3.ZERO)
+
+
+# ---------------------------------------------------------------------------
+# _get_snap_step — static helper
+# ---------------------------------------------------------------------------
+
+func test_snap_step_non_editor_returns_one() -> void:
+	# Outside the editor hint context, _get_snap_step must return 1.0.
+	if Engine.is_editor_hint():
+		pass  # Can't test this path from inside the editor.
+	else:
+		assert_float(GoBuildGizmoPlugin._get_snap_step()).is_equal(1.0)
+
 

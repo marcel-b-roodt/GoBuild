@@ -45,8 +45,10 @@ static func generate(
 			var z: float = -sin(theta) * r
 			mesh.vertices.append(Vector3(x, y, z))
 
-	# ── Lateral quad rings (rows 1 .. rings-1) ───────────────────────────
-	for row in range(1, rings):
+	# ── Lateral quad rings (rows 2 .. rings-1) ───────────────────────────
+	# Rows 0→1 are covered by the south pole cap triangles.
+	# Rows (rings-1)→rings are covered by the north pole cap triangles.
+	for row in range(2, rings):
 		for col in range(segments):
 			var i00: int = (row - 1) * (segments + 1) + col
 			var i10: int = (row - 1) * (segments + 1) + col + 1

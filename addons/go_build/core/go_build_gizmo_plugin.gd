@@ -6,6 +6,11 @@
 class_name GoBuildGizmoPlugin
 extends EditorNode3DGizmoPlugin
 
+## Transform mode enum — controls which handles are drawn and which drag is applied.
+## Switched by W (Translate), E (Rotate), R (Scale) intercepted in plugin.gd.
+## Declared before all const to satisfy gdlint class-definitions-order (enum < const).
+enum TransformMode { TRANSLATE = 0, ROTATE = 1, SCALE = 2 }
+
 # Self-preloads (dependency order):
 # go_build_gizmo.gd transitively loads the mesh types; explicit preloads here
 # make this file self-sufficient per the self-preload rule.
@@ -36,6 +41,28 @@ const CONE_HEIGHT: float = 0.18
 ## [method _build_unit_cone] is a static method on this class.
 const _CONE_RADIUS:   float = 0.07
 const _CONE_SEGMENTS: int   = 8
+## Must match [constant GoBuildGizmo.SCALE_HANDLE_OFFSET].
+const SCALE_HANDLE_OFFSET:  int   = 3_000_000
+## Must match [constant GoBuildGizmo.PLANE_HANDLE_OFFSET].
+## Planes: 0=XY (normal=Z, blue), 1=YZ (normal=X, red), 2=XZ (normal=Y, green).
+const PLANE_HANDLE_OFFSET:  int   = 4_000_000
+## Must match [constant GoBuildGizmo.VIEW_PLANE_HANDLE_ID].
+const VIEW_PLANE_HANDLE_ID: int   = 5_000_000
+## Offset of each planar-handle square's centre from the selection centroid,
+## along each of its two axes (local mesh units × gizmo scale).
+## Must match [constant GoBuildGizmo.PLANE_INNER_OFFSET].
+const PLANE_INNER_OFFSET: float = 0.25
+## Unit half-size for the canonical plane-quad meshes.
+## Scaled by [code]PLANE_HALF * s[/code] at draw time.
+## Must match [constant GoBuildGizmo.PLANE_HALF].
+const PLANE_HALF: float     = 0.10
+## Unit half-size for the canonical scale-cube mesh.
+## Scaled by [code]SCALE_CUBE_HALF * s[/code] at draw time.
+## Must match [constant GoBuildGizmo.SCALE_CUBE_HALF].
+const SCALE_CUBE_HALF: float = 0.07
+## Unit half-size for the viewport-plane drag-handle quad.
+## Must match [constant GoBuildGizmo.VIEW_PLANE_HALF].
+const VIEW_PLANE_HALF: float = 0.07
 
 ## Scale factor for perspective cameras.
 ## Calibrated so that the base sizes (ARROW_LENGTH = 0.8 etc.) look correct
@@ -75,6 +102,29 @@ var mat_axis_z:          StandardMaterial3D
 var mat_cone_x:          StandardMaterial3D
 var mat_cone_y:          StandardMaterial3D
 var mat_cone_z:          StandardMaterial3D
+## Hover highlight materials — white, render_priority = 4, applied when the
+## cursor is over a handle.  Read by [GoBuildGizmo._draw_transform_handles]
+## via [method Object.get].
+var mat_handle_hover_line: StandardMaterial3D
+var mat_handle_hover_dot:  StandardMaterial3D
+var mat_handle_hover_cone: StandardMaterial3D
+## Semi-transparent planar-handle fill materials.
+## [code]mat_plane_x[/code] = YZ plane (normal=X, colour=red).
+## [code]mat_plane_y[/code] = XZ plane (normal=Y, colour=green).
+## [code]mat_plane_z[/code] = XY plane (normal=Z, colour=blue).
+var mat_plane_x: StandardMaterial3D
+var mat_plane_y: StandardMaterial3D
+var mat_plane_z: StandardMaterial3D
+## Semi-transparent fill material for the viewport-plane drag handle (white/grey).
+var mat_view_plane: StandardMaterial3D
+## Solid mesh material for selected-edge ribbon quads (flat quad per edge).
+## Used instead of add_lines for selected edges to achieve a visually thicker
+## appearance; Godot 4 / Vulkan does not support line width > 1 px via add_lines.
+var mat_edge_selected_ribbon: StandardMaterial3D
+
+## Active transform mode.  Defaults to TRANSLATE on plugin load.
+## Written by plugin.gd when W/E/R is pressed; read by GoBuildGizmo via Object.get().
+var transform_mode: TransformMode = TransformMode.TRANSLATE
 
 ## Cached unit-scale cone meshes — built once in [method setup] and reused by
 ## every [GoBuildGizmo._redraw] call via [method EditorNode3DGizmo.add_mesh]
@@ -85,6 +135,23 @@ var mat_cone_z:          StandardMaterial3D
 var cone_mesh_x: ArrayMesh
 var cone_mesh_y: ArrayMesh
 var cone_mesh_z: ArrayMesh
+
+## Canonical plane-quad meshes (unit half-size = 1.0) — built once in [method setup].
+## Each quad lies in the named plane (XY, YZ, XZ).  Scaled and positioned at draw time
+## via [Transform3D] in [GoBuildGizmo._draw_plane_handles].
+## Shared by the view-plane handle (which reuses the XY orientation).
+var plane_quad_mesh_xy: ArrayMesh
+var plane_quad_mesh_yz: ArrayMesh
+var plane_quad_mesh_xz: ArrayMesh
+## Canonical unit-half-size (1.0) axis-aligned solid cube mesh for scale handles.
+## A single shared mesh — positioned and scaled per-axis at draw time.
+var scale_cube_mesh: ArrayMesh
+
+## Currently hovered transform handle ID, or [code]-1[/code] when no handle is
+## under the cursor.  Written by [code]plugin.gd[/code] via [method _update_hover]
+## during idle mouse motion; read by [GoBuildGizmo._draw_transform_handles] via
+## [method Object.get] to select the hover highlight materials for that handle.
+var _hovered_handle_id: int = -1
 
 var _editor_plugin: EditorPlugin = null
 
@@ -134,11 +201,13 @@ func setup(plugin: EditorPlugin) -> void:
 	# on top of the mesh surface.  Without this the vertex cubes and edge lines
 	# are z-fighting with (or occluded by) the opaque mesh geometry — the vertex
 	# positions are exactly ON the surface, so depth-testing makes them invisible.
-	mat_edge_normal     = _line_mat_nodepth(COLOR_UNSELECTED)
+	mat_edge_normal     = _line_mat_nodepth(Color(0.05, 0.05, 0.05, 1.0))   # near-black
 	mat_edge_selected   = _line_mat_nodepth(COLOR_SELECTED)
 	mat_edge_context    = _line_mat_nodepth(Color(0.4, 0.4, 0.4, 1.0))   # dimmer: context only
-	mat_vertex_normal   = _line_mat_nodepth(COLOR_UNSELECTED)
-	mat_vertex_selected = _line_mat_nodepth(COLOR_SELECTED)
+	# Vertex handles are now solid filled cubes — use _cone_mat (solid, no_depth_test,
+	# double-sided) instead of _line_mat_nodepth.  Near-black for unselected, orange for selected.
+	mat_vertex_normal   = _cone_mat(Color(0.05, 0.05, 0.05, 1.0))
+	mat_vertex_selected = _cone_mat(COLOR_SELECTED)
 	mat_face_normal     = _point_mat(COLOR_FACE_HINT)
 	mat_face_selected   = _point_mat(COLOR_SELECTED)
 	mat_face_fill       = _face_fill_mat()
@@ -157,6 +226,28 @@ func setup(plugin: EditorPlugin) -> void:
 	cone_mesh_x = _build_unit_cone(Vector3.RIGHT)
 	cone_mesh_y = _build_unit_cone(Vector3.UP)
 	cone_mesh_z = _build_unit_cone(Vector3.BACK)
+	# Hover highlight materials — white, render_priority = 4 so they draw on
+	# top of the normal axis-colour materials (priorities 2–3).
+	mat_handle_hover_line = _line_mat_nodepth(Color.WHITE)
+	mat_handle_hover_line.render_priority = 4
+	mat_handle_hover_dot  = _point_mat(Color.WHITE)
+	mat_handle_hover_dot.render_priority  = 4
+	mat_handle_hover_cone = _cone_mat(Color.WHITE)
+	mat_handle_hover_cone.render_priority = 4
+	# Planar-handle fill materials — semi-transparent axis colours.
+	mat_plane_x   = _plane_mat(COLOR_AXIS_X)
+	mat_plane_y   = _plane_mat(COLOR_AXIS_Y)
+	mat_plane_z   = _plane_mat(COLOR_AXIS_Z)
+	mat_view_plane = _plane_mat(Color(0.9, 0.9, 0.9, 0.5))
+	# Selected-edge ribbon material — solid orange, same as vertex/face selected colour.
+	# Used for flat quad ribbons that give selected edges a visually thicker appearance.
+	mat_edge_selected_ribbon = _cone_mat(COLOR_SELECTED)
+	# Planar quad meshes (unit half-size 1.0 — scale at draw time by PLANE_HALF * s).
+	plane_quad_mesh_xy = _build_plane_quad_mesh(Vector3.RIGHT, Vector3.UP)   # XY plane
+	plane_quad_mesh_yz = _build_plane_quad_mesh(Vector3.UP, Vector3.BACK)    # YZ plane
+	plane_quad_mesh_xz = _build_plane_quad_mesh(Vector3.RIGHT, Vector3.BACK) # XZ plane
+	# Scale cube mesh (unit half-size 1.0 — scale at draw time by SCALE_CUBE_HALF * s).
+	scale_cube_mesh = _build_scale_cube_mesh()
 
 
 func _get_name() -> String:
@@ -228,14 +319,25 @@ func _get_handle_name(
 		handle_id: int,
 		_secondary: bool,
 ) -> String:
-	const MOVE_NAMES = ["Move X",   "Move Y",   "Move Z"]
-	const ROT_NAMES  = ["Rotate X", "Rotate Y", "Rotate Z"]
+	if handle_id >= VIEW_PLANE_HANDLE_ID:
+		return "Move (View Plane)" if handle_id == VIEW_PLANE_HANDLE_ID else ""
+	var idx: int
+	if handle_id >= PLANE_HANDLE_OFFSET:
+		idx = handle_id - PLANE_HANDLE_OFFSET
+		const PLANE_NAMES = ["Move XY", "Move YZ", "Move XZ"]
+		return PLANE_NAMES[idx] if idx < 3 else ""
+	if handle_id >= SCALE_HANDLE_OFFSET:
+		idx = handle_id - SCALE_HANDLE_OFFSET
+		const SCALE_NAMES = ["Scale X", "Scale Y", "Scale Z"]
+		return SCALE_NAMES[idx] if idx < 3 else ""
 	if handle_id >= ROT_HANDLE_OFFSET:
-		var rot_idx: int = handle_id - ROT_HANDLE_OFFSET
-		return ROT_NAMES[rot_idx] if rot_idx < 3 else ""
-	var move_idx: int = handle_id - AXIS_HANDLE_OFFSET
-	if move_idx >= 0 and move_idx < 3:
-		return MOVE_NAMES[move_idx]
+		idx = handle_id - ROT_HANDLE_OFFSET
+		const ROT_NAMES = ["Rotate X", "Rotate Y", "Rotate Z"]
+		return ROT_NAMES[idx] if idx < 3 else ""
+	idx = handle_id - AXIS_HANDLE_OFFSET
+	if idx >= 0 and idx < 3:
+		const MOVE_NAMES = ["Move X", "Move Y", "Move Z"]
+		return MOVE_NAMES[idx]
 	return ""
 
 
@@ -265,7 +367,7 @@ func _get_handle_value(
 		_drag_initial_verts[idx] = node.go_build_mesh.vertices[idx]
 
 	# For rotate drags, pre-compute the world axis so _set_handle can use it.
-	if handle_id >= ROT_HANDLE_OFFSET:
+	if handle_id >= ROT_HANDLE_OFFSET and handle_id < SCALE_HANDLE_OFFSET:
 		var local_axis: Vector3 = _get_local_axis(handle_id - ROT_HANDLE_OFFSET)
 		_drag_world_axis = (node.global_transform.basis * local_axis).normalized()
 
@@ -297,7 +399,13 @@ func _set_handle(
 	if node == null:
 		return
 
-	if handle_id >= ROT_HANDLE_OFFSET:
+	if handle_id >= VIEW_PLANE_HANDLE_ID:
+		_apply_viewport_plane_drag(node, camera, screen_pos)
+	elif handle_id >= PLANE_HANDLE_OFFSET:
+		_apply_plane_drag(node, handle_id - PLANE_HANDLE_OFFSET, camera, screen_pos)
+	elif handle_id >= SCALE_HANDLE_OFFSET:
+		_apply_scale_drag(node, handle_id - SCALE_HANDLE_OFFSET, camera, screen_pos)
+	elif handle_id >= ROT_HANDLE_OFFSET:
 		_apply_rotate_drag(node, handle_id - ROT_HANDLE_OFFSET, camera, screen_pos)
 	else:
 		_apply_translate_drag(node, handle_id - AXIS_HANDLE_OFFSET, camera, screen_pos)
@@ -340,8 +448,7 @@ func _commit_handle(
 		node.bake()   # ensure final dragged state is visible before snapshot
 		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
 		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
-		var action_name: String = \
-				"Rotate Elements" if handle_id >= ROT_HANDLE_OFFSET else "Move Elements"
+		var action_name: String = _drag_action_name(handle_id)
 		ur.create_action(action_name)
 		ur.add_do_method(node, "restore_and_bake", snapshot_after)
 		ur.add_undo_method(node, "restore_and_bake", restore as Dictionary)
@@ -463,7 +570,7 @@ func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
 	for idx: int in affected:
 		_drag_initial_verts[idx] = node.go_build_mesh.vertices[idx]
 
-	if handle_id >= ROT_HANDLE_OFFSET:
+	if handle_id >= ROT_HANDLE_OFFSET and handle_id < SCALE_HANDLE_OFFSET:
 		var local_axis: Vector3 = _get_local_axis(handle_id - ROT_HANDLE_OFFSET)
 		_drag_world_axis = (node.global_transform.basis * local_axis).normalized()
 
@@ -489,7 +596,13 @@ func update_drag(
 		return
 	if node == null:
 		return
-	if handle_id >= ROT_HANDLE_OFFSET:
+	if handle_id >= VIEW_PLANE_HANDLE_ID:
+		_apply_viewport_plane_drag(node, camera, screen_pos)
+	elif handle_id >= PLANE_HANDLE_OFFSET:
+		_apply_plane_drag(node, handle_id - PLANE_HANDLE_OFFSET, camera, screen_pos)
+	elif handle_id >= SCALE_HANDLE_OFFSET:
+		_apply_scale_drag(node, handle_id - SCALE_HANDLE_OFFSET, camera, screen_pos)
+	elif handle_id >= ROT_HANDLE_OFFSET:
 		_apply_rotate_drag(node, handle_id - ROT_HANDLE_OFFSET, camera, screen_pos)
 	else:
 		_apply_translate_drag(node, handle_id - AXIS_HANDLE_OFFSET, camera, screen_pos)
@@ -521,8 +634,7 @@ func commit_drag(node: GoBuildMeshInstance, handle_id: int, cancel: bool) -> voi
 		node.bake()
 		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
 		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
-		var action_name: String = \
-				"Rotate Elements" if handle_id >= ROT_HANDLE_OFFSET else "Move Elements"
+		var action_name: String = _drag_action_name(handle_id)
 		ur.create_action(action_name)
 		ur.add_do_method(node, "restore_and_bake", snapshot_after)
 		ur.add_undo_method(node, "restore_and_bake", _drag_restore)
@@ -635,6 +747,7 @@ func _get_local_axis(axis_idx: int) -> Vector3:
 
 
 ## Apply a translate drag along axis [param axis_idx] to all cached vertices.
+## When Ctrl is held, snaps the scalar travel distance to [method _get_snap_step].
 func _apply_translate_drag(
 		node: GoBuildMeshInstance,
 		axis_idx: int,
@@ -652,7 +765,10 @@ func _apply_translate_drag(
 	if _drag_initial_t == INF:
 		_drag_initial_t = t_now
 
-	var delta_world: Vector3 = world_axis * (t_now - _drag_initial_t)
+	var t_delta: float = t_now - _drag_initial_t
+	if Input.is_key_pressed(KEY_CTRL):
+		t_delta = snappedf(t_delta, _get_snap_step())
+	var delta_world: Vector3 = world_axis * t_delta
 	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
 
 	for idx: int in _drag_initial_verts:
@@ -703,6 +819,167 @@ func _apply_rotate_drag(
 
 	# Defer bake — same throttle as _apply_translate_drag.
 	_schedule_bake(node)
+
+
+## Apply a planar drag for [param plane_idx] (0=XY, 1=YZ, 2=XZ) to all cached
+## vertices.  Projects the mouse ray onto the world-space plane that passes through
+## the selection centroid with the matching local normal axis, then translates
+## vertices by the delta from the first-frame hit point.
+## [b]Ctrl held[/b] snaps each component of the world-space delta to the editor
+## grid step via [method _get_snap_step].
+func _apply_plane_drag(
+		node: GoBuildMeshInstance,
+		plane_idx: int,
+		camera: Camera3D,
+		screen_pos: Vector2,
+) -> void:
+	# Plane normals: XY=Z, YZ=X, XZ=Y.
+	var local_normals: Array[Vector3] = [Vector3.BACK, Vector3.RIGHT, Vector3.UP]
+	var local_normal: Vector3  = local_normals[plane_idx]
+	var gbm: GoBuildMesh       = node.go_build_mesh
+	var local_centroid: Vector3 = _compute_drag_centroid()
+	var world_centroid: Vector3 = node.global_transform * local_centroid
+	var world_normal: Vector3  = (node.global_transform.basis * local_normal).normalized()
+
+	# First frame: record the initial intersection as the drag origin.
+	if _drag_initial_t == INF:
+		var hit0: Vector3 = _project_to_rotation_plane(camera, screen_pos, world_centroid, world_normal)
+		if hit0 == Vector3.INF:
+			return
+		_drag_start_dir = hit0   # reuse _drag_start_dir as the initial world-space hit
+		_drag_initial_t = 0.0
+		return
+
+	var hit: Vector3 = _project_to_rotation_plane(camera, screen_pos, world_centroid, world_normal)
+	if hit == Vector3.INF:
+		return
+
+	var delta_world: Vector3 = hit - _drag_start_dir
+	if Input.is_key_pressed(KEY_CTRL):
+		delta_world = delta_world.snapped(Vector3.ONE * _get_snap_step())
+	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
+	for idx: int in _drag_initial_verts:
+		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+	_schedule_bake(node)
+
+
+## Apply a per-axis scale drag for [param axis_idx] to all cached vertices.
+## Projects the mouse ray onto the axis, computes a scale ratio from the initial
+## projection, and scales the per-axis displacement of each vertex from the centroid.
+func _apply_scale_drag(
+		node: GoBuildMeshInstance,
+		axis_idx: int,
+		camera: Camera3D,
+		screen_pos: Vector2,
+) -> void:
+	var local_axis: Vector3  = _get_local_axis(axis_idx)
+	var gbm: GoBuildMesh     = node.go_build_mesh
+	var local_centroid: Vector3 = _compute_drag_centroid()
+	var world_centroid: Vector3 = node.global_transform * local_centroid
+	var world_axis: Vector3  = (node.global_transform.basis * local_axis).normalized()
+
+	var t_now: float = _project_to_axis(camera, screen_pos, world_centroid, world_axis)
+	if _drag_initial_t == INF:
+		_drag_initial_t = t_now
+	if abs(_drag_initial_t) < 1e-5:
+		return   # Avoid division by zero when dragging at the centroid.
+
+	var scale_ratio: float = t_now / _drag_initial_t
+	for idx: int in _drag_initial_verts:
+		var local_pos: Vector3 = _drag_initial_verts[idx] - local_centroid
+		# Scale only the component along the dragged axis; keep perpendicular unchanged.
+		var along: float   = local_pos.dot(local_axis)
+		var perp: Vector3  = local_pos - local_axis * along
+		gbm.vertices[idx]  = local_centroid + perp + local_axis * along * scale_ratio
+	_schedule_bake(node)
+
+
+## Apply a viewport-plane drag to all cached vertices.
+## On the first call, records the camera forward vector as the plane normal and
+## the initial mouse-plane intersection as the drag origin ([member _drag_start_dir]).
+## Subsequent calls translate the selection by [code]hit - _drag_start_dir[/code].
+## [b]Ctrl held[/b] snaps the world-space delta to the editor grid step.
+func _apply_viewport_plane_drag(
+		node: GoBuildMeshInstance,
+		camera: Camera3D,
+		screen_pos: Vector2,
+) -> void:
+	var gbm: GoBuildMesh        = node.go_build_mesh
+	var local_centroid: Vector3 = _compute_drag_centroid()
+	var world_centroid: Vector3 = node.global_transform * local_centroid
+
+	# First frame: capture camera-forward as plane normal + record initial hit.
+	if _drag_initial_t == INF:
+		_drag_world_axis = -camera.global_transform.basis.z   # camera forward = -Z
+		var hit0: Vector3 = _project_to_rotation_plane(
+				camera, screen_pos, world_centroid, _drag_world_axis)
+		if hit0 == Vector3.INF:
+			return
+		_drag_start_dir = hit0
+		_drag_initial_t = 0.0
+		return
+
+	var hit: Vector3 = _project_to_rotation_plane(
+			camera, screen_pos, world_centroid, _drag_world_axis)
+	if hit == Vector3.INF:
+		return
+
+	var delta_world: Vector3 = hit - _drag_start_dir
+	if Input.is_key_pressed(KEY_CTRL):
+		delta_world = delta_world.snapped(Vector3.ONE * _get_snap_step())
+	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
+	for idx: int in _drag_initial_verts:
+		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+	_schedule_bake(node)
+
+
+## Return the undo/redo action name for [param handle_id].
+func _drag_action_name(handle_id: int) -> String:
+	if handle_id >= SCALE_HANDLE_OFFSET and handle_id < PLANE_HANDLE_OFFSET:
+		return "Scale Elements"
+	if handle_id >= ROT_HANDLE_OFFSET and handle_id < SCALE_HANDLE_OFFSET:
+		return "Rotate Elements"
+	return "Move Elements"
+
+
+## Return the grid-snap step from EditorSettings ([code]editors/3d/grid_step[/code]).
+## Falls back to [code]1.0[/code] if the key is absent or the editor is not running.
+static func _get_snap_step() -> float:
+	if not Engine.is_editor_hint():
+		return 1.0
+	var es: EditorSettings = EditorInterface.get_editor_settings()
+	if es.has_setting("editors/3d/grid_step"):
+		return maxf(float(es.get_setting("editors/3d/grid_step")), 0.001)
+	return 1.0
+
+
+## Return the local-space centroid of the current selection on [param node].
+## Returns [code]Vector3.ZERO[/code] when the selection is empty or no mesh exists.
+## Used by [code]plugin.gd[/code] to compute planar-handle pick positions without
+## duplicating the centroid calculation.
+func get_selection_local_centroid(node: GoBuildMeshInstance) -> Vector3:
+	var sel: SelectionManager = node.selection
+	var gbm: GoBuildMesh = node.go_build_mesh
+	if gbm == null or sel.is_empty():
+		return Vector3.ZERO
+	var sum := Vector3.ZERO
+	var count := 0
+	match sel.get_mode():
+		SelectionManager.Mode.VERTEX:
+			for idx: int in sel.get_selected_vertices():
+				sum += gbm.vertices[idx]
+				count += 1
+		SelectionManager.Mode.EDGE:
+			for eidx: int in sel.get_selected_edges():
+				var edge: GoBuildEdge = gbm.edges[eidx]
+				sum += gbm.vertices[edge.vertex_a] + gbm.vertices[edge.vertex_b]
+				count += 2
+		SelectionManager.Mode.FACE:
+			for fidx: int in sel.get_selected_faces():
+				for vidx: int in gbm.faces[fidx].vertex_indices:
+					sum += gbm.vertices[vidx]
+					count += 1
+	return sum / count if count > 0 else Vector3.ZERO
 
 
 ## Return the arithmetic mean of the cached initial vertex positions.
@@ -920,3 +1197,66 @@ func _cone_mat(color: Color) -> StandardMaterial3D:
 	mat.no_depth_test   = true
 	mat.render_priority = 2
 	return mat
+
+
+## Create a semi-transparent filled material for planar drag handles.
+## Double-sided so the square is visible from both sides.  Alpha = 40 % so
+## the mesh geometry shows through and the square reads as a drag zone.
+func _plane_mat(color: Color) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode    = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color    = Color(color.r, color.g, color.b, 0.4)
+	mat.transparency    = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode       = BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test   = true
+	mat.render_priority = 3
+	return mat
+
+
+## Build a canonical unit-half-size (corners at ±1) quad mesh in the plane
+## defined by unit vectors [param u] and [param v].
+## Scale and position at draw time via [Transform3D].
+static func _build_plane_quad_mesh(u: Vector3, v: Vector3) -> ArrayMesh:
+	var verts := PackedVector3Array([
+		-u - v,  u - v,  u + v,
+		-u - v,  u + v, -u + v,
+	])
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+## Build a canonical unit-half-size (corners at ±1) axis-aligned solid cube mesh.
+## Used for the scale handles.  Scale and position at draw time via [Transform3D].
+static func _build_scale_cube_mesh() -> ArrayMesh:
+	var h: float = 1.0
+	var verts := PackedVector3Array([
+		# +X face
+		Vector3(h,-h,-h), Vector3(h, h,-h), Vector3(h, h, h),
+		Vector3(h,-h,-h), Vector3(h, h, h), Vector3(h,-h, h),
+		# -X face
+		Vector3(-h,-h, h), Vector3(-h, h, h), Vector3(-h, h,-h),
+		Vector3(-h,-h, h), Vector3(-h, h,-h), Vector3(-h,-h,-h),
+		# +Y face
+		Vector3(-h, h,-h), Vector3(-h, h, h), Vector3(h, h, h),
+		Vector3(-h, h,-h), Vector3(h, h, h), Vector3(h, h,-h),
+		# -Y face
+		Vector3(-h,-h, h), Vector3(-h,-h,-h), Vector3(h,-h,-h),
+		Vector3(-h,-h, h), Vector3(h,-h,-h), Vector3(h,-h, h),
+		# +Z face
+		Vector3(-h,-h, h), Vector3(h,-h, h), Vector3(h, h, h),
+		Vector3(-h,-h, h), Vector3(h, h, h), Vector3(-h, h, h),
+		# -Z face
+		Vector3(h,-h,-h), Vector3(-h,-h,-h), Vector3(-h, h,-h),
+		Vector3(h,-h,-h), Vector3(-h, h,-h), Vector3(h, h,-h),
+	])
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+

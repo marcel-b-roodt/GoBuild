@@ -221,17 +221,18 @@ func test_is_empty_false_when_vertex_selected() -> void:
 
 func test_selection_changed_emitted_on_select_vertex() -> void:
 	var sm := _make()
-	var count := 0
-	sm.selection_changed.connect(func(): count += 1)
+	# Use an Array (reference type) so the lambda can mutate it.
+	var fired: Array[bool] = []
+	sm.selection_changed.connect(func(): fired.append(true))
 	sm.select_vertex(1)
-	assert_int(count).is_greater_equal(1)
+	assert_array(fired).has_size(1)
 
 
 func test_selection_changed_emitted_on_clear() -> void:
 	var sm := _make()
-	sm.select_vertex(0)
-	var count := 0
-	sm.selection_changed.connect(func(): count += 1)
+	sm.select_vertex(0)   # set up state
+	var fired: Array[bool] = []
+	sm.selection_changed.connect(func(): fired.append(true))
 	sm.clear()
-	assert_int(count).is_greater_equal(1)
+	assert_array(fired).has_size(1)
 
