@@ -5,6 +5,9 @@ TODO.md
 NearTermTodos.txt
 HighLevelTodos.txt
 
+# ── GdUnit4 test reports (local-only, generated on each test run) ───────
+reports/
+
 # ── Godot ──────────────────────────────────────────────────────────────
 *.stex
 *.texarr
