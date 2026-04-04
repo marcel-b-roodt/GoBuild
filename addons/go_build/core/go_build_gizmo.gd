@@ -62,6 +62,9 @@ const PLANE_HANDLE_OFFSET: int = 4_000_000
 ## Handle ID for the viewport-plane (camera-space) drag handle.
 ## Matches [constant GoBuildGizmoPlugin.VIEW_PLANE_HANDLE_ID].
 const VIEW_PLANE_HANDLE_ID: int = 5_000_000
+## Handle ID for the uniform (all-axis) scale handle at the selection centroid.
+## Matches [constant GoBuildGizmoPlugin.UNIFORM_SCALE_HANDLE_ID].
+const UNIFORM_SCALE_HANDLE_ID: int = 6_000_000
 
 ## Length of each axis arrow in local mesh units.
 ## Public so [GoBuildGizmoPlugin] can compute handle screen positions for hit-testing.
@@ -623,6 +626,15 @@ func _draw_scale_handles(centroid: Vector3, s: float, plugin: EditorNode3DGizmoP
 	add_handles(PackedVector3Array([tip_z]),
 			hover_dot if hov == SCALE_HANDLE_OFFSET + 2 else plugin.get("mat_axis_z"),
 			PackedInt32Array([SCALE_HANDLE_OFFSET + 2]), true)
+
+	# Uniform scale handle — white/grey square at centroid, scales all 3 axes equally.
+	var basis_c := Basis().scaled(Vector3.ONE * VIEW_PLANE_HALF * s)
+	add_mesh(plugin.get("plane_quad_mesh_xy"),
+			hover_cube if hov == UNIFORM_SCALE_HANDLE_ID else plugin.get("mat_view_plane"),
+			Transform3D(basis_c, centroid))
+	add_handles(PackedVector3Array([centroid]),
+			hover_cube if hov == UNIFORM_SCALE_HANDLE_ID else plugin.get("mat_view_plane"),
+			PackedInt32Array([UNIFORM_SCALE_HANDLE_ID]), true)
 
 
 

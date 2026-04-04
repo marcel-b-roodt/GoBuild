@@ -48,6 +48,9 @@ const SCALE_HANDLE_OFFSET:  int   = 3_000_000
 const PLANE_HANDLE_OFFSET:  int   = 4_000_000
 ## Must match [constant GoBuildGizmo.VIEW_PLANE_HANDLE_ID].
 const VIEW_PLANE_HANDLE_ID: int   = 5_000_000
+## Centre handle for uniform (all-axis) scale.
+## Must match [constant GoBuildGizmo.UNIFORM_SCALE_HANDLE_ID].
+const UNIFORM_SCALE_HANDLE_ID: int = 6_000_000
 ## Offset of each planar-handle square's centre from the selection centroid,
 ## along each of its two axes (local mesh units × gizmo scale).
 ## Must match [constant GoBuildGizmo.PLANE_INNER_OFFSET].
@@ -147,6 +150,13 @@ var plane_quad_mesh_xz: ArrayMesh
 ## A single shared mesh — positioned and scaled per-axis at draw time.
 var scale_cube_mesh: ArrayMesh
 
+## Ctrl-snap step override (toolbar); -1.0 = use editor grid step.
+var snap_step_override: float = -1.0
+## Ctrl-snap step for rotation (degrees). Default 15°.
+var rot_snap_override: float = 15.0
+## Ctrl-snap step for scale ratio. Default 0.1 (snaps to 0.1, 0.2, 0.3 …).
+var scale_snap_override: float = 0.1
+
 ## Currently hovered transform handle ID, or [code]-1[/code] when no handle is
 ## under the cursor.  Written by [code]plugin.gd[/code] via [method _update_hover]
 ## during idle mouse motion; read by [GoBuildGizmo._draw_transform_handles] via
@@ -168,6 +178,17 @@ var _drag_start_dir: Vector3 = Vector3.ZERO
 var _drag_world_axis: Vector3 = Vector3.ZERO
 ## Full mesh snapshot taken at the start of a drag — used for cancel / undo.
 var _drag_restore: Dictionary = {}
+## Optional action-name override.  When non-empty, commit_drag / _commit_handle
+## use this string instead of _drag_action_name(handle_id).  Lets callers that
+## perform a pre-operation (e.g. Extrude) before the drag label the combined
+## undo step correctly.  Cleared by reset_drag_state.
+var _drag_action_name_override: String = ""
+## When true, update_drag routes to _apply_inset_drag regardless of handle_id.
+## Set by begin_inset_drag; cleared by reset_drag_state.
+var _inset_mode: bool = false
+## Maps inner-ring vertex index → local-space face centroid.
+## Populated by begin_inset_drag via InsetOperation.apply; cleared by reset_drag_state.
+var _inset_centroids: Dictionary = {}
 
 ## Deferred-bake state ─────────────────────────────────────────────────────
 ## During a drag, InputEventMouseMotion can fire many times per engine frame.
@@ -248,7 +269,6 @@ func setup(plugin: EditorPlugin) -> void:
 	plane_quad_mesh_xz = _build_plane_quad_mesh(Vector3.RIGHT, Vector3.BACK) # XZ plane
 	# Scale cube mesh (unit half-size 1.0 — scale at draw time by SCALE_CUBE_HALF * s).
 	scale_cube_mesh = _build_scale_cube_mesh()
-
 
 func _get_name() -> String:
 	return "GoBuildMeshInstance"
@@ -399,7 +419,9 @@ func _set_handle(
 	if node == null:
 		return
 
-	if handle_id >= VIEW_PLANE_HANDLE_ID:
+	if handle_id >= UNIFORM_SCALE_HANDLE_ID:
+		_apply_uniform_scale_drag(node, camera, screen_pos)
+	elif handle_id >= VIEW_PLANE_HANDLE_ID:
 		_apply_viewport_plane_drag(node, camera, screen_pos)
 	elif handle_id >= PLANE_HANDLE_OFFSET:
 		_apply_plane_drag(node, handle_id - PLANE_HANDLE_OFFSET, camera, screen_pos)
@@ -448,7 +470,9 @@ func _commit_handle(
 		node.bake()   # ensure final dragged state is visible before snapshot
 		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
 		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
-		var action_name: String = _drag_action_name(handle_id)
+		var action_name: String = _drag_action_name_override \
+				if not _drag_action_name_override.is_empty() \
+				else _drag_action_name(handle_id)
 		ur.create_action(action_name)
 		ur.add_do_method(node, "restore_and_bake", snapshot_after)
 		ur.add_undo_method(node, "restore_and_bake", restore as Dictionary)
@@ -466,7 +490,10 @@ func reset_drag_state() -> void:
 	_drag_start_dir  = Vector3.ZERO
 	_drag_world_axis = Vector3.ZERO
 	_drag_restore    = {}
+	_drag_action_name_override = ""
 	_drag_vertex_update_mode = false
+	_inset_mode = false
+	_inset_centroids.clear()
 	# Clear deferred-bake state.  Any queued _flush_pending_bake call will
 	# find _bake_pending_node == null and exit without baking.
 	_bake_pending_node = null
@@ -596,7 +623,12 @@ func update_drag(
 		return
 	if node == null:
 		return
-	if handle_id >= VIEW_PLANE_HANDLE_ID:
+	if _inset_mode:
+		_apply_inset_drag(node, camera, screen_pos)
+		return
+	if handle_id >= UNIFORM_SCALE_HANDLE_ID:
+		_apply_uniform_scale_drag(node, camera, screen_pos)
+	elif handle_id >= VIEW_PLANE_HANDLE_ID:
 		_apply_viewport_plane_drag(node, camera, screen_pos)
 	elif handle_id >= PLANE_HANDLE_OFFSET:
 		_apply_plane_drag(node, handle_id - PLANE_HANDLE_OFFSET, camera, screen_pos)
@@ -634,7 +666,9 @@ func commit_drag(node: GoBuildMeshInstance, handle_id: int, cancel: bool) -> voi
 		node.bake()
 		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
 		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
-		var action_name: String = _drag_action_name(handle_id)
+		var action_name: String = _drag_action_name_override \
+				if not _drag_action_name_override.is_empty() \
+				else _drag_action_name(handle_id)
 		ur.create_action(action_name)
 		ur.add_do_method(node, "restore_and_bake", snapshot_after)
 		ur.add_undo_method(node, "restore_and_bake", _drag_restore)
@@ -732,7 +766,6 @@ func compute_node_gizmo_scale(node: GoBuildMeshInstance) -> float:
 	return compute_world_gizmo_scale(node.global_position)
 
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -828,6 +861,8 @@ func _apply_rotate_drag(
 
 	# delta_angle is signed: positive = CCW around the world axis.
 	var delta_angle: float = _drag_start_dir.signed_angle_to(dir, _drag_world_axis)
+	if Input.is_key_pressed(KEY_CTRL):
+		delta_angle = snappedf(delta_angle, deg_to_rad(rot_snap_override))
 
 	for idx: int in _drag_initial_verts:
 		var local_pos: Vector3 = _drag_initial_verts[idx] - local_centroid
@@ -918,6 +953,8 @@ func _apply_scale_drag(
 		return   # Avoid division by zero when dragging at the centroid.
 
 	var scale_ratio: float = t_now / _drag_initial_t
+	if Input.is_key_pressed(KEY_CTRL):
+		scale_ratio = snappedf(scale_ratio, scale_snap_override)
 	for idx: int in _drag_initial_verts:
 		var local_pos: Vector3 = _drag_initial_verts[idx] - local_centroid
 		# Scale only the component along the dragged axis; keep perpendicular unchanged.
@@ -986,6 +1023,8 @@ func _apply_viewport_plane_drag(
 
 ## Return the undo/redo action name for [param handle_id].
 func _drag_action_name(handle_id: int) -> String:
+	if handle_id >= UNIFORM_SCALE_HANDLE_ID:
+		return "Scale Elements (Uniform)"
 	if handle_id >= SCALE_HANDLE_OFFSET and handle_id < PLANE_HANDLE_OFFSET:
 		return "Scale Elements"
 	if handle_id >= ROT_HANDLE_OFFSET and handle_id < SCALE_HANDLE_OFFSET:
@@ -993,11 +1032,118 @@ func _drag_action_name(handle_id: int) -> String:
 	return "Move Elements"
 
 
+## Apply a uniform (all-axis) scale drag. Projects the mouse onto a camera-facing
+## plane through the centroid and scales all vertex offsets by current/initial dist.
+## [b]Ctrl[/b] snaps the ratio to 0.1 increments.
+func _apply_uniform_scale_drag(
+		node: GoBuildMeshInstance, camera: Camera3D, screen_pos: Vector2,
+) -> void:
+	var gbm: GoBuildMesh        = node.go_build_mesh
+	var local_centroid: Vector3 = _compute_drag_centroid()
+	var world_centroid: Vector3 = node.global_transform * local_centroid
+	var cam_forward: Vector3    = -camera.global_transform.basis.z
+	var hit: Vector3 = _ray_plane_intersect(
+			camera.project_ray_origin(screen_pos),
+			camera.project_ray_normal(screen_pos),
+			world_centroid, cam_forward)
+	if hit == Vector3.INF:
+		return
+	var dist: float = hit.distance_to(world_centroid)
+	if _drag_initial_t == INF:
+		if dist < 1e-3:
+			return
+		_drag_initial_t = dist
+		return
+	if _drag_initial_t < 1e-3:
+		return
+	var scale_ratio: float = dist / _drag_initial_t
+	if Input.is_key_pressed(KEY_CTRL):
+		scale_ratio = snappedf(scale_ratio, scale_snap_override)
+	for idx: int in _drag_initial_verts:
+		gbm.vertices[idx] = local_centroid \
+				+ (_drag_initial_verts[idx] - local_centroid) * scale_ratio
+	_schedule_bake(node)
+
+
+## Apply an inset drag to the inner-ring vertices created by [method begin_inset_drag].
+## On the first frame, records the initial screen position via [member _drag_start_dir].
+## Subsequent frames compute an inset amount from the screen-space distance moved
+## and blend each inner vertex from its initial position toward its face centroid.
+## [b]Ctrl[/b] snaps the amount to [member scale_snap_override] increments.
+func _apply_inset_drag(
+		node: GoBuildMeshInstance,
+		_camera: Camera3D,
+		screen_pos: Vector2,
+) -> void:
+	if _drag_initial_t == INF:
+		_drag_start_dir = Vector3(screen_pos.x, screen_pos.y, 0.0)
+		_drag_initial_t = 0.0
+		return
+	var start_screen := Vector2(_drag_start_dir.x, _drag_start_dir.y)
+	var amount: float = start_screen.distance_to(screen_pos) * 0.005
+	amount = clampf(amount, 0.0, 0.99)
+	if Input.is_key_pressed(KEY_CTRL):
+		amount = snappedf(amount, scale_snap_override)
+	var gbm: GoBuildMesh = node.go_build_mesh
+	for idx: int in _drag_initial_verts:
+		if _inset_centroids.has(idx):
+			var init_pos: Vector3 = _drag_initial_verts[idx]
+			var centroid: Vector3 = _inset_centroids[idx]
+			gbm.vertices[idx] = lerp(init_pos, centroid, amount)
+	_schedule_bake(node)
+
+
+## Start an inset drag: initialises inset state then begins a normal drag.
+## [param centroids] maps each inner-ring vertex index to its local face centroid
+## (obtained from [method InsetOperation.apply]).
+## Returns false if [method begin_drag] fails.
+func begin_inset_drag(
+		node: GoBuildMeshInstance,
+		handle_id: int,
+		centroids: Dictionary,
+) -> bool:
+	var started: bool = begin_drag(node, handle_id)
+	if not started:
+		return false
+	_inset_mode     = true
+	_inset_centroids = centroids
+	return true
+
+
+## Start an extrude drag: begins a normal translate drag then restricts
+## [member _drag_initial_verts] to only the extruded cap vertices.
+##
+## [b]Why this is needed:[/b] After [method ExtrudeOperation.apply] at distance 0
+## the new top-ring vertices are coincident with the original base vertices.
+## [method rebuild_coincident_groups] therefore groups them together, and
+## [method begin_drag] via [method _get_affected_vertex_indices] expands the
+## affected set to include both rings. Translating all of them moves both
+## rings by the same delta — no separation, no visible extrusion. Restricting
+## [member _drag_initial_verts] to the cap ensures only the cap moves.
+##
+## [param top_ring_indices] must be the vertex indices for the extruded cap
+## faces [b]after[/b] [method ExtrudeOperation.apply] has replaced them.
+## Returns false if [method begin_drag] fails.
+func begin_extrude_drag(
+		node: GoBuildMeshInstance,
+		handle_id: int,
+		top_ring_indices: Array[int],
+) -> bool:
+	var started: bool = begin_drag(node, handle_id)
+	if not started:
+		return false
+	# Overwrite to cap-only: discard coincident base verts that begin_drag added.
+	_drag_initial_verts.clear()
+	for vidx: int in top_ring_indices:
+		_drag_initial_verts[vidx] = node.go_build_mesh.vertices[vidx]
+	return true
+
+
 ## Return the grid-snap step from EditorSettings ([code]editors/3d/grid_step[/code]).
 ## Falls back to [code]1.0[/code] if the key is absent or the editor is not running.
-static func _get_snap_step() -> float:
-	if not Engine.is_editor_hint():
-		return 1.0
+func _get_snap_step() -> float:
+	if snap_step_override > 0.0: return snap_step_override
+	if not Engine.is_editor_hint(): return 1.0
 	var es: EditorSettings = EditorInterface.get_editor_settings()
 	if es.has_setting("editors/3d/grid_step"):
 		return maxf(float(es.get_setting("editors/3d/grid_step")), 0.001)
@@ -1239,7 +1385,6 @@ func _line_mat(color: Color) -> StandardMaterial3D:
 	mat.render_priority = 1
 	return mat
 
-
 ## Create an unshaded billboard point material rendered on top of geometry.
 func _point_mat(color: Color) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
@@ -1248,7 +1393,6 @@ func _point_mat(color: Color) -> StandardMaterial3D:
 	mat.no_depth_test   = true
 	mat.render_priority = 2
 	return mat
-
 
 ## Create an unshaded line material that ignores depth — always drawn on top.
 ## Used for selected-element highlights so they are never hidden by geometry.
@@ -1273,7 +1417,6 @@ func _face_fill_mat() -> StandardMaterial3D:
 	mat.no_depth_test   = true
 	mat.render_priority = 2
 	return mat
-
 
 ## Create an unshaded solid-cone material.
 ## Double-sided (CULL_DISABLED) so the cone is visible regardless of viewing angle.
@@ -1316,7 +1459,6 @@ static func _build_plane_quad_mesh(u: Vector3, v: Vector3) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
-
 
 ## Build a canonical unit-half-size (corners at ±1) axis-aligned solid cube mesh.
 ## Used for the scale handles.  Scale and position at draw time via [Transform3D].

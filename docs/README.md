@@ -12,6 +12,7 @@
 | [roadmap.md](roadmap.md) | Stage-by-stage feature roadmap toward v1.0 |
 | [feature-registry.md](feature-registry.md) | Live status of every feature (✅ / 🔧 / 📋) |
 | [architecture.md](architecture.md) | Codebase structure and key design decisions |
+| [controls.md](controls.md) | Full keyboard / mouse control scheme (current + planned) |
 
 ---
 
@@ -29,6 +30,7 @@
 ## 🗺 Where to start
 
 - **Using GoBuild?** → [GUIDE.md](../GUIDE.md)
+- **Learning the controls?** → [controls.md](controls.md)
 - **Curious what's planned?** → [roadmap.md](roadmap.md) or [feature-registry.md](feature-registry.md)
 - **Contributing code?** → [architecture.md](architecture.md), then the test suite in `tests/`
 - **Understanding the vision?** → [goal.md](goal.md)

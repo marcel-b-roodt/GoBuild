@@ -64,6 +64,7 @@ The operations designers use every session.
 | Item | Description |
 |---|---|
 | Extrude face(s) | Extrude selected faces along their normal; creates new side geometry |
+| Extrude edge(s) | Extrude open boundary edges outward into new quad faces (`Shift+drag` in Edge mode) |
 | Inset face(s) | Inset selected faces inward; uniform or per-face |
 | Bevel edge(s) | Subdivide and offset selected edges by a configurable amount |
 | Loop cut | Insert an edge loop along a ring of quads |
@@ -72,6 +73,9 @@ The operations designers use every session.
 | Weld / Merge vertices | Merge vertices within a threshold or by explicit selection |
 | Flip normals | Reverse winding order of selected faces |
 | Subdivide | Subdivide selected faces into quads |
+| Modifier-aware toolbar | Panel and viewport overlay update in real-time when `Shift`/`Alt`/`Ctrl` is held to show the active operation context (`Extrude`, `Inset`, `Snap`, etc.) |
+| Shift+drag = Extrude | Hold `Shift` and drag in the viewport (face or edge mode) to extrude interactively |
+| Alt+drag = Inset | Hold `Alt` and drag in face mode to inset interactively |
 
 ---
 

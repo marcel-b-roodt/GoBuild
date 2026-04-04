@@ -11,10 +11,11 @@ extends VBoxContainer
 # selection_manager.gd and go_build_mesh_instance.gd alphabetically.
 # Explicit preloads here ensure those class names are registered before
 # this script's own class-level type annotations are resolved.
-const _DEBUG_SCRIPT        := preload("res://addons/go_build/core/go_build_debug.gd")
-const _SEL_MGR_SCRIPT      := preload("res://addons/go_build/core/selection_manager.gd")
-const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
-const _EXTRUDE_SCRIPT      := preload("res://addons/go_build/mesh/operations/extrude_operation.gd")
+const _DEBUG_SCRIPT          := preload("res://addons/go_build/core/go_build_debug.gd")
+const _SEL_MGR_SCRIPT        := preload("res://addons/go_build/core/selection_manager.gd")
+const _MESH_INSTANCE_SCRIPT  := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+const _EXTRUDE_SCRIPT := preload("res://addons/go_build/mesh/operations/extrude_operation.gd")
+const _FNORMALS_SCRIPT := preload("res://addons/go_build/mesh/operations/flip_normals_operation.gd")
 
 const _VERSION := "0.1.0"
 
@@ -25,6 +26,7 @@ var _status_label: Label
 var _stats_label: Label
 var _mode_buttons: Array[Button] = []
 var _extrude_btn: Button = null
+var _flip_btn: Button    = null
 var _target: GoBuildMeshInstance = null
 var _plugin: EditorPlugin = null
 
@@ -128,13 +130,26 @@ func _ready() -> void:
 	_extrude_btn.text = "Extrude"
 	_extrude_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_extrude_btn.add_theme_font_size_override("font_size", 11)
+	var dist_fmt := "%.2f" % _EXTRUDE_DEFAULT_DISTANCE
 	_extrude_btn.tooltip_text = (
-		"Extrude selected face(s) by %.2f units along their normal.\n"
-		+ "Requires Face mode with at least one face selected."
-	) % _EXTRUDE_DEFAULT_DISTANCE
+		"Extrude selected face(s) by " + dist_fmt
+		+ " units along their normal.\nRequires Face mode with at least one face selected."
+	)
 	_extrude_btn.disabled = true
 	_extrude_btn.pressed.connect(_on_extrude_pressed)
 	ops_grid.add_child(_extrude_btn)
+
+	_flip_btn = Button.new()
+	_flip_btn.text = "Flip Normals"
+	_flip_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_flip_btn.add_theme_font_size_override("font_size", 11)
+	_flip_btn.tooltip_text = (
+		"Reverse the outward normal of selected face(s) by flipping their winding order.\n"
+		+ "Requires Face mode with at least one face selected."
+	)
+	_flip_btn.disabled = true
+	_flip_btn.pressed.connect(_on_flip_normals_pressed)
+	ops_grid.add_child(_flip_btn)
 
 	add_child(HSeparator.new())
 
@@ -205,6 +220,20 @@ func set_edit_mode(new_mode: SelectionManager.Mode) -> void:
 	if _target != null:
 		_target.selection.set_mode(new_mode)
 	_sync_mode_buttons(new_mode)
+
+
+## Called by external code (e.g. the right-click context menu in plugin.gd)
+## to trigger an extrude on the current selection.
+## Equivalent to pressing the Extrude panel button.
+func trigger_extrude() -> void:
+	_on_extrude_pressed()
+
+
+## Called by external code (e.g. the right-click context menu)
+## to flip the normals of the current face selection.
+## Equivalent to pressing the Flip Normals panel button.
+func trigger_flip_normals() -> void:
+	_on_flip_normals_pressed()
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +336,8 @@ func _update_ops_buttons() -> void:
 	var has_faces: bool = in_face_mode \
 			and not _target.selection.get_selected_faces().is_empty()
 	_extrude_btn.disabled = not has_faces
+	if _flip_btn != null:
+		_flip_btn.disabled = not has_faces
 
 
 ## Extrude the currently selected faces by [constant _EXTRUDE_DEFAULT_DISTANCE].
@@ -338,6 +369,37 @@ func _on_extrude_pressed() -> void:
 	# now the top faces; keeping them selected with stale state would confuse
 	# subsequent operations.
 	_target.selection.clear()
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
+
+
+## Flip the outward normals of the currently selected faces.
+## Requires Face mode and at least one selected face.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_flip_normals_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+
+	# Capture a copy of the face indices at press time so the Callable closure
+	# uses the correct set even if the selection changes during the undo/redo cycle.
+	var faces_to_flip: Array[int] = []
+	faces_to_flip.assign(sel_faces)
+
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	_target.apply_operation(
+		"Flip Normals",
+		func(): FlipNormalsOperation.apply(_target.go_build_mesh, faces_to_flip),
+		ur,
+	)
+
+	# Keep the face selection — flipped faces remain valid targets for subsequent
+	# operations (e.g. flip again to restore, or extrude through the inside).
 	_target.update_gizmos()
 	_update_ops_buttons()
 	_refresh()

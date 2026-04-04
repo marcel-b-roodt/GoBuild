@@ -63,14 +63,19 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Feature | Status | Notes |
 |---|---|---|
 | Extrude face(s) | ✅ Complete | `ExtrudeOperation.apply(mesh, face_indices, distance)`; per-face-normal extrude, side quads, CCW winding maintained; panel button (0.5u default) + full undo/redo via `apply_operation`; 17 unit tests |
-| Inset face(s) | 📋 Planned | Uniform or per-face |
+| Extrude edge(s) | 📋 Planned | Open boundary edge → new quad; triggered by `Shift+drag` in Edge mode |
+| Inset face(s) | 📋 Planned | Uniform or per-face; triggered by `Shift+drag` in Scale (R) mode |
 | Bevel edge(s) | 📋 Planned | Configurable width, segments |
 | Loop cut | 📋 Planned | Inserts edge loop on quad rings |
-| Delete geometry | 📋 Planned | Verts / edges / faces, optional hole fill |
+| Delete geometry | 📋 Planned | Verts / edges / faces, optional hole fill; `Delete`/`X` shortcut |
 | Bridge / Fill | 📋 Planned | Connect two open edge loops |
-| Weld / Merge vertices | 📋 Planned | By threshold or explicit selection |
-| Flip normals | 📋 Planned | Reverse winding of selected faces |
+| Weld / Merge vertices | 📋 Planned | By threshold or explicit selection; `M` shortcut |
+| Flip normals | ✅ Complete | `FlipNormalsOperation.apply(mesh, face_indices)`; reverses winding + UV arrays; panel button + right-click context menu + full undo/redo; 15 unit tests |
 | Subdivide faces | 📋 Planned | Subdivide selection into quads |
+| Modifier-aware toolbar | 🔧 In Progress | Viewport overlay hint implemented (`_build_overlay_hint` in `plugin.gd`); panel context label not yet added |
+| Shift+drag → Extrude | ✅ Complete | `_should_extrude_drag` + `_begin_extrude_drag` in `selection_input_controller.gd`; extrudes at distance=0 then translates; undo restores pre-extrude state in one step |
+| Shift+drag → Inset | 📋 Planned | Scale (R) mode + Shift; interactive inset by drag delta |
+| Right-click context menu | ✅ Complete | `PopupMenu` in `selection_input_controller.gd`; per-mode items (Select All, Extrude, Flip Normals); stub items for planned ops |
 
 ---
 
@@ -144,8 +149,8 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Feature | Status | Notes |
 |---|---|---|
 | Semantic versioning + CHANGELOG | 📋 Planned | `CHANGELOG.md` per Keep a Changelog |
-| GitHub Actions CI | 📋 Planned | Build / test / lint |
-| GitHub Actions release workflow | 📋 Planned | Tag `vX.Y.Z` → draft GitHub Release |
+| GitHub Actions CI | ✅ Complete | `ci.yml` — GdUnit4 headless on push/PR |
+| GitHub Actions release workflow | ✅ Complete | `release.yml` — tag `vX.Y.Z` → draft GitHub Release |
 | Godot Asset Library listing | 📋 Planned | Submitted at v1.0 |
 | Documentation site | 📋 Planned | GitHub Pages or similar |
 
