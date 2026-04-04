@@ -42,7 +42,7 @@ jobs:
         with:
           godot-version: "4.3"
           godot-status: "stable"
-          version: "latest"
+          version: "v6.0.0"
           paths: |
             res://tests
           timeout: 600
