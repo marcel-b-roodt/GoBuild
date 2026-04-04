@@ -14,12 +14,17 @@ extends VBoxContainer
 const _DEBUG_SCRIPT        := preload("res://addons/go_build/core/go_build_debug.gd")
 const _SEL_MGR_SCRIPT      := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+const _EXTRUDE_SCRIPT      := preload("res://addons/go_build/mesh/operations/extrude_operation.gd")
 
 const _VERSION := "0.1.0"
+
+## Default extrude distance in local mesh units.
+const _EXTRUDE_DEFAULT_DISTANCE: float = 0.5
 
 var _status_label: Label
 var _stats_label: Label
 var _mode_buttons: Array[Button] = []
+var _extrude_btn: Button = null
 var _target: GoBuildMeshInstance = null
 var _plugin: EditorPlugin = null
 
@@ -107,6 +112,32 @@ func _ready() -> void:
 
 	add_child(HSeparator.new())
 
+	# ── Modelling Operations ──────────────────────────────────────────────
+	var ops_label := Label.new()
+	ops_label.text = "── Modelling ──"
+	ops_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ops_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	ops_label.add_theme_font_size_override("font_size", 11)
+	add_child(ops_label)
+
+	var ops_grid := GridContainer.new()
+	ops_grid.columns = 2
+	add_child(ops_grid)
+
+	_extrude_btn = Button.new()
+	_extrude_btn.text = "Extrude"
+	_extrude_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_extrude_btn.add_theme_font_size_override("font_size", 11)
+	_extrude_btn.tooltip_text = (
+		"Extrude selected face(s) by %.2f units along their normal.\n"
+		+ "Requires Face mode with at least one face selected."
+	) % _EXTRUDE_DEFAULT_DISTANCE
+	_extrude_btn.disabled = true
+	_extrude_btn.pressed.connect(_on_extrude_pressed)
+	ops_grid.add_child(_extrude_btn)
+
+	add_child(HSeparator.new())
+
 	# ── Status ───────────────────────────────────────────────────────────
 	_status_label = Label.new()
 	_status_label.text = "No mesh selected."
@@ -152,15 +183,19 @@ func set_target(target: GoBuildMeshInstance) -> void:
 	# Disconnect from old target's selection signals.
 	if _target != null and _target.selection.mode_changed.is_connected(_on_target_mode_changed):
 		_target.selection.mode_changed.disconnect(_on_target_mode_changed)
+	if _target != null and _target.selection.selection_changed.is_connected(_update_ops_buttons):
+		_target.selection.selection_changed.disconnect(_update_ops_buttons)
 
 	_target = target
 
 	if _target != null:
 		_target.selection.mode_changed.connect(_on_target_mode_changed)
+		_target.selection.selection_changed.connect(_update_ops_buttons)
 		_sync_mode_buttons(_target.selection.get_mode())
 	else:
 		_sync_mode_buttons(SelectionManager.Mode.OBJECT)
 
+	_update_ops_buttons()
 	_refresh()
 
 
@@ -252,6 +287,7 @@ func _on_mode_button_pressed(mode_index: int) -> void:
 ## Keeps the panel buttons in sync when the plugin changes mode via keyboard shortcut.
 func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 	_sync_mode_buttons(new_mode)
+	_update_ops_buttons()
 
 
 ## Press exactly the button that corresponds to [param active_mode] and
@@ -259,3 +295,51 @@ func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 func _sync_mode_buttons(active_mode: SelectionManager.Mode) -> void:
 	for i: int in _mode_buttons.size():
 		_mode_buttons[i].set_pressed_no_signal(i == active_mode as int)
+
+
+## Enable or disable the operations buttons based on the current mode and selection.
+## Called on mode change and on selection change so the button state is always accurate.
+func _update_ops_buttons() -> void:
+	if _extrude_btn == null:
+		return
+	var in_face_mode: bool = _target != null \
+			and _target.selection.get_mode() == SelectionManager.Mode.FACE
+	var has_faces: bool = in_face_mode \
+			and not _target.selection.get_selected_faces().is_empty()
+	_extrude_btn.disabled = not has_faces
+
+
+## Extrude the currently selected faces by [constant _EXTRUDE_DEFAULT_DISTANCE].
+## Requires Face mode and at least one selected face.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_extrude_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+
+	# Capture a copy of the face indices at press time so the Callable closure
+	# uses the correct set even if the selection changes during the undo/redo cycle.
+	var faces_to_extrude: Array[int] = []
+	faces_to_extrude.assign(sel_faces)
+
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	_target.apply_operation(
+		"Extrude Face",
+		func(): ExtrudeOperation.apply(
+				_target.go_build_mesh, faces_to_extrude, _EXTRUDE_DEFAULT_DISTANCE),
+		ur,
+	)
+
+	# Clear the selection after the operation — the extruded face indices are
+	# now the top faces; keeping them selected with stale state would confuse
+	# subsequent operations.
+	_target.selection.clear()
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
+
+

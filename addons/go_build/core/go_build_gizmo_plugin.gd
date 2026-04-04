@@ -748,6 +748,8 @@ func _get_local_axis(axis_idx: int) -> Vector3:
 
 ## Apply a translate drag along axis [param axis_idx] to all cached vertices.
 ## When Ctrl is held, snaps the scalar travel distance to [method _get_snap_step].
+## When V is held, snaps the centroid to the nearest non-dragged mesh vertex,
+## projected onto the drag axis (vertex snap).
 func _apply_translate_drag(
 		node: GoBuildMeshInstance,
 		axis_idx: int,
@@ -759,6 +761,20 @@ func _apply_translate_drag(
 	var local_centroid: Vector3 = _compute_drag_centroid()
 	var world_centroid: Vector3 = node.global_transform * local_centroid
 	var world_axis: Vector3  = (node.global_transform.basis * local_axis).normalized()
+
+	# Vertex snap (V held): project the centroid→snap-vertex vector onto the axis.
+	if Input.is_key_pressed(KEY_V):
+		var snap_world: Vector3 = _find_vertex_snap_world_pos(node, camera, screen_pos)
+		if snap_world != Vector3.INF:
+			var t_delta: float = (snap_world - world_centroid).dot(world_axis)
+			var delta_local: Vector3 = \
+					node.global_transform.basis.inverse() * (world_axis * t_delta)
+			for idx: int in _drag_initial_verts:
+				gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+			if _drag_initial_t == INF:
+				_drag_initial_t = 0.0
+			_schedule_bake(node)
+			return
 
 	var t_now: float = _project_to_axis(camera, screen_pos, world_centroid, world_axis)
 
@@ -827,6 +843,8 @@ func _apply_rotate_drag(
 ## vertices by the delta from the first-frame hit point.
 ## [b]Ctrl held[/b] snaps each component of the world-space delta to the editor
 ## grid step via [method _get_snap_step].
+## [b]V held[/b] snaps the centroid to the nearest non-dragged mesh vertex,
+## constrained to move only within the drag plane.
 func _apply_plane_drag(
 		node: GoBuildMeshInstance,
 		plane_idx: int,
@@ -840,6 +858,21 @@ func _apply_plane_drag(
 	var local_centroid: Vector3 = _compute_drag_centroid()
 	var world_centroid: Vector3 = node.global_transform * local_centroid
 	var world_normal: Vector3  = (node.global_transform.basis * local_normal).normalized()
+
+	# Vertex snap (V held): move centroid to the nearest non-dragged vertex,
+	# but remove the component perpendicular to the plane so movement stays in-plane.
+	if Input.is_key_pressed(KEY_V):
+		var snap_world: Vector3 = _find_vertex_snap_world_pos(node, camera, screen_pos)
+		if snap_world != Vector3.INF:
+			var raw_delta: Vector3 = snap_world - world_centroid
+			raw_delta -= world_normal * raw_delta.dot(world_normal)
+			var delta_local: Vector3 = node.global_transform.basis.inverse() * raw_delta
+			for idx: int in _drag_initial_verts:
+				gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+			if _drag_initial_t == INF:
+				_drag_initial_t = 0.0
+			_schedule_bake(node)
+			return
 
 	# First frame: record the initial intersection as the drag origin.
 	if _drag_initial_t == INF:
@@ -899,6 +932,8 @@ func _apply_scale_drag(
 ## the initial mouse-plane intersection as the drag origin ([member _drag_start_dir]).
 ## Subsequent calls translate the selection by [code]hit - _drag_start_dir[/code].
 ## [b]Ctrl held[/b] snaps the world-space delta to the editor grid step.
+## [b]V held[/b] snaps the centroid to the nearest non-dragged mesh vertex,
+## constrained to stay in the camera plane (depth component removed).
 func _apply_viewport_plane_drag(
 		node: GoBuildMeshInstance,
 		camera: Camera3D,
@@ -907,6 +942,22 @@ func _apply_viewport_plane_drag(
 	var gbm: GoBuildMesh        = node.go_build_mesh
 	var local_centroid: Vector3 = _compute_drag_centroid()
 	var world_centroid: Vector3 = node.global_transform * local_centroid
+
+	# Vertex snap (V held): move centroid to the nearest non-dragged vertex,
+	# removing the depth component so movement stays in the camera plane.
+	if Input.is_key_pressed(KEY_V):
+		var snap_world: Vector3 = _find_vertex_snap_world_pos(node, camera, screen_pos)
+		if snap_world != Vector3.INF:
+			var cam_forward: Vector3 = -camera.global_transform.basis.z
+			var raw_delta: Vector3   = snap_world - world_centroid
+			raw_delta -= cam_forward * raw_delta.dot(cam_forward)
+			var delta_local: Vector3 = node.global_transform.basis.inverse() * raw_delta
+			for idx: int in _drag_initial_verts:
+				gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+			if _drag_initial_t == INF:
+				_drag_initial_t = 0.0
+			_schedule_bake(node)
+			return
 
 	# First frame: capture camera-forward as plane normal + record initial hit.
 	if _drag_initial_t == INF:
@@ -988,6 +1039,44 @@ func _compute_drag_centroid() -> Vector3:
 	for idx: int in _drag_initial_verts:
 		c += _drag_initial_verts[idx]
 	return c / _drag_initial_verts.size()
+
+
+## Find the world-space position of the mesh vertex nearest to [param screen_pos]
+## (measured in screen-space pixels), excluding vertices currently being dragged.
+##
+## Skips vertices whose index is in [member _drag_initial_verts] so the snap
+## target is always a vertex OTHER than the ones being moved — i.e. the user
+## snaps TO a fixed vertex, not to themselves.
+##
+## Returns [code]Vector3.INF[/code] if no eligible vertex is visible (e.g. the
+## entire mesh is selected and all vertices are being dragged).
+##
+## Used by the vertex-snap branch ([kbd]V[/kbd] modifier) inside
+## [method _apply_translate_drag], [method _apply_plane_drag], and
+## [method _apply_viewport_plane_drag].
+func _find_vertex_snap_world_pos(
+		node: GoBuildMeshInstance,
+		camera: Camera3D,
+		screen_pos: Vector2,
+) -> Vector3:
+	var gbm: GoBuildMesh = node.go_build_mesh
+	if gbm == null or gbm.vertices.is_empty():
+		return Vector3.INF
+	var gt: Transform3D = node.global_transform
+	var best_dist_sq: float = INF
+	var best_pos: Vector3   = Vector3.INF
+	for i: int in gbm.vertices.size():
+		if _drag_initial_verts.has(i):
+			continue   # Do not snap to the dragged vertices themselves.
+		var world_pos: Vector3 = gt * gbm.vertices[i]
+		if not camera.is_position_in_frustum(world_pos):
+			continue
+		var screen_v: Vector2 = camera.unproject_position(world_pos)
+		var dist_sq: float = screen_v.distance_squared_to(screen_pos)
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best_pos     = world_pos
+	return best_pos
 
 
 ## Project [param screen_pos] onto the world-space line through
