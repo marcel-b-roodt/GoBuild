@@ -64,7 +64,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 |---|---|---|
 | Extrude face(s) | ✅ Complete | `ExtrudeOperation.apply(mesh, face_indices, distance)`; per-face-normal extrude, side quads, CCW winding maintained; panel button (0.5u default) + full undo/redo via `apply_operation`; 17 unit tests |
 | Extrude edge(s) | 📋 Planned | Open boundary edge → new quad; triggered by `Shift+drag` in Edge mode |
-| Inset face(s) | 📋 Planned | Uniform or per-face; triggered by `Shift+drag` in Scale (R) mode |
+| Inset face(s) | ✅ Complete | `InsetOperation.apply(mesh, face_indices)`; shrinks selected faces inward with new boundary geometry; full undo/redo via `apply_operation` |
 | Bevel edge(s) | 📋 Planned | Configurable width, segments |
 | Loop cut | 📋 Planned | Inserts edge loop on quad rings |
 | Delete geometry | 📋 Planned | Verts / edges / faces, optional hole fill; `Delete`/`X` shortcut |
