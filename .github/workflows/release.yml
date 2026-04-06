@@ -42,7 +42,7 @@ jobs:
             addons/go_build \
             README.md \
             CHANGELOG.md \
-            LICENSE \
+            LICENSE.md \
             --exclude "*.import" \
             --exclude ".godot/*" \
             --exclude "*.uid"

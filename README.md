@@ -52,4 +52,4 @@ GoBuild is free and open-source. If it saves you time, consider supporting devel
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPL v3 — see [LICENSE.md](LICENSE.md).
