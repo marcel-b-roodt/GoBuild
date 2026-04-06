@@ -38,3 +38,4 @@ Thumbs.db
 # ── Audio workfiles ─────────────────────────────────────────────────────
 *.reapeaks
 *.rpp-bak
+.vscode/settings.json
