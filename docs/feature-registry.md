@@ -67,7 +67,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Inset face(s) | ✅ Complete | `InsetOperation.apply(mesh, face_indices)`; shrinks selected faces inward with new boundary geometry; full undo/redo via `apply_operation` |
 | Bevel edge(s) | 📋 Planned | Configurable width, segments |
 | Loop cut | 📋 Planned | Inserts edge loop on quad rings |
-| Delete geometry | 📋 Planned | Verts / edges / faces, optional hole fill; `Delete`/`X` shortcut |
+| Delete geometry | ✅ Complete | `DeleteOperation.apply_faces/edges/vertices(mesh, indices)`; orphaned-vertex compaction + index remapping; panel button; `Delete`/`X` keyboard shortcut; right-click context menu (all sub-element modes); full undo/redo via `apply_operation` |
 | Bridge / Fill | 📋 Planned | Connect two open edge loops |
 | Weld / Merge vertices | 📋 Planned | By threshold or explicit selection; `M` shortcut |
 | Flip normals | ✅ Complete | `FlipNormalsOperation.apply(mesh, face_indices)`; reverses winding + UV arrays; panel button + right-click context menu + full undo/redo; 15 unit tests |
