@@ -727,13 +727,13 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 		SelectionManager.Mode.VERTEX:
 			if not sel.get_selected_vertices().is_empty():
 				popup.add_separator()
-				popup.add_item("Delete  [planned]", 10)
+				popup.add_item("Delete", 10)
 				popup.add_item("Merge   [planned]", 11)
 		SelectionManager.Mode.EDGE:
 			if not sel.get_selected_edges().is_empty():
 				popup.add_separator()
 				popup.add_item("Bevel   [planned]", 20)
-				popup.add_item("Delete  [planned]", 10)
+				popup.add_item("Delete", 10)
 		SelectionManager.Mode.FACE:
 			if not sel.get_selected_faces().is_empty():
 				popup.add_separator()
@@ -741,7 +741,7 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 				popup.add_item("Inset   [planned]", 31)
 				popup.add_separator()
 				popup.add_item("Flip Normals", 32)
-				popup.add_item("Delete  [planned]", 10)
+				popup.add_item("Delete", 10)
 
 	var mode_int: int = mode as int
 	popup.id_pressed.connect(
@@ -778,5 +778,8 @@ func _on_context_menu_pressed(
 		32:  # Flip Normals — delegate to panel for undo/redo wiring
 			if _panel != null:
 				_panel.trigger_flip_normals()
+		10:  # Delete — delegate to panel for undo/redo wiring
+			if _panel != null:
+				_panel.trigger_delete()
 		_:
 			pass  # Planned features: no-op stubs

@@ -203,6 +203,9 @@ func _handles(object: Object) -> bool:
 
 
 func _edit(object: Object) -> void:
+	# Clear the back-face override on the previously edited node before switching.
+	if _edited_node != null and is_instance_valid(_edited_node):
+		_edited_node.set_edit_cull_override(false)
 	_disconnect_node_signals()
 
 	_edited_node = object as GoBuildMeshInstance
@@ -248,6 +251,8 @@ func _make_visible(visible: bool) -> void:
 	if not visible:
 		if _input_controller != null and _edited_node != null:
 			_input_controller.clear_hover(_edited_node)
+		if _edited_node != null:
+			_edited_node.set_edit_cull_override(false)
 		_disconnect_node_signals()
 		_edited_node = null
 		if _panel:
@@ -301,10 +306,11 @@ func _handle_keyboard(event: InputEvent) -> int:
 
 
 func _handle_keyboard_shortcut(key: InputEventKey) -> int:
-	match key.keycode:
-		KEY_W: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
-		KEY_E: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.ROTATE)
-		KEY_R: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.SCALE)
+	# Transform-mode keys and delete are handled inline; mode-switch shortcuts
+	# go through the shared _set_mode / switch_mode path below.
+	var handled: int = _handle_action_key(key.keycode)
+	if handled != -1:
+		return handled
 	if _shortcut_object.matches_event(key):
 		switch_mode(SelectionManager.Mode.OBJECT)
 	elif _shortcut_vertex.matches_event(key):
@@ -316,6 +322,24 @@ func _handle_keyboard_shortcut(key: InputEventKey) -> int:
 	else:
 		return 0
 	return 1
+
+
+## Handle single-key action shortcuts (W/E/R transform modes, Delete/X).
+## Returns 1 if consumed, 0 if passed through, -1 if not matched.
+func _handle_action_key(keycode: Key) -> int:
+	match keycode:
+		KEY_W: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
+		KEY_E: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.ROTATE)
+		KEY_R: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.SCALE)
+		KEY_DELETE, KEY_X:
+			# Only intercept Delete / X in sub-element modes.  In Object mode
+			# the event passes through so Godot can delete the selected node.
+			if _edited_node != null and _panel != null \
+					and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+				_panel.trigger_delete()
+				return 1
+			return 0
+	return -1  # Not a recognised action key.
 
 
 func _set_transform_mode(mode: GoBuildGizmoPlugin.TransformMode) -> int:

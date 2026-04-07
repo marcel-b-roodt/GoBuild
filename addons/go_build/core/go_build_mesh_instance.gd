@@ -25,6 +25,11 @@ const _SEL_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.g
 ## selected. The gizmo and panel both hold a reference to this object.
 var selection: SelectionManager = SelectionManager.new()
 
+## When true, [method bake] applies double-sided (cull-disabled) surface
+## override materials so back-faces are visible in the editor viewport.
+## Enabled by the plugin while this node is being edited; never exported.
+var _edit_cull_override: bool = false
+
 
 func _ready() -> void:
 	bake()
@@ -41,6 +46,8 @@ func bake() -> void:
 		mesh = null
 		return
 	mesh = go_build_mesh.bake()
+	if _edit_cull_override:
+		_apply_cull_overrides()
 
 
 ## Fast alternative to [method bake] for use during a vertex-position-only drag.
@@ -111,4 +118,57 @@ func restore_and_bake(snapshot: Dictionary) -> void:
 	go_build_mesh.restore_snapshot(snapshot)
 	bake()
 	update_gizmos()
+
+
+# ---------------------------------------------------------------------------
+# In-editor double-sided override
+# ---------------------------------------------------------------------------
+
+## Enable or disable the in-editor back-face-visible material override.
+##
+## When [param enabled] is [code]true[/code], [method bake] applies a surface
+## override material with [constant BaseMaterial3D.CULL_DISABLED] for each
+## mesh surface so both sides of every face are visible in the editor viewport.
+## Clears the overrides immediately when set to [code]false[/code].
+##
+## Has no effect at runtime — only the plugin calls this during _edit / _make_visible.
+func set_edit_cull_override(enabled: bool) -> void:
+	_edit_cull_override = enabled
+	if enabled:
+		_apply_cull_overrides()
+	else:
+		_clear_cull_overrides()
+
+
+## Apply [constant BaseMaterial3D.CULL_DISABLED] surface override materials.
+##
+## For each surface:
+##   - If the surface has a [BaseMaterial3D], duplicate it and set cull_mode.
+##   - If the surface has no material, create a plain [StandardMaterial3D] with
+##     cull_mode disabled so back-faces are visible with the default look.
+##   - [ShaderMaterial] surfaces are left untouched (cull mode is shader-defined).
+func _apply_cull_overrides() -> void:
+	var am := mesh as ArrayMesh
+	if am == null:
+		return
+	for i: int in am.get_surface_count():
+		var orig: Material = am.surface_get_material(i)
+		if orig is BaseMaterial3D:
+			var dup: BaseMaterial3D = (orig as BaseMaterial3D).duplicate()
+			dup.cull_mode = BaseMaterial3D.CULL_DISABLED
+			set_surface_override_material(i, dup)
+		elif orig == null:
+			var mat := StandardMaterial3D.new()
+			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			set_surface_override_material(i, mat)
+		# ShaderMaterial: leave override empty — cull is shader-controlled.
+
+
+## Clear all surface override materials set by [method _apply_cull_overrides].
+func _clear_cull_overrides() -> void:
+	var am := mesh as ArrayMesh
+	if am == null:
+		return
+	for i: int in am.get_surface_count():
+		set_surface_override_material(i, null)
 

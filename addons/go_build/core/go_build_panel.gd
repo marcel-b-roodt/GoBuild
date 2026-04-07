@@ -14,8 +14,9 @@ extends VBoxContainer
 const _DEBUG_SCRIPT          := preload("res://addons/go_build/core/go_build_debug.gd")
 const _SEL_MGR_SCRIPT        := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT  := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
-const _EXTRUDE_SCRIPT := preload("res://addons/go_build/mesh/operations/extrude_operation.gd")
+const _EXTRUDE_SCRIPT  := preload("res://addons/go_build/mesh/operations/extrude_operation.gd")
 const _FNORMALS_SCRIPT := preload("res://addons/go_build/mesh/operations/flip_normals_operation.gd")
+const _DELETE_SCRIPT   := preload("res://addons/go_build/mesh/operations/delete_operation.gd")
 
 const _VERSION := "0.1.0"
 
@@ -27,6 +28,8 @@ var _stats_label: Label
 var _mode_buttons: Array[Button] = []
 var _extrude_btn: Button = null
 var _flip_btn: Button    = null
+var _delete_btn: Button  = null
+var _cull_check: CheckBox = null
 var _target: GoBuildMeshInstance = null
 var _plugin: EditorPlugin = null
 
@@ -151,6 +154,18 @@ func _ready() -> void:
 	_flip_btn.pressed.connect(_on_flip_normals_pressed)
 	ops_grid.add_child(_flip_btn)
 
+	_delete_btn = Button.new()
+	_delete_btn.text = "Delete"
+	_delete_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_delete_btn.add_theme_font_size_override("font_size", 11)
+	_delete_btn.tooltip_text = (
+		"Delete selected vertices, edges, or faces.\n"
+		+ "Affected faces are removed; orphaned vertices are compacted away."
+	)
+	_delete_btn.disabled = true
+	_delete_btn.pressed.connect(_on_delete_pressed)
+	ops_grid.add_child(_delete_btn)
+
 	add_child(HSeparator.new())
 
 	# ── Status ───────────────────────────────────────────────────────────
@@ -187,6 +202,21 @@ func _ready() -> void:
 	dbg_toggle.toggled.connect(func(on: bool) -> void: GoBuildDebug.enabled = on)
 	add_child(dbg_toggle)
 
+	# ── Back-face toggle ──────────────────────────────────────────────────
+	# Disables culling on the active mesh while editing so both sides of every
+	# face are visible.  Off by default; useful for diagnosing flipped normals.
+	_cull_check = CheckBox.new()
+	_cull_check.text = "Show back-faces"
+	_cull_check.button_pressed = false
+	_cull_check.add_theme_font_size_override("font_size", 11)
+	_cull_check.tooltip_text = (
+		"Disable back-face culling on the mesh while editing.\n"
+		+ "Useful for spotting flipped normals and inside-out geometry.\n"
+		+ "Has no effect outside the editor."
+	)
+	_cull_check.toggled.connect(_on_cull_check_toggled)
+	add_child(_cull_check)
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -195,6 +225,10 @@ func _ready() -> void:
 ## Update the panel to reflect [param target].
 ## Pass [code]null[/code] to clear the selection display.
 func set_target(target: GoBuildMeshInstance) -> void:
+	# Clear the back-face override on the old target before switching.
+	if _target != null and is_instance_valid(_target):
+		_target.set_edit_cull_override(false)
+
 	# Disconnect from old target's selection signals.
 	if _target != null and _target.selection.mode_changed.is_connected(_on_target_mode_changed):
 		_target.selection.mode_changed.disconnect(_on_target_mode_changed)
@@ -207,6 +241,9 @@ func set_target(target: GoBuildMeshInstance) -> void:
 		_target.selection.mode_changed.connect(_on_target_mode_changed)
 		_target.selection.selection_changed.connect(_update_ops_buttons)
 		_sync_mode_buttons(_target.selection.get_mode())
+		# Apply the current checkbox state so the new node matches immediately.
+		if _cull_check != null:
+			_target.set_edit_cull_override(_cull_check.button_pressed)
 	else:
 		_sync_mode_buttons(SelectionManager.Mode.OBJECT)
 
@@ -234,6 +271,14 @@ func trigger_extrude() -> void:
 ## Equivalent to pressing the Flip Normals panel button.
 func trigger_flip_normals() -> void:
 	_on_flip_normals_pressed()
+
+
+## Called by external code (e.g. the plugin keyboard handler or the right-click
+## context menu) to delete the current selection.
+## Dispatches to the appropriate [DeleteOperation] entry point based on the
+## active edit mode.  Equivalent to pressing the Delete panel button.
+func trigger_delete() -> void:
+	_on_delete_pressed()
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +383,19 @@ func _update_ops_buttons() -> void:
 	_extrude_btn.disabled = not has_faces
 	if _flip_btn != null:
 		_flip_btn.disabled = not has_faces
+	if _delete_btn != null:
+		var mode: SelectionManager.Mode = \
+				_target.selection.get_mode() if _target != null \
+				else SelectionManager.Mode.OBJECT
+		var has_selection: bool = _target != null and (
+				(mode == SelectionManager.Mode.VERTEX \
+					and not _target.selection.get_selected_vertices().is_empty()) or
+				(mode == SelectionManager.Mode.EDGE \
+					and not _target.selection.get_selected_edges().is_empty()) or
+				(mode == SelectionManager.Mode.FACE \
+					and not _target.selection.get_selected_faces().is_empty())
+		)
+		_delete_btn.disabled = not has_selection
 
 
 ## Extrude the currently selected faces by [constant _EXTRUDE_DEFAULT_DISTANCE].
@@ -405,3 +463,63 @@ func _on_flip_normals_pressed() -> void:
 	_refresh()
 
 
+## Delete the currently selected vertices, edges, or faces.
+## Dispatches to [DeleteOperation] based on the active edit mode.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_delete_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	var mode: SelectionManager.Mode = _target.selection.get_mode()
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+
+	match mode:
+		SelectionManager.Mode.FACE:
+			var sel: Array[int] = _target.selection.get_selected_faces()
+			if sel.is_empty():
+				return
+			var to_delete: Array[int] = []
+			to_delete.assign(sel)
+			_target.apply_operation(
+				"Delete Face",
+				func(): DeleteOperation.apply_faces(_target.go_build_mesh, to_delete),
+				ur,
+			)
+
+		SelectionManager.Mode.EDGE:
+			var sel: Array[int] = _target.selection.get_selected_edges()
+			if sel.is_empty():
+				return
+			var to_delete: Array[int] = []
+			to_delete.assign(sel)
+			_target.apply_operation(
+				"Delete Edge",
+				func(): DeleteOperation.apply_edges(_target.go_build_mesh, to_delete),
+				ur,
+			)
+
+		SelectionManager.Mode.VERTEX:
+			var sel: Array[int] = _target.selection.get_selected_vertices()
+			if sel.is_empty():
+				return
+			var to_delete: Array[int] = []
+			to_delete.assign(sel)
+			_target.apply_operation(
+				"Delete Vertex",
+				func(): DeleteOperation.apply_vertices(_target.go_build_mesh, to_delete),
+				ur,
+			)
+
+		_:
+			return  # Object mode — nothing to delete here.
+
+	# Clear selection after delete: indices are no longer valid after compaction.
+	_target.selection.clear()
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
+
+
+## Called when the Show back-faces checkbox is toggled.
+func _on_cull_check_toggled(enabled: bool) -> void:
+	if _target != null:
+		_target.set_edit_cull_override(enabled)
