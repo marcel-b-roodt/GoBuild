@@ -121,6 +121,7 @@ Power tools for complex geometry.
 | Mirror tool | Mirror selected geometry or the whole mesh across X/Y/Z |
 | Array / duplicate | Duplicate mesh along a path or with a fixed offset/count |
 | Surface snap | Snap vertices/objects to the surface of other meshes |
+| World vertex snap | Snap selected elements to vertices on *other* meshes in the scene (extends the existing V-modifier snap which only targets the active mesh) |
 | Pivot tool | Reposition the mesh origin to selection centre / bounding box |
 
 ---

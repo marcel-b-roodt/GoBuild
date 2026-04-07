@@ -17,6 +17,7 @@ const _MESH_INSTANCE_SCRIPT  := preload("res://addons/go_build/core/go_build_mes
 const _EXTRUDE_SCRIPT  := preload("res://addons/go_build/mesh/operations/extrude_operation.gd")
 const _FNORMALS_SCRIPT := preload("res://addons/go_build/mesh/operations/flip_normals_operation.gd")
 const _DELETE_SCRIPT   := preload("res://addons/go_build/mesh/operations/delete_operation.gd")
+const _WELD_SCRIPT     := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
 
 const _VERSION := "0.1.0"
 
@@ -29,6 +30,8 @@ var _mode_buttons: Array[Button] = []
 var _extrude_btn: Button = null
 var _flip_btn: Button    = null
 var _delete_btn: Button  = null
+var _merge_btn: Button   = null
+var _weld_btn: Button    = null
 var _cull_check: CheckBox = null
 var _target: GoBuildMeshInstance = null
 var _plugin: EditorPlugin = null
@@ -166,6 +169,30 @@ func _ready() -> void:
 	_delete_btn.pressed.connect(_on_delete_pressed)
 	ops_grid.add_child(_delete_btn)
 
+	_merge_btn = Button.new()
+	_merge_btn.text = "Merge"
+	_merge_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_merge_btn.add_theme_font_size_override("font_size", 11)
+	_merge_btn.tooltip_text = (
+		"Merge selected vertices to their centroid (M).\n"
+		+ "Requires Vertex mode with at least 2 vertices selected."
+	)
+	_merge_btn.disabled = true
+	_merge_btn.pressed.connect(_on_merge_pressed)
+	ops_grid.add_child(_merge_btn)
+
+	_weld_btn = Button.new()
+	_weld_btn.text = "Weld"
+	_weld_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_weld_btn.add_theme_font_size_override("font_size", 11)
+	_weld_btn.tooltip_text = (
+		"Weld all vertices closer than 0.0001 units together (Merge by Distance).\n"
+		+ "Requires Vertex mode."
+	)
+	_weld_btn.disabled = true
+	_weld_btn.pressed.connect(_on_weld_pressed)
+	ops_grid.add_child(_weld_btn)
+
 	add_child(HSeparator.new())
 
 	# ── Status ───────────────────────────────────────────────────────────
@@ -279,6 +306,13 @@ func trigger_flip_normals() -> void:
 ## active edit mode.  Equivalent to pressing the Delete panel button.
 func trigger_delete() -> void:
 	_on_delete_pressed()
+
+
+## Called by external code (e.g. the M keyboard shortcut or the right-click
+## context menu) to merge the current vertex selection.
+## Equivalent to pressing the Merge panel button.
+func trigger_merge() -> void:
+	_on_merge_pressed()
 
 
 # ---------------------------------------------------------------------------
@@ -396,6 +430,14 @@ func _update_ops_buttons() -> void:
 					and not _target.selection.get_selected_faces().is_empty())
 		)
 		_delete_btn.disabled = not has_selection
+	var in_vertex_mode: bool = _target != null \
+			and _target.selection.get_mode() == SelectionManager.Mode.VERTEX
+	var sel_verts: Array[int] = _target.selection.get_selected_vertices() \
+			if in_vertex_mode and _target != null else []
+	if _merge_btn != null:
+		_merge_btn.disabled = sel_verts.size() < 2
+	if _weld_btn != null:
+		_weld_btn.disabled = not in_vertex_mode
 
 
 ## Extrude the currently selected faces by [constant _EXTRUDE_DEFAULT_DISTANCE].
@@ -523,3 +565,54 @@ func _on_delete_pressed() -> void:
 func _on_cull_check_toggled(enabled: bool) -> void:
 	if _target != null:
 		_target.set_edit_cull_override(enabled)
+
+
+## Merge selected vertices to their centroid.
+## Requires Vertex mode and at least 2 selected vertices.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_merge_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.VERTEX:
+		return
+	var sel_verts: Array[int] = _target.selection.get_selected_vertices()
+	if sel_verts.size() < 2:
+		return
+
+	var to_merge: Array[int] = []
+	to_merge.assign(sel_verts)
+
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	_target.apply_operation(
+		"Merge Vertices",
+		func(): WeldOperation.apply_merge(_target.go_build_mesh, to_merge),
+		ur,
+	)
+
+	_target.selection.clear()
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
+
+
+## Weld all vertices within 0.0001 units of each other (Merge by Distance).
+## Requires Vertex mode.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_weld_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.VERTEX:
+		return
+
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	_target.apply_operation(
+		"Weld Vertices",
+		func(): WeldOperation.apply_weld_by_threshold(_target.go_build_mesh),
+		ur,
+	)
+
+	_target.selection.clear()
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
+

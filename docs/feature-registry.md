@@ -69,7 +69,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Loop cut | 📋 Planned | Inserts edge loop on quad rings |
 | Delete geometry | ✅ Complete | `DeleteOperation.apply_faces/edges/vertices(mesh, indices)`; orphaned-vertex compaction + index remapping; panel button; `Delete`/`X` keyboard shortcut; right-click context menu (all sub-element modes); full undo/redo via `apply_operation` |
 | Bridge / Fill | 📋 Planned | Connect two open edge loops |
-| Weld / Merge vertices | 📋 Planned | By threshold or explicit selection; `M` shortcut |
+| Weld / Merge vertices | ✅ Complete | `WeldOperation.apply_merge(mesh, vertex_indices)` — merge selected to centroid; `apply_weld_by_threshold(mesh, threshold)` — merge all within distance; degenerate-face removal + vertex compaction; panel Merge button (≥2 verts selected) + Weld button (vertex mode); `M` shortcut; right-click context menu; full undo/redo |
 | Flip normals | ✅ Complete | `FlipNormalsOperation.apply(mesh, face_indices)`; reverses winding + UV arrays; panel button + right-click context menu + full undo/redo; 15 unit tests |
 | Subdivide faces | 📋 Planned | Subdivide selection into quads |
 | Modifier-aware toolbar | 🔧 In Progress | Viewport overlay hint implemented (`_build_overlay_hint` in `plugin.gd`); panel context label not yet added |
@@ -115,6 +115,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Mirror tool | 📋 Planned | X/Y/Z axis |
 | Array / duplicate along path | 📋 Planned | |
 | Surface snap | 📋 Planned | Snap to other mesh surfaces |
+| World vertex snap | 📋 Planned | Snap selected elements to vertices on other meshes in the scene (extends V-modifier snap which targets the active mesh only) |
 | Pivot tool | 📋 Planned | Reposition mesh origin |
 
 ---
