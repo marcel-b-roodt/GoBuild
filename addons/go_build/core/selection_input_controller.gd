@@ -728,7 +728,8 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 			if not sel.get_selected_vertices().is_empty():
 				popup.add_separator()
 				popup.add_item("Delete", 10)
-				popup.add_item("Merge   [planned]", 11)
+				if sel.get_selected_vertices().size() >= 2:
+					popup.add_item("Merge at Center  (M)", 11)
 		SelectionManager.Mode.EDGE:
 			if not sel.get_selected_edges().is_empty():
 				popup.add_separator()
@@ -781,5 +782,8 @@ func _on_context_menu_pressed(
 		10:  # Delete — delegate to panel for undo/redo wiring
 			if _panel != null:
 				_panel.trigger_delete()
+		11:  # Merge vertices — delegate to panel for undo/redo wiring
+			if _panel != null:
+				_panel.trigger_merge()
 		_:
 			pass  # Planned features: no-op stubs

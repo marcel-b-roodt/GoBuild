@@ -331,15 +331,27 @@ func _handle_action_key(keycode: Key) -> int:
 		KEY_W: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
 		KEY_E: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.ROTATE)
 		KEY_R: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.SCALE)
-		KEY_DELETE, KEY_X:
-			# Only intercept Delete / X in sub-element modes.  In Object mode
-			# the event passes through so Godot can delete the selected node.
-			if _edited_node != null and _panel != null \
-					and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
-				_panel.trigger_delete()
-				return 1
-			return 0
+		KEY_DELETE, KEY_X: return _handle_delete_key()
+		KEY_M:             return _handle_merge_key()
 	return -1  # Not a recognised action key.
+
+
+## Intercept Delete / X in sub-element modes; pass through in Object mode.
+func _handle_delete_key() -> int:
+	if _edited_node != null and _panel != null \
+			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+		_panel.trigger_delete()
+		return 1
+	return 0
+
+
+## Intercept M in Vertex mode only; pass through in all other modes.
+func _handle_merge_key() -> int:
+	if _edited_node != null and _panel != null \
+			and _edited_node.selection.get_mode() == SelectionManager.Mode.VERTEX:
+		_panel.trigger_merge()
+		return 1
+	return 0
 
 
 func _set_transform_mode(mode: GoBuildGizmoPlugin.TransformMode) -> int:
