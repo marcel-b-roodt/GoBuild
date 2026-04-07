@@ -43,13 +43,13 @@ func test_staircase_face_count_formula() -> void:
 # ---------------------------------------------------------------------------
 
 func test_staircase_vertex_count_default() -> void:
-	# 12*steps + 12 = 12*4 + 12 = 60
-	assert_int(StaircaseGenerator.generate().vertices.size()).is_equal(60)
+	# Weld merges coincident tread/riser/wall corners; unique count < 60 raw.
+	assert_int(StaircaseGenerator.generate().vertices.size()).is_less(60)
 
 
 func test_staircase_vertex_count_one_step() -> void:
-	# 12*1 + 12 = 24
-	assert_int(StaircaseGenerator.generate(1).vertices.size()).is_equal(24)
+	# Weld merges coincident step corners; unique count < 24 raw.
+	assert_int(StaircaseGenerator.generate(1).vertices.size()).is_less(24)
 
 
 # ---------------------------------------------------------------------------

@@ -39,6 +39,6 @@ static func generate(
 		subdivisions_z + 1,
 		material_index)
 
-	mesh.rebuild_edges()
+	WeldOperation.apply_weld_by_threshold(mesh)
 	return mesh
 

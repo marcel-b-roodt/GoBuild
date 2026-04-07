@@ -21,9 +21,9 @@ func test_torus_default_face_count() -> void:
 # ---------------------------------------------------------------------------
 
 func test_torus_vertex_count() -> void:
-	# (rings+1) × (tube_segments+1)
-	# rings=8, tube_segments=6: 9 × 7 = 63
-	assert_int(TorusGenerator.generate(0.5, 0.2, 8, 6).vertices.size()).is_equal(63)
+	# After weld: rings × tube_segments (seam rows/cols collapsed)
+	# rings=8, tube_segments=6: 8 × 6 = 48  (was 9 × 7 = 63 raw)
+	assert_int(TorusGenerator.generate(0.5, 0.2, 8, 6).vertices.size()).is_equal(48)
 
 
 # ---------------------------------------------------------------------------

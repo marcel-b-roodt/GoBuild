@@ -77,6 +77,6 @@ static func generate(
 			]
 			mesh.faces.append(face)
 
-	mesh.rebuild_edges()
+	WeldOperation.apply_weld_by_threshold(mesh)
 	return mesh
 

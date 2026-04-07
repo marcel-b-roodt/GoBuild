@@ -10,6 +10,10 @@
 class_name GoBuildMeshInstance
 extends MeshInstance3D
 
+## Emitted after every [method bake] (including undo/redo restores).
+## The panel subscribes to this to keep its stats label in sync.
+signal mesh_changed
+
 # Self-preload: Godot's startup script scan processes core/ files alphabetically,
 # reaching this file before selection_manager.gd.  The explicit preload forces
 # SelectionManager to be registered before this script is compiled.
@@ -48,6 +52,7 @@ func bake() -> void:
 	mesh = go_build_mesh.bake()
 	if _edit_cull_override:
 		_apply_cull_overrides()
+	mesh_changed.emit()
 
 
 ## Fast alternative to [method bake] for use during a vertex-position-only drag.
