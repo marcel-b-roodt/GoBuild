@@ -25,9 +25,9 @@ func test_sphere_minimal_rings_face_count() -> void:
 # ---------------------------------------------------------------------------
 
 func test_sphere_vertex_count() -> void:
-	# (rings+1) × (segments+1) vertices
-	# rings=4, segments=8: 5 × 9 = 45
-	assert_int(SphereGenerator.generate(0.5, 4, 8).vertices.size()).is_equal(45)
+	# After weld: south pole (1) + north pole (1) + (rings-1) × segments lateral
+	# rings=4, segments=8: 2 + 3×8 = 26  (was 5×9 = 45 raw)
+	assert_int(SphereGenerator.generate(0.5, 4, 8).vertices.size()).is_equal(26)
 
 
 # ---------------------------------------------------------------------------

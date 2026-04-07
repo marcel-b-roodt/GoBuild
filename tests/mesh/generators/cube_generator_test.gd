@@ -19,8 +19,8 @@ func test_cube_default_has_six_faces() -> void:
 
 
 func test_cube_vertex_count_no_subdivisions() -> void:
-	# 6 faces × (1+1)² = 6 × 4 = 24  (no inter-face vertex sharing at Stage 1)
-	assert_int(CubeGenerator.generate(1.0, 1.0, 1.0, 0).vertices.size()).is_equal(24)
+	# 8 unique corner positions after weld (was 24 raw = 6 faces × 4)
+	assert_int(CubeGenerator.generate(1.0, 1.0, 1.0, 0).vertices.size()).is_equal(8)
 
 
 func test_cube_face_count_subdivisions_1() -> void:
@@ -29,8 +29,8 @@ func test_cube_face_count_subdivisions_1() -> void:
 
 
 func test_cube_vertex_count_subdivisions_1() -> void:
-	# subdivisions=1 → steps=2 → (2+1)²=9 verts per face → 6×9=54
-	assert_int(CubeGenerator.generate(1.0, 1.0, 1.0, 1).vertices.size()).is_equal(54)
+	# After weld: 8 corners + 12 edge-midpoints + 6 face-centres = 26
+	assert_int(CubeGenerator.generate(1.0, 1.0, 1.0, 1).vertices.size()).is_equal(26)
 
 
 func test_cube_face_count_subdivisions_2() -> void:

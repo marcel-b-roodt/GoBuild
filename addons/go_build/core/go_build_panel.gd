@@ -261,12 +261,15 @@ func set_target(target: GoBuildMeshInstance) -> void:
 		_target.selection.mode_changed.disconnect(_on_target_mode_changed)
 	if _target != null and _target.selection.selection_changed.is_connected(_update_ops_buttons):
 		_target.selection.selection_changed.disconnect(_update_ops_buttons)
+	if _target != null and _target.mesh_changed.is_connected(_refresh):
+		_target.mesh_changed.disconnect(_refresh)
 
 	_target = target
 
 	if _target != null:
 		_target.selection.mode_changed.connect(_on_target_mode_changed)
 		_target.selection.selection_changed.connect(_update_ops_buttons)
+		_target.mesh_changed.connect(_refresh)
 		_sync_mode_buttons(_target.selection.get_mode())
 		# Apply the current checkbox state so the new node matches immediately.
 		if _cull_check != null:

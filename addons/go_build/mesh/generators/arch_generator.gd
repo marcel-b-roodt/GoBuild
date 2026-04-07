@@ -116,6 +116,6 @@ static func generate(
 		face.uvs = [Vector2(u1, 1.0), Vector2(u1, 0.0), Vector2(u0, 0.0), Vector2(u0, 1.0)]
 		mesh.faces.append(face)
 
-	mesh.rebuild_edges()
+	WeldOperation.apply_weld_by_threshold(mesh)
 	return mesh
 
