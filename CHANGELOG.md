@@ -8,13 +8,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] — 2026-04-15
+
 ### Added
 
 **Mesh Operations (Stage 3, continued)**
 - Delete geometry — `DeleteOperation` with three entry points: `apply_faces`, `apply_edges`, `apply_vertices`; orphaned-vertex compaction with full index remapping after deletion; coincident-group expansion in vertex mode so all split copies of a shared corner are removed together; panel button (enabled in any sub-element mode with a non-empty selection); `Delete` and `X` keyboard shortcuts (pass-through in Object mode so Godot can still delete nodes); right-click context menu items in all three sub-element modes; full undo/redo via `apply_operation`; 24 unit tests
+- Merge vertices — `MergeOperation`: collapses all selected vertices (and their coincident partners) to their collective centroid; panel button in Vertex section; right-click context menu; full undo/redo
+- Weld vertices — `WeldOperation`: snaps all vertices within a configurable distance threshold together; `apply_weld_by_threshold` performs a full coincident-group compaction pass; panel button; useful for closing seams on imported or subdivided geometry; full undo/redo
+- Edge extrude — `EdgeExtrudeOperation`: extrudes any selected edge (boundary or interior) at distance 0, adding a new quad face [va, vb, nb, na] with CCW winding matching the side-face convention of `ExtrudeOperation`; Shift+drag on an axis handle in Edge mode immediately transitions to a translate drag restricted to the two new vertices; works on closed meshes (e.g. a cube) where all edges are interior; 16 unit tests
 
 **Editor UX**
 - Show back-faces toggle — opt-in checkbox in the panel (alongside Debug logging) that disables back-face culling on the active mesh while editing; useful for diagnosing flipped normals and inside-out geometry; implemented as surface override materials (`BaseMaterial3D.CULL_DISABLED`) so the exported mesh is never affected; clears automatically when the mesh is deselected or the plugin is disabled
+- Panel operation categories — Vertex / Edge / Face / General labelled sections in the operations panel for easier navigation; each section is only populated with buttons relevant to the active sub-element mode
+- `mesh_changed` signal on `GoBuildMeshInstance` — emitted after every bake so the panel (and any external listeners) receive up-to-date vertex/edge/face counts without polling
+
+### Fixed
+- Weld primitives on generation — `WeldOperation.apply_weld_by_threshold` now calls `rebuild_edges()` even when no vertices are remapped, fixing the 0-edge state that occurred on freshly generated planes
+- Vertex snap on viewport-plane handle — snapping with V while dragging the viewport-plane handle now lands at the correct 3D world position (was slightly offset due to a stale centroid)
 
 ---
 
