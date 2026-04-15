@@ -969,8 +969,10 @@ func _apply_scale_drag(
 ## the initial mouse-plane intersection as the drag origin ([member _drag_start_dir]).
 ## Subsequent calls translate the selection by [code]hit - _drag_start_dir[/code].
 ## [b]Ctrl held[/b] snaps the world-space delta to the editor grid step.
-## [b]V held[/b] snaps the centroid to the nearest non-dragged mesh vertex,
-## constrained to stay in the camera plane (depth component removed).
+## [b]V held[/b] snaps the centroid to the nearest non-dragged mesh vertex.
+## Unlike axis/plane snap (which constrain movement to their respective axis or
+## plane), the viewport-plane handle is unconstrained, so vertex snap moves the
+## selection to the exact 3D world position of the target vertex.
 func _apply_viewport_plane_drag(
 		node: GoBuildMeshInstance,
 		camera: Camera3D,
@@ -980,15 +982,15 @@ func _apply_viewport_plane_drag(
 	var local_centroid: Vector3 = _compute_drag_centroid()
 	var world_centroid: Vector3 = node.global_transform * local_centroid
 
-	# Vertex snap (V held): move centroid to the nearest non-dragged vertex,
-	# removing the depth component so movement stays in the camera plane.
+	# Vertex snap (V held): snap the centroid directly to the nearest non-dragged
+	# vertex world position — no camera-plane constraint.  This ensures the dragged
+	# selection lands exactly on top of the target vertex in 3D, not merely at the
+	# same screen-space XY at the original depth.
 	if Input.is_key_pressed(KEY_V):
 		var snap_world: Vector3 = _find_vertex_snap_world_pos(node, camera, screen_pos)
 		if snap_world != Vector3.INF:
-			var cam_forward: Vector3 = -camera.global_transform.basis.z
-			var raw_delta: Vector3   = snap_world - world_centroid
-			raw_delta -= cam_forward * raw_delta.dot(cam_forward)
-			var delta_local: Vector3 = node.global_transform.basis.inverse() * raw_delta
+			var delta_local: Vector3 = \
+					node.global_transform.basis.inverse() * (snap_world - world_centroid)
 			for idx: int in _drag_initial_verts:
 				gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
 			if _drag_initial_t == INF:
