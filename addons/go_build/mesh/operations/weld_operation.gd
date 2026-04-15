@@ -110,7 +110,10 @@ static func apply_weld_by_threshold(mesh: GoBuildMesh, threshold: float = 0.0001
 			remap[sorted_m[i]] = canonical
 
 	if remap.is_empty():
-		return  # Nothing to merge.
+		# Nothing was merged, but edges may not have been built yet
+		# (e.g. a freshly generated plane with all-unique vertices).
+		mesh.rebuild_edges()
+		return
 
 	_apply_remap_and_clean(mesh, remap)
 

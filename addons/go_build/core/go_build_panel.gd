@@ -17,7 +17,9 @@ const _MESH_INSTANCE_SCRIPT  := preload("res://addons/go_build/core/go_build_mes
 const _EXTRUDE_SCRIPT  := preload("res://addons/go_build/mesh/operations/extrude_operation.gd")
 const _FNORMALS_SCRIPT := preload("res://addons/go_build/mesh/operations/flip_normals_operation.gd")
 const _DELETE_SCRIPT   := preload("res://addons/go_build/mesh/operations/delete_operation.gd")
-const _WELD_SCRIPT     := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
+const _WELD_SCRIPT          := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
+const _EDGE_EXTRUDE_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/edge_extrude_operation.gd")
 
 const _VERSION := "0.1.0"
 
@@ -27,12 +29,13 @@ const _EXTRUDE_DEFAULT_DISTANCE: float = 0.5
 var _status_label: Label
 var _stats_label: Label
 var _mode_buttons: Array[Button] = []
-var _extrude_btn: Button = null
-var _flip_btn: Button    = null
-var _delete_btn: Button  = null
-var _merge_btn: Button   = null
-var _weld_btn: Button    = null
-var _cull_check: CheckBox = null
+var _extrude_btn: Button       = null
+var _flip_btn: Button          = null
+var _extrude_edge_btn: Button  = null
+var _delete_btn: Button        = null
+var _merge_btn: Button         = null
+var _weld_btn: Button          = null
+var _cull_check: CheckBox      = null
 var _target: GoBuildMeshInstance = null
 var _plugin: EditorPlugin = null
 
@@ -121,77 +124,66 @@ func _ready() -> void:
 	add_child(HSeparator.new())
 
 	# ── Modelling Operations ──────────────────────────────────────────────
-	var ops_label := Label.new()
-	ops_label.text = "── Modelling ──"
-	ops_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ops_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	ops_label.add_theme_font_size_override("font_size", 11)
-	add_child(ops_label)
+	# Operations are grouped by the edit mode they require.
+	add_child(_section_label("── Vertex ──"))
 
-	var ops_grid := GridContainer.new()
-	ops_grid.columns = 2
-	add_child(ops_grid)
+	var vert_grid := GridContainer.new()
+	vert_grid.columns = 2
+	add_child(vert_grid)
 
-	_extrude_btn = Button.new()
-	_extrude_btn.text = "Extrude"
-	_extrude_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_extrude_btn.add_theme_font_size_override("font_size", 11)
-	var dist_fmt := "%.2f" % _EXTRUDE_DEFAULT_DISTANCE
-	_extrude_btn.tooltip_text = (
-		"Extrude selected face(s) by " + dist_fmt
-		+ " units along their normal.\nRequires Face mode with at least one face selected."
-	)
-	_extrude_btn.disabled = true
-	_extrude_btn.pressed.connect(_on_extrude_pressed)
-	ops_grid.add_child(_extrude_btn)
-
-	_flip_btn = Button.new()
-	_flip_btn.text = "Flip Normals"
-	_flip_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_flip_btn.add_theme_font_size_override("font_size", 11)
-	_flip_btn.tooltip_text = (
-		"Reverse the outward normal of selected face(s) by flipping their winding order.\n"
-		+ "Requires Face mode with at least one face selected."
-	)
-	_flip_btn.disabled = true
-	_flip_btn.pressed.connect(_on_flip_normals_pressed)
-	ops_grid.add_child(_flip_btn)
-
-	_delete_btn = Button.new()
-	_delete_btn.text = "Delete"
-	_delete_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_delete_btn.add_theme_font_size_override("font_size", 11)
-	_delete_btn.tooltip_text = (
-		"Delete selected vertices, edges, or faces.\n"
-		+ "Affected faces are removed; orphaned vertices are compacted away."
-	)
-	_delete_btn.disabled = true
-	_delete_btn.pressed.connect(_on_delete_pressed)
-	ops_grid.add_child(_delete_btn)
-
-	_merge_btn = Button.new()
-	_merge_btn.text = "Merge"
-	_merge_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_merge_btn.add_theme_font_size_override("font_size", 11)
-	_merge_btn.tooltip_text = (
+	_merge_btn = _op_button("Merge",
 		"Merge selected vertices to their centroid (M).\n"
-		+ "Requires Vertex mode with at least 2 vertices selected."
-	)
-	_merge_btn.disabled = true
+		+ "Requires Vertex mode with ≥2 vertices selected.")
 	_merge_btn.pressed.connect(_on_merge_pressed)
-	ops_grid.add_child(_merge_btn)
+	vert_grid.add_child(_merge_btn)
 
-	_weld_btn = Button.new()
-	_weld_btn.text = "Weld"
-	_weld_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_weld_btn.add_theme_font_size_override("font_size", 11)
-	_weld_btn.tooltip_text = (
-		"Weld all vertices closer than 0.0001 units together (Merge by Distance).\n"
-		+ "Requires Vertex mode."
-	)
-	_weld_btn.disabled = true
+	_weld_btn = _op_button("Weld",
+		"Merge all vertices within 0.0001 units (Merge by Distance).\n"
+		+ "Requires Vertex mode.")
 	_weld_btn.pressed.connect(_on_weld_pressed)
-	ops_grid.add_child(_weld_btn)
+	vert_grid.add_child(_weld_btn)
+
+	add_child(_section_label("── Edge ──"))
+
+	var edge_grid := GridContainer.new()
+	edge_grid.columns = 2
+	add_child(edge_grid)
+
+	_extrude_edge_btn = _op_button("Extrude",
+		"Extrude selected boundary edge(s) into new quad faces (Shift+drag).\n"
+		+ "Requires Edge mode with ≥1 boundary edge selected.")
+	_extrude_edge_btn.pressed.connect(_on_extrude_edge_pressed)
+	edge_grid.add_child(_extrude_edge_btn)
+
+	add_child(_section_label("── Face ──"))
+
+	var face_grid := GridContainer.new()
+	face_grid.columns = 2
+	add_child(face_grid)
+
+	_extrude_btn = _op_button("Extrude",
+		"Extrude selected face(s) by %.2f units along their normal.\n" % _EXTRUDE_DEFAULT_DISTANCE
+		+ "Requires Face mode with ≥1 face selected.")
+	_extrude_btn.pressed.connect(_on_extrude_pressed)
+	face_grid.add_child(_extrude_btn)
+
+	_flip_btn = _op_button("Flip Normals",
+		"Reverse the outward normal of selected face(s) by flipping winding order.\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_flip_btn.pressed.connect(_on_flip_normals_pressed)
+	face_grid.add_child(_flip_btn)
+
+	add_child(_section_label("── General ──"))
+
+	var general_grid := GridContainer.new()
+	general_grid.columns = 2
+	add_child(general_grid)
+
+	_delete_btn = _op_button("Delete",
+		"Delete selected vertices, edges, or faces (Del / X).\n"
+		+ "Orphaned vertices are removed automatically.")
+	_delete_btn.pressed.connect(_on_delete_pressed)
+	general_grid.add_child(_delete_btn)
 
 	add_child(HSeparator.new())
 
@@ -408,6 +400,27 @@ func _sync_mode_buttons(active_mode: SelectionManager.Mode) -> void:
 		_mode_buttons[i].set_pressed_no_signal(i == active_mode as int)
 
 
+## Create a styled section-header [Label] for the operations area.
+func _section_label(text: String) -> Label:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	lbl.add_theme_font_size_override("font_size", 11)
+	return lbl
+
+
+## Create a standard disabled operation [Button] with tooltip.
+func _op_button(text: String, tooltip: String) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.add_theme_font_size_override("font_size", 11)
+	btn.tooltip_text = tooltip
+	btn.disabled = true
+	return btn
+
+
 ## Enable or disable the operations buttons based on the current mode and selection.
 ## Called on mode change and on selection change so the button state is always accurate.
 func _update_ops_buttons() -> void:
@@ -441,6 +454,64 @@ func _update_ops_buttons() -> void:
 		_merge_btn.disabled = sel_verts.size() < 2
 	if _weld_btn != null:
 		_weld_btn.disabled = not in_vertex_mode
+	if _extrude_edge_btn != null:
+		var in_edge_mode: bool = _target != null \
+				and _target.selection.get_mode() == SelectionManager.Mode.EDGE
+		var has_boundary: bool = false
+		if in_edge_mode:
+			for eidx: int in _target.selection.get_selected_edges():
+				if _target.go_build_mesh.edges[eidx].is_boundary():
+					has_boundary = true
+					break
+		_extrude_edge_btn.disabled = not has_boundary
+
+
+## Public entry-point so [GoBuildGizmoPlugin] can trigger edge extrude via
+## keyboard shortcut (Shift+E while in Edge mode).
+func trigger_extrude_edge() -> void:
+	_on_extrude_edge_pressed()
+
+
+## Extrude the selected boundary edges, creating new quad faces.
+## Requires Edge mode with at least one boundary edge selected.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_extrude_edge_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return
+	var sel_edges: Array[int] = _target.selection.get_selected_edges()
+	if sel_edges.is_empty():
+		return
+
+	# Filter to boundary edges only before passing to the operation.
+	var boundary_edges: Array[int] = []
+	for ei: int in sel_edges:
+		if _target.go_build_mesh.edges[ei].is_boundary():
+			boundary_edges.append(ei)
+	if boundary_edges.is_empty():
+		return
+
+	# Capture to a local so the Callable closure captures the right set.
+	var edges_to_extrude: Array[int] = []
+	edges_to_extrude.assign(boundary_edges)
+
+	var new_edge_indices: Array[int] = []
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	_target.apply_operation(
+		"Extrude Edge",
+		func(): new_edge_indices = EdgeExtrudeOperation.apply(
+				_target.go_build_mesh, edges_to_extrude),
+		ur,
+	)
+
+	# Select the newly created boundary edges so the user can immediately drag them.
+	_target.selection.clear()
+	for ei: int in new_edge_indices:
+		_target.selection.select_edge(ei)
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
 
 
 ## Extrude the currently selected faces by [constant _EXTRUDE_DEFAULT_DISTANCE].

@@ -141,8 +141,8 @@ func test_cube_edges_are_rebuilt_after_generate() -> void:
 
 
 func test_cube_no_subdivisions_has_24_edges() -> void:
-	# 6 separate quad faces, each with 4 boundary edges = 24
-	assert_int(CubeGenerator.generate().edges.size()).is_equal(24)
+	# After welding all 8 corner vertices are shared → 12 unique interior edges.
+	assert_int(CubeGenerator.generate().edges.size()).is_equal(12)
 
 
 # ---------------------------------------------------------------------------
