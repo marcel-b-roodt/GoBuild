@@ -1,16 +1,17 @@
 ## Edge extrude operation for [GoBuildMesh].
 ##
-## Extrudes each selected boundary edge by creating two new vertices at the
-## same positions as the original edge endpoints and adding a new quad face
-## that connects the original edge to the new one.
+## Extrudes each selected edge by creating two new vertices at the same
+## positions as the original edge endpoints and adding a new quad face that
+## connects the original edge to the new one.
 ##
 ## The new face starts as a zero-area (degenerate) quad — both pairs of
 ## vertices are coincident — so the caller is expected to immediately move
 ## the new boundary edge (the [code]na[/code]/[code]nb[/code] pair) away from
 ## the mesh to give the face area.
 ##
-## Only boundary edges (edges adjacent to exactly one face) are processed.
-## Interior edges are silently skipped.
+## Both boundary and interior edges are processed.  Extruding an interior
+## edge creates a T-junction (the original edge gains a third adjacent face)
+## which matches Blender's "Extrude Edges and Move" behaviour for interior edges.
 ##
 ## Winding convention is identical to [ExtrudeOperation] side faces:
 ## [code][va, vb, nb, na][/code] wound CCW from outside, so
@@ -33,22 +34,20 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 ## Extrude the boundary edges at [param edge_indices] on [param mesh].
 ##
 ## Returns the new boundary edge indices (one per successfully extruded source
-## edge) so callers can update the selection.  Interior edges in
-## [param edge_indices] are silently skipped.
+## edge) so callers can update the selection.
 ## [method GoBuildMesh.rebuild_edges] is called automatically on completion.
 static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> Array[int]:
 	if mesh == null or edge_indices.is_empty():
 		return []
 
-	# Collect valid boundary-edge indices before mutating the mesh, because
-	# rebuild_edges changes edge.face_indices and would invalidate is_boundary().
-	var boundary_indices: Array[int] = []
+	# Collect valid edge indices (bounds-checked).  Snapshot before mutating
+	# because rebuild_edges invalidates face_indices on existing edges.
+	var valid_indices: Array[int] = []
 	for ei: int in edge_indices:
-		if ei >= 0 and ei < mesh.edges.size() \
-				and (mesh.edges[ei] as GoBuildEdge).is_boundary():
-			boundary_indices.append(ei)
+		if ei >= 0 and ei < mesh.edges.size():
+			valid_indices.append(ei)
 
-	if boundary_indices.is_empty():
+	if valid_indices.is_empty():
 		return []
 
 	# Track the vertex index range before any additions.
@@ -56,7 +55,7 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> Array[int]:
 	# the na/nb vertex index pairs, which are stored per-extrusion below.
 	var new_vert_pairs: Array = []  # Array of [na, nb] int pairs.
 
-	for ei: int in boundary_indices:
+	for ei: int in valid_indices:
 		var edge: GoBuildEdge = mesh.edges[ei]
 		_extrude_single_edge(mesh, edge, new_vert_pairs)
 

@@ -22,6 +22,8 @@ const _INSET_SCRIPT         := preload(
 		"res://addons/go_build/mesh/operations/inset_operation.gd")
 const _EDGE_EXTRUDE_SCRIPT  := preload(
 		"res://addons/go_build/mesh/operations/edge_extrude_operation.gd")
+const _EDGE_SCRIPT          := preload(
+		"res://addons/go_build/mesh/go_build_edge.gd")
 
 # ---------------------------------------------------------------------------
 # Constants (were in plugin.gd)
@@ -403,17 +405,8 @@ func _should_edge_extrude_drag(edited_node: GoBuildMeshInstance) -> bool:
 		return false
 	if edited_node.selection.get_mode() != SelectionManager.Mode.EDGE:
 		return false
-	# Require at least one selected boundary edge.
-	var gbm: GoBuildMesh = edited_node.go_build_mesh
-	if gbm == null:
-		return false
-	var has_boundary := false
-	for ei: int in edited_node.selection.get_selected_edges():
-		if ei >= 0 and ei < gbm.edges.size() \
-				and (gbm.edges[ei] as GoBuildEdge).is_boundary():
-			has_boundary = true
-			break
-	if not has_boundary:
+	# Require at least one edge to be selected.
+	if edited_node.selection.get_selected_edges().is_empty():
 		return false
 	# Exclude rotate and scale handles — allow axis / plane / view-plane only.
 	var in_rot: bool = _pressed_handle_id >= GoBuildGizmoPlugin.ROT_HANDLE_OFFSET \
@@ -423,9 +416,10 @@ func _should_edge_extrude_drag(edited_node: GoBuildMeshInstance) -> bool:
 	return not in_rot and not in_scale
 
 
-## Perform EdgeExtrudeOperation on the selected boundary edges, then start a
-## translate drag restricted to the newly created boundary-edge vertices.
-## Mirrors [method _begin_extrude_drag] exactly.
+## Perform EdgeExtrudeOperation on the selected edges, then start a translate
+## drag restricted to the newly created boundary-edge vertices.
+## Mirrors [method _begin_extrude_drag] exactly — does NOT touch selection
+## mid-setup to avoid firing selection_changed signals during drag init.
 ## Returns false if anything fails.
 func _begin_edge_extrude_drag(
 		edited_node: GoBuildMeshInstance,
@@ -435,34 +429,29 @@ func _begin_edge_extrude_drag(
 	if gbm == null:
 		return false
 
-	# Collect boundary edges from the current selection.
-	var boundary_edges: Array[int] = []
+	# Collect valid edges from the current selection (original indices).
+	var source_edges: Array[int] = []
 	for ei: int in edited_node.selection.get_selected_edges():
-		if ei >= 0 and ei < gbm.edges.size() \
-				and (gbm.edges[ei] as GoBuildEdge).is_boundary():
-			boundary_edges.append(ei)
-	if boundary_edges.is_empty():
+		if ei >= 0 and ei < gbm.edges.size():
+			source_edges.append(ei)
+	if source_edges.is_empty():
 		return false
 
 	# Snapshot BEFORE the operation — this is the undo target.
 	var pre_snap: Dictionary = gbm.take_snapshot()
 
 	# Apply at distance 0: new na/nb verts are coincident with va/vb.
-	# Returns the new boundary edge indices so we can restrict the drag.
-	var new_edge_indices: Array[int] = EdgeExtrudeOperation.apply(gbm, boundary_edges)
+	# Returns the new boundary edge indices (na-nb per extruded edge).
+	var new_edge_indices: Array[int] = EdgeExtrudeOperation.apply(gbm, source_edges)
 	if new_edge_indices.is_empty():
-		# Nothing was extruded (all were interior) — bail without touching state.
 		return false
 
 	edited_node.bake()
 
-	# Update selection to the new boundary edges so the gizmo centroid is correct.
-	edited_node.selection.clear()
-	for ei: int in new_edge_indices:
-		edited_node.selection.select_edge(ei)
-
 	# Collect the vertex indices for the new boundary edge endpoints (na and nb
 	# per extruded edge) — these are the only vertices that should move.
+	# Do NOT update the selection here; doing so fires selection_changed which
+	# calls update_gizmos() synchronously and interferes with drag setup.
 	var new_verts: Array[int] = []
 	for ei: int in new_edge_indices:
 		var edge: GoBuildEdge = gbm.edges[ei]
@@ -473,11 +462,8 @@ func _begin_edge_extrude_drag(
 
 	var started: bool = _gizmo_plugin.begin_extrude_drag(edited_node, handle_id, new_verts)
 	if not started:
-		# Roll back and restore original selection state.
+		# Roll back to pre-extrude state.
 		edited_node.restore_and_bake(pre_snap)
-		edited_node.selection.clear()
-		for ei: int in boundary_edges:
-			edited_node.selection.select_edge(ei)
 		return false
 
 	# Override snap with the pre-operation snapshot so undo returns to before extrude.

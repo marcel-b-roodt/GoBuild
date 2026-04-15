@@ -232,11 +232,11 @@ func test_apply_two_edges_returns_two_new_indices() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Interior edge skipping
+# Interior edge extrude
 # ---------------------------------------------------------------------------
 
-func test_interior_edge_is_skipped() -> void:
-	# In the two-quad mesh the shared edge is interior, so it should be skipped.
+func test_interior_edge_creates_face() -> void:
+	# Extruding an interior edge creates a new quad face (T-junction topology).
 	var mesh := _make_two_quads()
 	# Find the interior edge index.
 	var interior_idx: int = -1
@@ -248,10 +248,10 @@ func test_interior_edge_is_skipped() -> void:
 
 	var indices: Array[int] = [interior_idx]
 	var new_edges: Array[int] = EdgeExtrudeOperation.apply(mesh, indices)
-	# No new faces or vertices should be added.
-	assert_int(new_edges.size()).is_equal(0)
-	assert_int(mesh.faces.size()).is_equal(2)  # unchanged
-	assert_int(mesh.vertices.size()).is_equal(6)  # unchanged
+	# One new boundary edge (na-nb), one new face, two new vertices.
+	assert_int(new_edges.size()).is_equal(1)
+	assert_int(mesh.faces.size()).is_equal(3)
+	assert_int(mesh.vertices.size()).is_equal(8)
 
 
 # ---------------------------------------------------------------------------
