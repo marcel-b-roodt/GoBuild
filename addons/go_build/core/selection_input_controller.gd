@@ -20,6 +20,8 @@ const _EXTRUDE_SCRIPT       := preload(
 		"res://addons/go_build/mesh/operations/extrude_operation.gd")
 const _INSET_SCRIPT         := preload(
 		"res://addons/go_build/mesh/operations/inset_operation.gd")
+const _EDGE_EXTRUDE_SCRIPT  := preload(
+		"res://addons/go_build/mesh/operations/edge_extrude_operation.gd")
 
 # ---------------------------------------------------------------------------
 # Constants (were in plugin.gd)
@@ -238,6 +240,8 @@ func _handle_mouse_motion(
 				started = _begin_inset_drag(edited_node, _pressed_handle_id)
 			elif _should_extrude_drag(edited_node):
 				started = _begin_extrude_drag(edited_node, _pressed_handle_id)
+			elif _should_edge_extrude_drag(edited_node):
+				started = _begin_edge_extrude_drag(edited_node, _pressed_handle_id)
 			else:
 				started = _gizmo_plugin.begin_drag(edited_node, _pressed_handle_id)
 			if started:
@@ -382,6 +386,103 @@ func _begin_inset_drag(
 
 	_gizmo_plugin._drag_restore              = pre_snap
 	_gizmo_plugin._drag_action_name_override = "Inset Face"
+	return true
+
+
+# ---------------------------------------------------------------------------
+# Shift+drag → Edge Extrude
+# ---------------------------------------------------------------------------
+
+## Returns true when starting a translate drag should edge-extrude rather than move.
+## Conditions: Shift held + Edge mode + Translate gizmo + at least one boundary
+## edge selected + the pressed handle is a translate-type handle.
+func _should_edge_extrude_drag(edited_node: GoBuildMeshInstance) -> bool:
+	if not Input.is_key_pressed(KEY_SHIFT):
+		return false
+	if _gizmo_plugin.transform_mode != GoBuildGizmoPlugin.TransformMode.TRANSLATE:
+		return false
+	if edited_node.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return false
+	# Require at least one selected boundary edge.
+	var gbm: GoBuildMesh = edited_node.go_build_mesh
+	if gbm == null:
+		return false
+	var has_boundary := false
+	for ei: int in edited_node.selection.get_selected_edges():
+		if ei >= 0 and ei < gbm.edges.size() \
+				and (gbm.edges[ei] as GoBuildEdge).is_boundary():
+			has_boundary = true
+			break
+	if not has_boundary:
+		return false
+	# Exclude rotate and scale handles — allow axis / plane / view-plane only.
+	var in_rot: bool = _pressed_handle_id >= GoBuildGizmoPlugin.ROT_HANDLE_OFFSET \
+			and _pressed_handle_id < GoBuildGizmoPlugin.SCALE_HANDLE_OFFSET
+	var in_scale: bool = _pressed_handle_id >= GoBuildGizmoPlugin.SCALE_HANDLE_OFFSET \
+			and _pressed_handle_id < GoBuildGizmoPlugin.PLANE_HANDLE_OFFSET
+	return not in_rot and not in_scale
+
+
+## Perform EdgeExtrudeOperation on the selected boundary edges, then start a
+## translate drag restricted to the newly created boundary-edge vertices.
+## Mirrors [method _begin_extrude_drag] exactly.
+## Returns false if anything fails.
+func _begin_edge_extrude_drag(
+		edited_node: GoBuildMeshInstance,
+		handle_id: int,
+) -> bool:
+	var gbm: GoBuildMesh = edited_node.go_build_mesh
+	if gbm == null:
+		return false
+
+	# Collect boundary edges from the current selection.
+	var boundary_edges: Array[int] = []
+	for ei: int in edited_node.selection.get_selected_edges():
+		if ei >= 0 and ei < gbm.edges.size() \
+				and (gbm.edges[ei] as GoBuildEdge).is_boundary():
+			boundary_edges.append(ei)
+	if boundary_edges.is_empty():
+		return false
+
+	# Snapshot BEFORE the operation — this is the undo target.
+	var pre_snap: Dictionary = gbm.take_snapshot()
+
+	# Apply at distance 0: new na/nb verts are coincident with va/vb.
+	# Returns the new boundary edge indices so we can restrict the drag.
+	var new_edge_indices: Array[int] = EdgeExtrudeOperation.apply(gbm, boundary_edges)
+	if new_edge_indices.is_empty():
+		# Nothing was extruded (all were interior) — bail without touching state.
+		return false
+
+	edited_node.bake()
+
+	# Update selection to the new boundary edges so the gizmo centroid is correct.
+	edited_node.selection.clear()
+	for ei: int in new_edge_indices:
+		edited_node.selection.select_edge(ei)
+
+	# Collect the vertex indices for the new boundary edge endpoints (na and nb
+	# per extruded edge) — these are the only vertices that should move.
+	var new_verts: Array[int] = []
+	for ei: int in new_edge_indices:
+		var edge: GoBuildEdge = gbm.edges[ei]
+		if not new_verts.has(edge.vertex_a):
+			new_verts.append(edge.vertex_a)
+		if not new_verts.has(edge.vertex_b):
+			new_verts.append(edge.vertex_b)
+
+	var started: bool = _gizmo_plugin.begin_extrude_drag(edited_node, handle_id, new_verts)
+	if not started:
+		# Roll back and restore original selection state.
+		edited_node.restore_and_bake(pre_snap)
+		edited_node.selection.clear()
+		for ei: int in boundary_edges:
+			edited_node.selection.select_edge(ei)
+		return false
+
+	# Override snap with the pre-operation snapshot so undo returns to before extrude.
+	_gizmo_plugin._drag_restore              = pre_snap
+	_gizmo_plugin._drag_action_name_override = "Extrude Edge"
 	return true
 
 
