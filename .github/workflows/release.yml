@@ -32,6 +32,15 @@ jobs:
           echo "$BODY" > release_notes.md
           echo "Generated release notes for v$VERSION"
 
+      - name: Append asset library archive URL
+        run: |
+          SHA="${{ github.sha }}"
+          URL="https://github.com/${{ github.repository }}/archive/${SHA}.zip"
+          printf "\n---\n\n**Godot Asset Library download URL** \
+(use this when submitting to the Asset Library — points to the exact tagged commit):\n\`\`\`\n%s\n\`\`\`\n" \
+            "$URL" >> release_notes.md
+          echo "Archive URL: $URL"
+
       - name: Build plugin zip
         run: |
           VERSION="${{ steps.version.outputs.version }}"
