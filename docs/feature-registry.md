@@ -63,18 +63,16 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Feature | Status | Notes |
 |---|---|---|
 | Extrude face(s) | ✅ Complete | `ExtrudeOperation.apply(mesh, face_indices, distance)`; per-face-normal extrude, side quads, CCW winding maintained; panel button (0.5u default) + full undo/redo via `apply_operation`; 17 unit tests |
-| Extrude edge(s) | 📋 Planned | Open boundary edge → new quad; triggered by `Shift+drag` in Edge mode |
+| Extrude edge(s) | ✅ Complete | `EdgeExtrudeOperation.apply`; boundary and interior edges; new quad face `[va, vb, nb, na]` CCW winding; panel button + `Shift+drag` in Edge mode; 16 unit tests; undo/redo via `apply_operation` |
 | Inset face(s) | ✅ Complete | `InsetOperation.apply(mesh, face_indices)`; shrinks selected faces inward with new boundary geometry; full undo/redo via `apply_operation` |
-| Bevel edge(s) | 📋 Planned | Configurable width, segments |
+| Bevel edge(s) | ✅ Complete | `BevelOperation.apply(mesh, edge_indices, width)`; slides each selected edge's endpoints along the adjacent face perimeters by `width` units, replaces original verts in each adjacent face, and fills the gap with a new bevel quad; panel button (0.1 u default) + full undo/redo via `apply_operation`; boundary-edge guard (no bevel face for single-face edges); 12 unit tests |
+| Subdivide faces | ✅ Complete | `SubdivideOperation.apply(mesh, face_indices)`; inserts centroid + shared edge midpoints; splits each N-gon into N quads; adjacent co-selected faces share midpoints (no T-junctions within selection); panel button in Face section + full undo/redo via `apply_operation`; 15 unit tests |
+| Bridge / Fill | ✅ Complete | `BridgeOperation.apply(mesh, edge_indices)`; walks selected boundary edges into two connected chains, aligns loop B to loop A (nearest-start rotation + winding flip heuristic), resamples to equal length, fills with a quad strip; panel button in Edge section + `F` shortcut; 11 unit tests |
 | Loop cut | 📋 Planned | Inserts edge loop on quad rings |
 | Delete geometry | ✅ Complete | `DeleteOperation.apply_faces/edges/vertices(mesh, indices)`; orphaned-vertex compaction + index remapping; panel button; `Delete`/`X` keyboard shortcut; right-click context menu (all sub-element modes); full undo/redo via `apply_operation` |
-| Bridge / Fill | 📋 Planned | Connect two open edge loops |
-| Weld / Merge vertices | ✅ Complete | `WeldOperation.apply_merge(mesh, vertex_indices)` — merge selected to centroid; `apply_weld_by_threshold(mesh, threshold)` — merge all within distance; degenerate-face removal + vertex compaction; panel Merge button (≥2 verts selected) + Weld button (vertex mode); `M` shortcut; right-click context menu; full undo/redo |
-| Flip normals | ✅ Complete | `FlipNormalsOperation.apply(mesh, face_indices)`; reverses winding + UV arrays; panel button + right-click context menu + full undo/redo; 15 unit tests |
-| Subdivide faces | 📋 Planned | Subdivide selection into quads |
-| Modifier-aware toolbar | 🔧 In Progress | Viewport overlay hint implemented (`_build_overlay_hint` in `plugin.gd`); panel context label not yet added |
+| Modifier-aware toolbar | ✅ Complete | Viewport overlay (`_build_overlay_hint` in `plugin.gd`): mode + op + available-shortcut hints drawn bottom-left of viewport; panel context label (`_context_label` in `go_build_panel.gd`, driven by `_build_panel_context` + `_refresh_panel_context` in `plugin.gd`): shows active op name (Move / ■ Extrude / ■ Extrude Edge / ■ Inset / ■ Snap / ■ Vertex Snap) below the mode buttons; updates on Shift/Ctrl/Alt/V key events, transform mode change, and mode switch |
 | Shift+drag → Extrude | ✅ Complete | `_should_extrude_drag` + `_begin_extrude_drag` in `selection_input_controller.gd`; extrudes at distance=0 then translates; undo restores pre-extrude state in one step |
-| Shift+drag → Inset | 📋 Planned | Scale (R) mode + Shift; interactive inset by drag delta |
+| Shift+drag → Inset | ✅ Complete | `_should_inset_drag` + `_begin_inset_drag` in `selection_input_controller.gd`; `InsetOperation.apply` at distance=0 then `_apply_inset_drag` (screen-space delta → lerp to centroid); undo restores pre-inset state in one step |
 | Right-click context menu | ✅ Complete | `PopupMenu` in `selection_input_controller.gd`; per-mode items (Select All, Extrude, Flip Normals); stub items for planned ops |
 
 ---

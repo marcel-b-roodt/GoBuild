@@ -225,6 +225,7 @@ func _edit(object: Object) -> void:
 
 	if _panel:
 		_panel.set_target(_edited_node)
+	_refresh_panel_context()
 
 
 func _force_gizmo_redraw_deferred(node: Node3D) -> void:
@@ -257,6 +258,7 @@ func _make_visible(visible: bool) -> void:
 		_edited_node = null
 		if _panel:
 			_panel.set_target(null)
+			_panel.update_context("")
 		_send_editor_tool_shortcut(KEY_W)
 
 
@@ -288,10 +290,11 @@ func _handle_keyboard(event: InputEvent) -> int:
 	var key := event as InputEventKey
 	if key.echo:
 		return 0
-	# Refresh the overlay hint on any Shift / Ctrl / Alt state change.
+	# Refresh the overlay hint on any Shift / Ctrl / Alt / V state change.
 	match key.keycode:
-		KEY_SHIFT, KEY_CTRL, KEY_ALT:
+		KEY_SHIFT, KEY_CTRL, KEY_ALT, KEY_V:
 			update_overlays()
+			_refresh_panel_context()
 			return 0
 	if not key.pressed:
 		return 0
@@ -324,15 +327,25 @@ func _handle_keyboard_shortcut(key: InputEventKey) -> int:
 	return 1
 
 
-## Handle single-key action shortcuts (W/E/R transform modes, Delete/X).
+## Handle single-key action shortcuts (W/E/R transform modes, Delete/X, M, F).
 ## Returns 1 if consumed, 0 if passed through, -1 if not matched.
 func _handle_action_key(keycode: Key) -> int:
 	match keycode:
-		KEY_W: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
-		KEY_E: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.ROTATE)
-		KEY_R: return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.SCALE)
+		KEY_W:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
+		KEY_E:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.ROTATE)
+		KEY_R:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.SCALE)
+	# Element-mode action keys — handled by helpers to keep return count low.
+	var result: int = _handle_element_action_key(keycode)
+	return result
+
+
+## Handle Delete/X/M/F shortcuts that operate on the current element selection.
+## Returns 1 if consumed, 0 if passed through, -1 if not matched.
+func _handle_element_action_key(keycode: Key) -> int:
+	match keycode:
 		KEY_DELETE, KEY_X: return _handle_delete_key()
 		KEY_M:             return _handle_merge_key()
+		KEY_F:             return _handle_bridge_key()
 	return -1  # Not a recognised action key.
 
 
@@ -354,6 +367,15 @@ func _handle_merge_key() -> int:
 	return 0
 
 
+## Intercept F in Edge mode only; triggers Bridge.  Pass through otherwise.
+func _handle_bridge_key() -> int:
+	if _edited_node != null and _panel != null \
+			and _edited_node.selection.get_mode() == SelectionManager.Mode.EDGE:
+		_panel.trigger_bridge()
+		return 1
+	return 0
+
+
 func _set_transform_mode(mode: GoBuildGizmoPlugin.TransformMode) -> int:
 	if _gizmo_plugin == null:
 		return 0
@@ -364,6 +386,7 @@ func _set_transform_mode(mode: GoBuildGizmoPlugin.TransformMode) -> int:
 	if _edited_node:
 		_edited_node.update_gizmos()
 	update_overlays()
+	_refresh_panel_context()
 	return 1
 
 
@@ -487,6 +510,52 @@ func _build_overlay_hint() -> String:
 	return "%s  ·  %s    %s" % [mode_label, op, "  ".join(hints)]
 
 
+## Return a short operation name for the panel context label.
+## Mirrors [method _build_overlay_hint] but returns only the active operation
+## (no mode prefix, no shortcut hints).
+func _build_panel_context() -> String:
+	if _edited_node == null or _gizmo_plugin == null:
+		return ""
+	var mode: SelectionManager.Mode = _edited_node.selection.get_mode()
+	if mode == SelectionManager.Mode.OBJECT:
+		return ""
+	var shift: bool = Input.is_key_pressed(KEY_SHIFT)
+	var ctrl:  bool = Input.is_key_pressed(KEY_CTRL)
+	var v_key: bool = Input.is_key_pressed(KEY_V)
+	var tmode := _gizmo_plugin.transform_mode
+	var result: String
+	match tmode:
+		GoBuildGizmoPlugin.TransformMode.ROTATE:
+			result = "■ Snap" if ctrl else "Rotate"
+		GoBuildGizmoPlugin.TransformMode.SCALE:
+			if shift and mode == SelectionManager.Mode.FACE:
+				result = "■ Inset"
+			elif ctrl:
+				result = "■ Snap"
+			else:
+				result = "Scale"
+		_:  # TRANSLATE
+			if v_key:
+				result = "■ Vertex Snap"
+			elif ctrl:
+				result = "■ Snap"
+			elif shift:
+				match mode:
+					SelectionManager.Mode.FACE: result = "■ Extrude"
+					SelectionManager.Mode.EDGE: result = "■ Extrude Edge"
+					_:                          result = "Move"
+			else:
+				result = "Move"
+	return result
+
+
+## Push the current panel context label text to the panel.
+func _refresh_panel_context() -> void:
+	if _panel == null:
+		return
+	_panel.update_context(_build_panel_context())
+
+
 # ---------------------------------------------------------------------------
 # Signal handlers
 # ---------------------------------------------------------------------------
@@ -522,6 +591,7 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 		_input_controller.cancel_drag(_edited_node)
 		_input_controller.clear_hover(_edited_node)
 		_input_controller.cancel_box_select(_edited_node)
+	_refresh_panel_context()
 	_send_editor_tool_shortcut(KEY_Q)
 
 

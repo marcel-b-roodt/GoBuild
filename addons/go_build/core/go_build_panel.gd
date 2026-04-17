@@ -20,11 +20,20 @@ const _DELETE_SCRIPT   := preload("res://addons/go_build/mesh/operations/delete_
 const _WELD_SCRIPT          := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
 const _EDGE_EXTRUDE_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/edge_extrude_operation.gd")
+const _BEVEL_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/bevel_operation.gd")
+const _BRIDGE_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/bridge_operation.gd")
+const _SUBDIVIDE_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/subdivide_operation.gd")
 
 const _VERSION := "0.1.0"
 
 ## Default extrude distance in local mesh units.
 const _EXTRUDE_DEFAULT_DISTANCE: float = 0.5
+
+## Default bevel width in local mesh units.
+const _BEVEL_DEFAULT_WIDTH: float = 0.1
 
 var _status_label: Label
 var _stats_label: Label
@@ -32,10 +41,14 @@ var _mode_buttons: Array[Button] = []
 var _extrude_btn: Button       = null
 var _flip_btn: Button          = null
 var _extrude_edge_btn: Button  = null
+var _bevel_btn: Button         = null
+var _bridge_btn: Button        = null
+var _subdivide_btn: Button     = null
 var _delete_btn: Button        = null
 var _merge_btn: Button         = null
 var _weld_btn: Button          = null
 var _cull_check: CheckBox      = null
+var _context_label: Label      = null
 var _target: GoBuildMeshInstance = null
 var _plugin: EditorPlugin = null
 
@@ -44,6 +57,15 @@ var _plugin: EditorPlugin = null
 ## Required so [method _insert_shape] can access [method EditorPlugin.get_undo_redo].
 func set_plugin(plugin: EditorPlugin) -> void:
 	_plugin = plugin
+
+
+## Called by the plugin whenever the transform mode or a held modifier changes.
+## Shows the active operation name in the panel; hides the label when empty.
+func update_context(text: String) -> void:
+	if _context_label == null:
+		return
+	_context_label.text = text
+	_context_label.visible = not text.is_empty()
 
 
 func _ready() -> void:
@@ -89,6 +111,14 @@ func _ready() -> void:
 
 	# Object mode active by default.
 	_mode_buttons[SelectionManager.Mode.OBJECT].button_pressed = true
+
+	_context_label = Label.new()
+	_context_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_context_label.add_theme_font_size_override("font_size", 11)
+	_context_label.add_theme_color_override("font_color", Color(0.7, 0.85, 1.0))
+	_context_label.text = ""
+	_context_label.visible = false
+	add_child(_context_label)
 
 	add_child(HSeparator.new())
 
@@ -155,6 +185,18 @@ func _ready() -> void:
 	_extrude_edge_btn.pressed.connect(_on_extrude_edge_pressed)
 	edge_grid.add_child(_extrude_edge_btn)
 
+	_bevel_btn = _op_button("Bevel",
+		"Bevel selected edge(s) at 0.1 units width.\n"
+		+ "Requires Edge mode with ≥1 edge selected.")
+	_bevel_btn.pressed.connect(_on_bevel_pressed)
+	edge_grid.add_child(_bevel_btn)
+
+	_bridge_btn = _op_button("Bridge",
+		"Bridge two open boundary edge loops with a quad strip (F).\n"
+		+ "Requires Edge mode with ≥2 boundary edges from two distinct loops.")
+	_bridge_btn.pressed.connect(_on_bridge_pressed)
+	edge_grid.add_child(_bridge_btn)
+
 	add_child(_section_label("── Face ──"))
 
 	var face_grid := GridContainer.new()
@@ -166,6 +208,12 @@ func _ready() -> void:
 		+ "Requires Face mode with ≥1 face selected.")
 	_extrude_btn.pressed.connect(_on_extrude_pressed)
 	face_grid.add_child(_extrude_btn)
+
+	_subdivide_btn = _op_button("Subdivide",
+		"Subdivide selected face(s): each N-gon becomes N quads.\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_subdivide_btn.pressed.connect(_on_subdivide_pressed)
+	face_grid.add_child(_subdivide_btn)
 
 	_flip_btn = _op_button("Flip Normals",
 		"Reverse the outward normal of selected face(s) by flipping winding order.\n"
@@ -464,6 +512,29 @@ func _update_ops_buttons() -> void:
 					has_boundary = true
 					break
 		_extrude_edge_btn.disabled = not has_boundary
+	if _bevel_btn != null:
+		var in_edge_mode_bevel: bool = _target != null \
+				and _target.selection.get_mode() == SelectionManager.Mode.EDGE
+		var has_edges: bool = in_edge_mode_bevel \
+				and not _target.selection.get_selected_edges().is_empty()
+		_bevel_btn.disabled = not has_edges
+	if _bridge_btn != null:
+		var in_edge_mode_bridge: bool = _target != null \
+				and _target.selection.get_mode() == SelectionManager.Mode.EDGE
+		var has_bridge_edges: bool = false
+		if in_edge_mode_bridge:
+			var boundary_count: int = 0
+			for eidx: int in _target.selection.get_selected_edges():
+				if _target.go_build_mesh.edges[eidx].is_boundary():
+					boundary_count += 1
+			has_bridge_edges = boundary_count >= 2
+		_bridge_btn.disabled = not has_bridge_edges
+	if _subdivide_btn != null:
+		var in_face_mode_sub: bool = _target != null \
+				and _target.selection.get_mode() == SelectionManager.Mode.FACE
+		var has_faces: bool = in_face_mode_sub \
+				and not _target.selection.get_selected_faces().is_empty()
+		_subdivide_btn.disabled = not has_faces
 
 
 ## Public entry-point so [GoBuildGizmoPlugin] can trigger edge extrude via
@@ -514,6 +585,67 @@ func _on_extrude_edge_pressed() -> void:
 	_refresh()
 
 
+## Bevel the selected edge(s) by [constant _BEVEL_DEFAULT_WIDTH].
+## Requires Edge mode with at least one edge selected.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_bevel_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return
+	var sel_edges: Array[int] = _target.selection.get_selected_edges()
+	if sel_edges.is_empty():
+		return
+
+	var edges_to_bevel: Array[int] = []
+	edges_to_bevel.assign(sel_edges)
+
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	_target.apply_operation(
+		"Bevel Edge",
+		func(): BevelOperation.apply(_target.go_build_mesh, edges_to_bevel, _BEVEL_DEFAULT_WIDTH),
+		ur,
+	)
+
+	_target.selection.clear()
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
+
+
+## Public entry-point for the F keyboard shortcut (Bridge in Edge mode).
+func trigger_bridge() -> void:
+	_on_bridge_pressed()
+
+
+## Bridge two selected boundary edge loops with a quad strip.
+## Requires Edge mode with ≥2 boundary edges from two distinct loops.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_bridge_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return
+	var sel_edges: Array[int] = _target.selection.get_selected_edges()
+	if sel_edges.size() < 2:
+		return
+
+	var edges_to_bridge: Array[int] = []
+	edges_to_bridge.assign(sel_edges)
+
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	_target.apply_operation(
+		"Bridge Edge Loops",
+		func(): BridgeOperation.apply(_target.go_build_mesh, edges_to_bridge),
+		ur,
+	)
+
+	_target.selection.clear()
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
+
+
 ## Extrude the currently selected faces by [constant _EXTRUDE_DEFAULT_DISTANCE].
 ## Requires Face mode and at least one selected face.
 ## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
@@ -542,6 +674,34 @@ func _on_extrude_pressed() -> void:
 	# Clear the selection after the operation — the extruded face indices are
 	# now the top faces; keeping them selected with stale state would confuse
 	# subsequent operations.
+	_target.selection.clear()
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
+
+
+## Subdivide the currently selected faces into quads.
+## Requires Face mode and at least one selected face.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_subdivide_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+
+	var faces_to_subdivide: Array[int] = []
+	faces_to_subdivide.assign(sel_faces)
+
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	_target.apply_operation(
+		"Subdivide Face",
+		func(): SubdivideOperation.apply(_target.go_build_mesh, faces_to_subdivide),
+		ur,
+	)
+
 	_target.selection.clear()
 	_target.update_gizmos()
 	_update_ops_buttons()
