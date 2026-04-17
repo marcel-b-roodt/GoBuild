@@ -26,6 +26,8 @@ const _BRIDGE_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/bridge_operation.gd")
 const _SUBDIVIDE_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/subdivide_operation.gd")
+const _LOOP_CUT_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/loop_cut_operation.gd")
 
 const _VERSION := "0.1.0"
 
@@ -44,6 +46,7 @@ var _extrude_edge_btn: Button  = null
 var _bevel_btn: Button         = null
 var _bridge_btn: Button        = null
 var _subdivide_btn: Button     = null
+var _loop_cut_btn: Button      = null
 var _delete_btn: Button        = null
 var _merge_btn: Button         = null
 var _weld_btn: Button          = null
@@ -196,6 +199,12 @@ func _ready() -> void:
 		+ "Requires Edge mode with ≥2 boundary edges from two distinct loops.")
 	_bridge_btn.pressed.connect(_on_bridge_pressed)
 	edge_grid.add_child(_bridge_btn)
+
+	_loop_cut_btn = _op_button("Loop Cut",
+		"Insert an edge loop through a quad ring at the midpoint of the\n"
+		+ "selected edge(s). Requires Edge mode with ≥1 edge selected.")
+	_loop_cut_btn.pressed.connect(_on_loop_cut_pressed)
+	edge_grid.add_child(_loop_cut_btn)
 
 	add_child(_section_label("── Face ──"))
 
@@ -529,6 +538,12 @@ func _update_ops_buttons() -> void:
 					boundary_count += 1
 			has_bridge_edges = boundary_count >= 2
 		_bridge_btn.disabled = not has_bridge_edges
+	if _loop_cut_btn != null:
+		var in_edge_mode_lc: bool = _target != null \
+				and _target.selection.get_mode() == SelectionManager.Mode.EDGE
+		var has_edges_lc: bool = in_edge_mode_lc \
+				and not _target.selection.get_selected_edges().is_empty()
+		_loop_cut_btn.disabled = not has_edges_lc
 	if _subdivide_btn != null:
 		var in_face_mode_sub: bool = _target != null \
 				and _target.selection.get_mode() == SelectionManager.Mode.FACE
@@ -850,3 +865,35 @@ func _on_weld_pressed() -> void:
 	_update_ops_buttons()
 	_refresh()
 
+
+## Public entry-point for keyboard shortcut or context-menu trigger.
+func trigger_loop_cut() -> void:
+	_on_loop_cut_pressed()
+
+
+## Insert an edge loop through the quad ring(s) seeded by the selected edge(s).
+## Requires Edge mode with at least one edge selected.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_loop_cut_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return
+	var sel_edges: Array[int] = _target.selection.get_selected_edges()
+	if sel_edges.is_empty():
+		return
+
+	var edges_to_cut: Array[int] = []
+	edges_to_cut.assign(sel_edges)
+
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	_target.apply_operation(
+		"Loop Cut",
+		func(): LoopCutOperation.apply(_target.go_build_mesh, edges_to_cut),
+		ur,
+	)
+
+	_target.selection.clear()
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
