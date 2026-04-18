@@ -109,11 +109,48 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 	#
 	# Replace each original selected face with the first new quad; append the
 	# rest.  Processing in ascending index order keeps `valid[i]` accurate.
+	# Capture the original face count before appending new quads so Phase 4
+	# can limit its scan to pre-existing faces only.
+	var original_face_count: int = mesh.faces.size()
 	for i: int in valid.size():
 		var fi: int = valid[i]
 		var quads: Array[GoBuildFace] = replacements[i]
 		mesh.faces[fi] = quads[0]
 		for j: int in range(1, quads.size()):
 			mesh.faces.append(quads[j])
+
+	# ── Phase 4: stitch adjacent unselected faces ────────────────────────────
+	#
+	# Each edge midpoint in edge_mids was only wired into the new sub-quads of
+	# the selected faces.  Any original unselected face that shares an edge with
+	# a selected face now has a T-junction — the midpoint vertex exists in the
+	# mesh but is absent from the unselected face's ring.  Insert it between the
+	# two original endpoints so the face grows from an N-gon to an (N+1)-gon.
+	#
+	# We iterate the ring backwards so that each insert(k+1, …) never shifts
+	# the positions still to be visited (they all have index ≤ k).
+	var valid_set: Dictionary = {}
+	for fi: int in valid:
+		valid_set[fi] = true
+
+	for fi: int in original_face_count:
+		if valid_set.has(fi):
+			continue
+		var face: GoBuildFace = mesh.faces[fi]
+		var vc: int = face.vertex_indices.size()
+		var has_uvs: bool = face.uvs.size() == vc
+		for k: int in range(vc - 1, -1, -1):
+			var va: int = face.vertex_indices[k]
+			var vb: int = face.vertex_indices[(k + 1) % vc]
+			var key: String = "%d_%d" % [mini(va, vb), maxi(va, vb)]
+			if edge_mids.has(key):
+				var mid_idx: int = edge_mids[key]
+				# Capture UVs before mutating the array.
+				var uv_mid: Vector2
+				if has_uvs:
+					uv_mid = (face.uvs[k] + face.uvs[(k + 1) % vc]) * 0.5
+				face.vertex_indices.insert(k + 1, mid_idx)
+				if has_uvs:
+					face.uvs.insert(k + 1, uv_mid)
 
 	mesh.rebuild_edges()
