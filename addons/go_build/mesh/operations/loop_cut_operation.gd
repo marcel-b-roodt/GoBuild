@@ -345,21 +345,34 @@ static func _cut_ring(
 			mesh.vertices.append(lerp_pos)
 		var m32: int = cut_verts[key32]
 
-		# Build two replacement quads.
-		# Original face CCW winding was [v0, v1, v2, v3].
-		# After cut with m01 on v0→v1 and m32 on v3→v2:
-		#   Quad A: [v0, m01, m32, v3]
-		#   Quad B: [m01, v1, v2, m32]
-		# Both preserve CCW-from-outside winding.
+		# Build two replacement quads preserving CCW-from-outside winding.
+		#
+		# When forward=true the original ring order is [v0, v1, v2, v3] with
+		# the entry edge v0→v1 already CCW in the ring.
+		#   Quad A: [v0, m01, m32, v3]   (side containing v0 and v3)
+		#   Quad B: [m01, v1, v2, m32]   (side containing v1 and v2)
+		#
+		# When forward=false the entry edge was traversed backwards (v0 is
+		# entry_va = the vertex found at pos_a, but the ring there goes
+		# v1→v0, so v0 and v1 are swapped relative to the ring order).
+		# Using [v0, m01, m32, v3] in that case produces a CW triangle.
+		# Swap the two quads so the winding matches the original face:
+		#   Quad A: [m01, v0, v3, m32]   (right half, CCW)
+		#   Quad B: [v1, m01, m32, v2]   (left  half, CCW)
 		var qa := GoBuildFace.new()
-		qa.vertex_indices = [v0, m01, m32, v3]
-		qa.uvs = [Vector2(0.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(0.0, 1.0)]
+		var qb := GoBuildFace.new()
+		if forward:
+			qa.vertex_indices = [v0, m01, m32, v3]
+			qa.uvs = [Vector2(0.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(0.0, 1.0)]
+			qb.vertex_indices = [m01, v1, v2, m32]
+			qb.uvs = [Vector2(t, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(t, 1.0)]
+		else:
+			qa.vertex_indices = [m01, v0, v3, m32]
+			qa.uvs = [Vector2(t, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(t, 1.0)]
+			qb.vertex_indices = [v1, m01, m32, v2]
+			qb.uvs = [Vector2(0.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(0.0, 1.0)]
 		qa.material_index = face.material_index
 		qa.smooth_group   = face.smooth_group
-
-		var qb := GoBuildFace.new()
-		qb.vertex_indices = [m01, v1, v2, m32]
-		qb.uvs = [Vector2(t, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(t, 1.0)]
 		qb.material_index = face.material_index
 		qb.smooth_group   = face.smooth_group
 
