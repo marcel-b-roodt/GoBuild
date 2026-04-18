@@ -136,12 +136,13 @@ func test_bevel_slid_vertex_is_at_correct_distance_from_origin() -> void:
 	var va_pos: Vector3 = mesh.vertices[edge.vertex_a]
 	var vb_pos: Vector3 = mesh.vertices[edge.vertex_b]
 	BevelOperation.apply(mesh, [ei], 0.1)
-	# After compaction all 8 remaining verts either slide from va or from vb.
+	# Exactly 4 of the 8 remaining vertices should be close to va or vb.
+	var close_count: int = 0
 	for vi: int in mesh.vertices.size():
 		var v: Vector3 = mesh.vertices[vi]
-		var near_either: bool = \
-				v.distance_to(va_pos) < 0.15 or v.distance_to(vb_pos) < 0.15
-		assert_bool(near_either).is_true()
+		if v.distance_to(va_pos) < 0.15 or v.distance_to(vb_pos) < 0.15:
+			close_count += 1
+	assert_int(close_count).is_equal(4)
 
 
 func test_bevel_width_zero_produces_no_change() -> void:
@@ -164,8 +165,10 @@ func test_bevel_boundary_edge_adds_no_bevel_face() -> void:
 	BevelOperation.apply(mesh, [ei], 0.1)
 	# 2 new verts (one per endpoint slid within the single adjacent face),
 	# 1 original face (its verts replaced), 0 new bevel faces.
+	# The 2 original endpoints are orphaned and removed by compaction,
+	# leaving 4 + 2 - 2 = 4 vertices.
 	assert_int(mesh.faces.size()).is_equal(1)
-	assert_int(mesh.vertices.size()).is_equal(6)
+	assert_int(mesh.vertices.size()).is_equal(4)
 
 
 # ---------------------------------------------------------------------------

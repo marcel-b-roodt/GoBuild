@@ -1,31 +1,22 @@
 ## Bevel edge(s) operation for [GoBuildMesh].
 ##
-## Replaces each selected edge with a bevelled strip of [param segments] quads
-## by sliding the edge endpoints a distance of [param width] along the adjacent
-## face edges, then filling the gap with new geometry.
+## For each selected edge, the two endpoints are slid along their adjacent face
+## edges by [param width] units.  The resulting gap is filled with a new quad
+## face (the bevel strip).  Adjacent faces have their vertex rings updated to
+## reference the new slid vertices.
 ##
-## Current implementation supports [param segments] = 1 (single bevel face per
-## selected edge).  Multi-segment support is deferred to a later pass.
+## When two selected edges share a vertex V, V is handled as follows:
+##   • In their [b]shared[/b] adjacent face (e.g. F_top on a cube): V is
+##     expanded into two slid copies — one per edge — so the face grows by one
+##     vertex.
+##   • In each edge's [b]other[/b] adjacent face (e.g. F_front / F_right):
+##     both copies slide V along the same third edge, so they are [b]merged[/b]
+##     into a single averaged vertex.  Both bevel strips end at that vertex,
+##     sealing the mesh without any extra face.
+##   • In every remaining face that contains V (e.g. F_bottom): V is simply
+##     replaced with the merged vertex.
 ##
-## Algorithm for each selected edge [code](va, vb)[/code]:
-##   For every face adjacent to the edge:
-##     1. Find the neighbour of [code]va[/code] in the face ring that is NOT
-##        [code]vb[/code] — the edge may be traversed forward or backward in
-##        different adjacent faces, so simply taking "prev" is wrong when
-##        "prev" is [code]vb[/code] itself.  Use "next" if "prev" == [code]vb[/code].
-##     2. Do the same for [code]vb[/code]: find the neighbour that is NOT
-##        [code]va[/code].
-##     3. Place new vertices [code]na[/code] and [code]nb[/code] at distance
-##        [param width] from [code]va[/code] and [code]vb[/code] along those
-##        directions.
-##     4. Replace [code]va[/code] / [code]vb[/code] in the face with
-##        [code]na[/code] / [code]nb[/code].
-##   Add one bevel face spanning [code]na_A, na_B, nb_B, nb_A[/code] across
-##   the gap (where A and B are contributions from the two adjacent faces of
-##   the original edge).
-##
-## Edges sharing a vertex with another selected edge use the same slid vertex
-## so bevelling two connected edges joins cleanly at their shared corner.
+## No cap faces are ever added.  The mesh is always sealed by shared vertices.
 ##
 ## [method GoBuildMesh.rebuild_edges] is called automatically inside
 ## [method apply].
@@ -33,18 +24,12 @@
 class_name BevelOperation
 extends RefCounted
 
-# Self-preloads — dependency order.
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 
 
 ## Bevel the edges at [param edge_indices] on [param mesh] by [param width].
-##
-## [param width] is in local mesh-space units and must be > 0.
-## [param segments] is reserved for future multi-cut support; only 1 is used now.
-## Invalid or degenerate edge indices are silently skipped.
-## [method GoBuildMesh.rebuild_edges] is called automatically on completion.
 static func apply(
 		mesh: GoBuildMesh,
 		edge_indices: Array[int],
@@ -63,247 +48,298 @@ static func apply(
 	if valid.is_empty():
 		return
 
-	# ── Phase 1: compute slid positions for every (original_vertex, face) ──
-	#
-	# Key: "%d_%d" % [original_vertex_index, face_index]
-	# Value: new vertex index in mesh.vertices for the slid copy.
-	#
-	# Doing this as a first pass before modifying any face prevents re-entrant
-	# index shifting when two selected edges share a vertex.
-	var slid: Dictionary = {}
+	# vertex_plan[fi][vi] = Array of {idx, slide_nbr} dicts.
+	# One entry per selected edge that touches vi in face fi.
+	# 1 entry  → simple replacement.
+	# 2 entries in same direction → merged (1 averaged vertex).
+	# 2 entries in different directions → expansion (face grows by 1 vertex).
+	var vertex_plan: Dictionary = _build_vertex_plan(mesh, valid, width)
 
-	# Parallel to slid: records the "slide-direction" neighbor vertex for each
-	# (original_vertex, face) pair.  Used by Phase 2b to determine the correct
-	# insertion order when expanding a cap face's corner vertex.
-	var nbr: Dictionary = {}
+	_update_faces(mesh, vertex_plan)
+	_add_bevel_strips(mesh, valid, vertex_plan)
+	_compact_vertices(mesh)
+	mesh.rebuild_edges()
 
-	# Track which faces need new bevel quads at the end.
-	# Each entry is [va_idx, vb_idx, fi0, fi1] where fi0/fi1 are the two
-	# adjacent face indices (fi1 may be -1 for a boundary edge).
-	var bevel_quads: Array = []
+
+# ── Phase 1 ───────────────────────────────────────────────────────────────────
+# For every (edge, adjacent-face, endpoint) triple: compute the slide offset
+# and accumulate it into vertex_plan[face_idx][vertex_idx].
+#
+# Each entry in the plan is a single {idx, slide_nbr} dict — always exactly
+# ONE entry per (face, vertex) pair, regardless of how many selected edges
+# touch that vertex in that face.
+#
+# Corner merge rule (two selected edges sharing vertex V in the same face):
+#   The two slide offset vectors are SUMMED.  The single resulting vertex
+#   is placed at V + offset_E0 + offset_E1.  Both bevel strips end at this
+#   one vertex — no extra cap face is ever needed.
+#
+# Same-direction duplicate (two edges sliding V toward the same neighbour):
+#   The offsets are equal, so summing would double them.  In this case we
+#   keep only one (they are identical within floating-point tolerance).
+static func _build_vertex_plan(
+		mesh: GoBuildMesh,
+		valid: Array[int],
+		width: float,
+) -> Dictionary:
+	# raw_offsets[fi][vi] = Array of Vector3 offset contributions, one per edge.
+	# raw_nbrs  [fi][vi] = Array of slide_nbr int, parallel to raw_offsets.
+	var raw_offsets: Dictionary = {}
+	var raw_nbrs: Dictionary   = {}
 
 	for ei: int in valid:
 		var edge: GoBuildEdge = mesh.edges[ei]
 		var va: int = edge.vertex_a
 		var vb: int = edge.vertex_b
-		var adj_faces: Array[int] = edge.face_indices
 
-		for fi: int in adj_faces:
+		for fi: int in edge.face_indices:
 			var face: GoBuildFace = mesh.faces[fi]
 			var vc: int = face.vertex_indices.size()
-
-			# Locate va and vb positions within this face's vertex ring.
-			var pos_a: int = -1
-			var pos_b: int = -1
-			for k: int in vc:
-				if face.vertex_indices[k] == va:
-					pos_a = k
-				if face.vertex_indices[k] == vb:
-					pos_b = k
-
-			# Edge might not appear in this face (defensive guard).
+			var pos_a: int = face.vertex_indices.find(va)
+			var pos_b: int = face.vertex_indices.find(vb)
 			if pos_a == -1 or pos_b == -1:
 				continue
 
-			# Slide va: find the neighbour of va that is NOT vb.
-			# The edge may appear as va→vb OR vb→va in the face ring, so
-			# "prev of va" could be vb itself when the half-edge is reversed.
+			# Slide va along the neighbour that is NOT vb.
 			var prev_a: int = face.vertex_indices[(pos_a - 1 + vc) % vc]
 			var next_a: int = face.vertex_indices[(pos_a + 1) % vc]
-			var neighbor_a: int = prev_a if prev_a != vb else next_a
-			var dir_a: Vector3 = (mesh.vertices[neighbor_a] - mesh.vertices[va]).normalized()
+			var nbr_a: int = prev_a if prev_a != vb else next_a
 
-			# Slide vb: find the neighbour of vb that is NOT va.
-			var next_b: int = face.vertex_indices[(pos_b + 1) % vc]
+			# Slide vb along the neighbour that is NOT va.
 			var prev_b: int = face.vertex_indices[(pos_b - 1 + vc) % vc]
-			var neighbor_b: int = next_b if next_b != va else prev_b
-			var dir_b: Vector3 = (mesh.vertices[neighbor_b] - mesh.vertices[vb]).normalized()
+			var next_b: int = face.vertex_indices[(pos_b + 1) % vc]
+			var nbr_b: int = next_b if next_b != va else prev_b
 
-			var key_a: String = "%d_%d" % [va, fi]
-			var key_b: String = "%d_%d" % [vb, fi]
+			if not raw_offsets.has(fi):
+				raw_offsets[fi] = {}
+				raw_nbrs[fi]    = {}
 
-			# Always record the slide-direction neighbors regardless of whether
-			# the slid vertex was already computed (needed by Phase 2b).
-			nbr[key_a] = neighbor_a
-			nbr[key_b] = neighbor_b
+			for pair in [[va, nbr_a], [vb, nbr_b]]:
+				var vi: int    = pair[0]
+				var slide: int = pair[1]
+				var offset: Vector3 = \
+						(mesh.vertices[slide] - mesh.vertices[vi]).normalized() * width
 
-			if not slid.has(key_a):
-				var new_idx: int = mesh.vertices.size()
-				mesh.vertices.append(mesh.vertices[va] + dir_a * width)
-				slid[key_a] = new_idx
+				if not raw_offsets[fi].has(vi):
+					raw_offsets[fi][vi] = []
+					raw_nbrs[fi][vi]    = []
 
-			if not slid.has(key_b):
-				var new_idx: int = mesh.vertices.size()
-				mesh.vertices.append(mesh.vertices[vb] + dir_b * width)
-				slid[key_b] = new_idx
+				# Deduplicate: skip if an identical slide neighbour is already present
+				# (same edge touching the same face via two paths — should not happen,
+				# but guard against it).
+				if raw_nbrs[fi][vi].has(slide):
+					continue
 
-		# Record the pair for bevel-quad creation (phase 3).
-		bevel_quads.append([va, vb, adj_faces])
+				raw_offsets[fi][vi].append(offset)
+				raw_nbrs[fi][vi].append(slide)
 
-	# ── Phase 2: replace va/vb with their slid counterparts in every face ──
-	# We iterate over all faces so that faces adjacent to two selected edges
-	# (sharing a vertex) get both substitutions applied in one pass.
+	# Build the final plan: one vertex per (fi, vi) pair, position = V + sum(offsets).
+	var plan: Dictionary = {}
+	for fi in raw_offsets:
+		plan[fi] = {}
+		for vi in raw_offsets[fi]:
+			var total_offset: Vector3 = Vector3.ZERO
+			for off: Vector3 in raw_offsets[fi][vi]:
+				total_offset += off
+			var new_idx: int = mesh.vertices.size()
+			mesh.vertices.append(mesh.vertices[vi] + total_offset)
+			# slide_nbr stores the first contributing neighbour (used for winding
+			# order hints in _add_bevel_strips / _sort_entries_ccw).
+			plan[fi][vi] = [{"idx": new_idx, "slide_nbr": raw_nbrs[fi][vi][0]}]
+
+	return plan
+
+
+# ── Phase 2 ───────────────────────────────────────────────────────────────────
+# Walk every face that contains a bevel vertex and update its ring.
+#
+# Plan face (fi is in vertex_plan for vi):
+#   Always exactly 1 entry because Phase 1 sums all offset contributions for
+#   that (face, vertex) pair.  Replace vi 1-for-1 with the summed slid vertex.
+#
+# Non-plan face (fi is NOT in vertex_plan for vi):
+#   The face shares vertex vi with bevel-adjacent faces, but is not itself
+#   adjacent to any selected edge.  It must absorb ALL slid copies of vi,
+#   inserting them in CCW order to close the mesh (e.g. a 4-gon grows to a
+#   5-gon when one of its corners belongs to a single bevelled edge, or to a
+#   6-gon when two non-shared bevelled edges both touch that corner).
+static func _update_faces(mesh: GoBuildMesh, vertex_plan: Dictionary) -> void:
+	# global_slid[vi] = Array of {idx, slide_nbr, plan_fi} — one per plan face.
+	var global_slid: Dictionary = {}
+	for fi in vertex_plan:
+		for vi in vertex_plan[fi]:
+			if not global_slid.has(vi):
+				global_slid[vi] = []
+			var entry: Dictionary = vertex_plan[fi][vi][0].duplicate()
+			entry["plan_fi"] = fi
+			global_slid[vi].append(entry)
+
 	for fi: int in mesh.faces.size():
 		var face: GoBuildFace = mesh.faces[fi]
-		for k: int in face.vertex_indices.size():
-			var vi: int = face.vertex_indices[k]
-			var key: String = "%d_%d" % [vi, fi]
-			if slid.has(key):
-				face.vertex_indices[k] = slid[key]
-
-	# ── Phase 2b: expand cap faces ─────────────────────────────────────────
-	# Any face that is NOT fi0/fi1 but still contains va or vb (e.g. the top
-	# or bottom face of a cube) must have that corner vertex replaced in-place
-	# by the two slid copies, turning the N-gon into an (N+1)-gon.
-	for entry in bevel_quads:
-		var va: int  = entry[0]
-		var vb: int  = entry[1]
-		var flist: Array = entry[2]
-		if flist.size() < 2:
+		var needs_update: bool = false
+		for vi: int in face.vertex_indices:
+			if global_slid.has(vi):
+				needs_update = true
+				break
+		if not needs_update:
 			continue
-		var fi0: int = flist[0]
-		var fi1: int = flist[1]
-		var na0: int = slid.get("%d_%d" % [va, fi0], -1)
-		var na1: int = slid.get("%d_%d" % [va, fi1], -1)
-		var nb0: int = slid.get("%d_%d" % [vb, fi0], -1)
-		var nb1: int = slid.get("%d_%d" % [vb, fi1], -1)
-		if na0 == -1 or na1 == -1 or nb0 == -1 or nb1 == -1:
-			continue
-		var N_a0: int = nbr.get("%d_%d" % [va, fi0], -1)
-		var N_a1: int = nbr.get("%d_%d" % [va, fi1], -1)
-		var N_b0: int = nbr.get("%d_%d" % [vb, fi0], -1)
-		var N_b1: int = nbr.get("%d_%d" % [vb, fi1], -1)
-		if N_a0 == -1 or N_a1 == -1 or N_b0 == -1 or N_b1 == -1:
-			continue
-		var skip: Dictionary = {fi0: true, fi1: true}
-		_expand_endpoint(mesh, va, na0, N_a0, na1, N_a1, skip)
-		_expand_endpoint(mesh, vb, nb0, N_b0, nb1, N_b1, skip)
 
-	# ── Phase 3: add bevel faces ────────────────────────────────────────────
-	for entry in bevel_quads:
-		var va: int = entry[0]
-		var vb: int = entry[1]
-		var flist: Array = entry[2]
-		_add_bevel_face(mesh, va, vb, flist, slid)
+		var fi_plan: Dictionary = vertex_plan.get(fi, {})
+		var old_vis: Array[int] = []
+		for vi: int in face.vertex_indices:
+			old_vis.append(vi)
+		var new_vis: Array[int] = []
+		var new_uvs: Array[Vector2] = []
+		var has_uvs: bool = face.uvs.size() == old_vis.size()
 
-	# ── Phase 4: remove orphaned vertices ───────────────────────────────────
-	# The original va/vb vertices are no longer referenced by any face after
-	# Phases 2 and 2b.  Compact the vertex array and remap face indices so
-	# there are no gaps or dangling indices.
-	_compact_vertices(mesh)
+		for k: int in old_vis.size():
+			var vi: int = old_vis[k]
+			if not global_slid.has(vi):
+				new_vis.append(vi)
+				if has_uvs:
+					new_uvs.append(face.uvs[k])
+				continue
 
-	mesh.rebuild_edges()
-
-
-## Replace [param v_orig] in every face (outside [param skip]) with the two
-## slid copies [param n0]/[param n1] in CCW-preserving order.
-##
-## The insertion order is determined by matching [param N0]/[param N1] (the
-## slide-direction neighbours recorded in Phase 1) against the existing ring
-## neighbour that precedes [param v_orig].  The slid copy whose direction
-## neighbour is that predecessor is inserted first (preserving adjacency).
-## Modifies [member GoBuildFace.vertex_indices] and [member GoBuildFace.uvs]
-## in-place using [method Array.remove_at] and [method Array.insert] to avoid
-## any typed-Array assignment issues in GDScript 4.
-static func _expand_endpoint(
-		mesh: GoBuildMesh,
-		v_orig: int,
-		n0: int, N0: int,
-		n1: int, N1: int,
-		skip: Dictionary,
-) -> void:
-	for fi: int in mesh.faces.size():
-		if skip.has(fi):
-			continue
-		var face: GoBuildFace = mesh.faces[fi]
-		var pos: int = face.vertex_indices.find(v_orig)
-		if pos == -1:
-			continue
-		var vc: int = face.vertex_indices.size()
-		var prev_v: int = face.vertex_indices[(pos - 1 + vc) % vc]
-		# Determine insertion order: the copy that slides toward prev_v's
-		# direction is placed first so it stays adjacent to prev_v in the ring.
-		var ins_first: int
-		var ins_second: int
-		if prev_v == N0:
-			ins_first = n0; ins_second = n1
-		elif prev_v == N1:
-			ins_first = n1; ins_second = n0
-		else:
-			# Fallback: pick by distance from prev_v to each direction neighbour.
-			if mesh.vertices[N0].distance_squared_to(mesh.vertices[prev_v]) \
-					< mesh.vertices[N1].distance_squared_to(mesh.vertices[prev_v]):
-				ins_first = n0; ins_second = n1
+			if fi_plan.has(vi):
+				# Plan face: summed-offset vertex — simple 1-for-1 replace.
+				new_vis.append(fi_plan[vi][0].idx)
+				if has_uvs:
+					new_uvs.append(face.uvs[k])
 			else:
-				ins_first = n1; ins_second = n0
-		# In-place splice on Array[int] — avoids untyped-Array assignment.
-		face.vertex_indices.remove_at(pos)
-		face.vertex_indices.insert(pos, ins_second)
-		face.vertex_indices.insert(pos, ins_first)
-		# Mirror the expansion in the UV array (duplicate the original UV).
-		if face.uvs.size() == vc:
-			var uv: Vector2 = face.uvs[pos]
-			face.uvs.remove_at(pos)
-			face.uvs.insert(pos, uv)
-			face.uvs.insert(pos, uv)
+				# Non-plan face: insert all global copies in CCW winding order.
+				var prev_vi: int = old_vis[(k - 1 + old_vis.size()) % old_vis.size()]
+				var sorted_entries: Array = _sort_entries_ccw(
+						global_slid[vi], prev_vi, vi, mesh)
+				for entry in sorted_entries:
+					new_vis.append(entry.idx)
+					if has_uvs:
+						new_uvs.append(face.uvs[k])
+
+		face.vertex_indices.resize(new_vis.size())
+		for k: int in new_vis.size():
+			face.vertex_indices[k] = new_vis[k]
+		if has_uvs:
+			face.uvs.resize(new_uvs.size())
+			for k: int in new_uvs.size():
+				face.uvs[k] = new_uvs[k]
 
 
-## Create the bevel quad spanning the slid vertices of the two adjacent faces.
-##
-## The correct winding depends on the order that [method GoBuildMesh.rebuild_edges]
-## placed the two faces in [member GoBuildEdge.face_indices], so the strip
-## normal is verified against the sum of the two adjacent face normals
-## (both of which already have their correct outward orientation after Phase 2).
-## If the initial winding [na0, nb0, nb1, na1] produces an inward-pointing
-## normal it is flipped to [na0, na1, nb1, nb0].
-## For a boundary edge (only one adjacent face) no bevel face is added.
-static func _add_bevel_face(
+# Return [param entries] sorted so they appear in CCW order in the ring after
+# [param prev_vi] around [param vi].
+# Fast path: the entry whose slide_nbr matches prev_vi came from the face that
+# shares the prev_vi→vi edge — it belongs immediately after prev_vi.
+# Fallback: sort by signed angle from the prev_vi direction.
+static func _sort_entries_ccw(
+		entries: Array, prev_vi: int, vi: int, mesh: GoBuildMesh) -> Array:
+	if entries.size() == 1:
+		return entries
+
+	# Fast path: slide_nbr match.
+	var first_i: int = -1
+	for i: int in entries.size():
+		if entries[i].slide_nbr == prev_vi:
+			first_i = i
+			break
+	if first_i != -1:
+		var result: Array = [entries[first_i]]
+		for i: int in entries.size():
+			if i != first_i:
+				result.append(entries[i])
+		return result
+
+	# Angle-based fallback.
+	var origin: Vector3 = mesh.vertices[vi]
+	var ref_dir: Vector3 = (mesh.vertices[prev_vi] - origin).normalized()
+	var avg: Vector3 = Vector3.ZERO
+	for entry in entries:
+		avg += (mesh.vertices[entry.idx] - origin).normalized()
+	var plane_n: Vector3 = ref_dir.cross(avg).normalized()
+	if plane_n.length_squared() < 1e-8:
+		return entries
+	var with_angles: Array = []
+	for entry in entries:
+		var dir: Vector3 = (mesh.vertices[entry.idx] - origin).normalized()
+		with_angles.append({"entry": entry, "angle": ref_dir.signed_angle_to(dir, plane_n)})
+	with_angles.sort_custom(func(a, b): return a.angle < b.angle)
+	return with_angles.map(func(x): return x.entry)
+
+
+# ── Phase 3 ───────────────────────────────────────────────────────────────────
+# Append one new quad face per selected interior edge.
+# The four corners come from vertex_plan: slid copy of va and vb in each of
+# the two adjacent faces.  Winding is validated against the adjacent face normals.
+static func _add_bevel_strips(
 		mesh: GoBuildMesh,
-		va: int,
-		vb: int,
-		adj_faces: Array,
-		slid: Dictionary,
+		valid: Array[int],
+		vertex_plan: Dictionary,
 ) -> void:
-	if adj_faces.size() < 2:
-		return   # Boundary edge — no gap to fill.
+	for ei: int in valid:
+		var edge: GoBuildEdge = mesh.edges[ei]
+		if edge.face_indices.size() < 2:
+			continue
 
-	var fi0: int = adj_faces[0]
-	var fi1: int = adj_faces[1]
+		var va: int = edge.vertex_a
+		var vb: int = edge.vertex_b
+		var fi0: int = edge.face_indices[0]
+		var fi1: int = edge.face_indices[1]
 
-	var key_a0: String = "%d_%d" % [va, fi0]
-	var key_b0: String = "%d_%d" % [vb, fi0]
-	var key_a1: String = "%d_%d" % [va, fi1]
-	var key_b1: String = "%d_%d" % [vb, fi1]
+		# Look up the slid copy of va/vb in each adjacent face.
+		# For an expand vertex, find the entry whose slide_nbr is NOT the
+		# other endpoint of the edge (i.e. not vb for va, not va for vb).
+		var na0: int = _plan_idx_not_toward(vertex_plan, fi0, va, vb, mesh)
+		var nb0: int = _plan_idx_not_toward(vertex_plan, fi0, vb, va, mesh)
+		var na1: int = _plan_idx_not_toward(vertex_plan, fi1, va, vb, mesh)
+		var nb1: int = _plan_idx_not_toward(vertex_plan, fi1, vb, va, mesh)
+		if na0 == -1 or nb0 == -1 or na1 == -1 or nb1 == -1:
+			continue
 
-	if not (slid.has(key_a0) and slid.has(key_b0) and slid.has(key_a1) and slid.has(key_b1)):
-		return   # Should not happen for valid edges — guard defensively.
+		var strip := _FACE_SCRIPT.new()
+		strip.vertex_indices = [na0, nb0, nb1, na1]
+		strip.uvs = [
+			Vector2(0.0, 0.0), Vector2(1.0, 0.0),
+			Vector2(1.0, 1.0), Vector2(0.0, 1.0),
+		]
+		strip.material_index = mesh.faces[fi0].material_index
+		strip.smooth_group   = mesh.faces[fi0].smooth_group
 
-	var na0: int = slid[key_a0]
-	var nb0: int = slid[key_b0]
-	var na1: int = slid[key_a1]
-	var nb1: int = slid[key_b1]
+		var hint: Vector3 = \
+				mesh.compute_face_normal(mesh.faces[fi0]) + \
+				mesh.compute_face_normal(mesh.faces[fi1])
+		if hint.length_squared() > 1e-8 \
+				and mesh.compute_face_normal(strip).dot(hint) < 0.0:
+			strip.vertex_indices = [na0, na1, nb1, nb0]
 
-	var bevel := GoBuildFace.new()
-	bevel.vertex_indices = [na0, nb0, nb1, na1]
-	bevel.uvs = [Vector2(0.0, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(0.0, 1.0)]
-	bevel.material_index = mesh.faces[fi0].material_index
-	bevel.smooth_group   = mesh.faces[fi0].smooth_group
+		mesh.faces.append(strip)
 
-	# Verify winding: the strip normal must agree with the outward direction
-	# indicated by the sum of the (already-updated) adjacent face normals.
-	var hint: Vector3 = \
-			mesh.compute_face_normal(mesh.faces[fi0]) + \
-			mesh.compute_face_normal(mesh.faces[fi1])
-	if hint.length_squared() > 1e-8 \
-			and mesh.compute_face_normal(bevel).dot(hint) < 0.0:
-		bevel.vertex_indices = [na0, na1, nb1, nb0]
 
-	mesh.faces.append(bevel)
+# For vertex [param vi] in face [param fi], return the slid index whose
+# slide-direction neighbour is NOT [param not_toward].  This selects the
+# "outward along the bevel" slid copy (as opposed to the copy that slides
+# along the shared edge toward the other endpoint of the edge being bevelled).
+static func _plan_idx_not_toward(
+		vertex_plan: Dictionary, fi: int, vi: int, not_toward: int,
+		mesh: GoBuildMesh) -> int:
+	if not vertex_plan.has(fi) or not vertex_plan[fi].has(vi):
+		return -1
+	var entries: Array = vertex_plan[fi][vi]
+	if entries.size() == 1:
+		return entries[0].idx
+	# Pick the entry whose slide neighbour is further from not_toward.
+	var e0: Dictionary = entries[0]
+	var e1: Dictionary = entries[1]
+	if e0.slide_nbr == not_toward:
+		return e1.idx
+	if e1.slide_nbr == not_toward:
+		return e0.idx
+	# Fallback: furthest slide_nbr from not_toward.
+	var d0: float = mesh.vertices[e0.slide_nbr].distance_squared_to(
+			mesh.vertices[not_toward])
+	var d1: float = mesh.vertices[e1.slide_nbr].distance_squared_to(
+			mesh.vertices[not_toward])
+	return e0.idx if d0 >= d1 else e1.idx
 
 
 ## Remove every vertex not referenced by any face and remap face indices.
-## Identical in purpose to WeldOperation._compact_vertices — duplicated here
-## to avoid a cross-operation dependency.
 static func _compact_vertices(mesh: GoBuildMesh) -> void:
 	var used: Dictionary = {}
 	for face: GoBuildFace in mesh.faces:
