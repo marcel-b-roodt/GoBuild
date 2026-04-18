@@ -100,12 +100,14 @@ func test_interior_edge_index_is_valid() -> void:
 # ---------------------------------------------------------------------------
 
 func test_bevel_interior_edge_adds_four_vertices() -> void:
-	# Each endpoint of the edge gets one slid copy per adjacent face → 2×2 = 4.
+	# Each endpoint of the edge gets one slid copy per adjacent face → 2×2 = 4 new verts.
+	# The 2 original edge endpoints are orphaned and removed by compaction.
+	# Net: 6 original − 2 orphans + 4 slid = 8.
 	var mesh := _make_two_quads()
 	var ei: int = _interior_edge_index(mesh)
 	var indices: Array[int] = [ei]
 	BevelOperation.apply(mesh, indices, 0.1)
-	assert_int(mesh.vertices.size()).is_equal(10)
+	assert_int(mesh.vertices.size()).is_equal(8)
 
 
 # ---------------------------------------------------------------------------
@@ -125,22 +127,20 @@ func test_bevel_interior_edge_adds_one_bevel_face() -> void:
 # ---------------------------------------------------------------------------
 
 func test_bevel_slid_vertex_is_at_correct_distance_from_origin() -> void:
-	# After bevel the original va (index 1) and vb (index 2) remain in the
-	# vertex array but are no longer referenced by the adjacent faces.
-	# The four new verts should each be exactly 0.1 units from the
-	# original va or vb position (along the face-perimeter direction).
+	# The four slid verts should each be within 0.15 units of the original
+	# va or vb position.  Original va/vb are removed by compaction so we
+	# capture their positions BEFORE the bevel is applied.
 	var mesh := _make_two_quads()
 	var ei: int = _interior_edge_index(mesh)
 	var edge: GoBuildEdge = mesh.edges[ei]
 	var va_pos: Vector3 = mesh.vertices[edge.vertex_a]
 	var vb_pos: Vector3 = mesh.vertices[edge.vertex_b]
 	BevelOperation.apply(mesh, [ei], 0.1)
-	# New verts are indices 6..9.
-	for vi: int in range(6, 10):
+	# After compaction all 8 remaining verts either slide from va or from vb.
+	for vi: int in mesh.vertices.size():
 		var v: Vector3 = mesh.vertices[vi]
-		var dist_a: float = v.distance_to(va_pos)
-		var dist_b: float = v.distance_to(vb_pos)
-		var near_either: bool = dist_a < 0.15 or dist_b < 0.15
+		var near_either: bool = \
+				v.distance_to(va_pos) < 0.15 or v.distance_to(vb_pos) < 0.15
 		assert_bool(near_either).is_true()
 
 
@@ -173,16 +173,20 @@ func test_bevel_boundary_edge_adds_no_bevel_face() -> void:
 # ---------------------------------------------------------------------------
 
 func test_bevel_removes_original_verts_from_adjacent_faces() -> void:
+	# Capture the original positions of va/vb before bevel.
 	var mesh := _make_two_quads()
 	var ei: int = _interior_edge_index(mesh)
 	var edge: GoBuildEdge = mesh.edges[ei]
-	var va: int = edge.vertex_a
-	var vb: int = edge.vertex_b
+	var va_pos: Vector3 = mesh.vertices[edge.vertex_a]
+	var vb_pos: Vector3 = mesh.vertices[edge.vertex_b]
 	BevelOperation.apply(mesh, [ei], 0.1)
-	# Neither va nor vb should appear in any face's vertex_indices after bevel.
-	for face in mesh.faces:
-		for vi: int in (face as GoBuildFace).vertex_indices:
-			assert_bool(vi == va or vi == vb).is_false()
+	# After compaction, no vertex should sit exactly at the original va/vb
+	# positions (the originals were orphaned and removed).
+	for vi: int in mesh.vertices.size():
+		var v: Vector3 = mesh.vertices[vi]
+		assert_bool(
+				v.distance_to(va_pos) < 1e-4 or v.distance_to(vb_pos) < 1e-4
+		).is_false()
 
 
 # ---------------------------------------------------------------------------

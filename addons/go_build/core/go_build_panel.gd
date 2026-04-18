@@ -51,6 +51,11 @@ var _delete_btn: Button        = null
 var _merge_btn: Button         = null
 var _weld_btn: Button          = null
 var _cull_check: CheckBox      = null
+
+## Registry of all operation buttons and their enable-condition callables.
+## Populated by [method _register_op] during [method _ready].
+## Iterated by [method _update_ops_buttons] to update enabled/disabled state.
+var _op_entries: Array = []
 var _context_label: Label      = null
 var _target: GoBuildMeshInstance = null
 var _plugin: EditorPlugin = null
@@ -169,12 +174,14 @@ func _ready() -> void:
 		+ "Requires Vertex mode with ≥2 vertices selected.")
 	_merge_btn.pressed.connect(_on_merge_pressed)
 	vert_grid.add_child(_merge_btn)
+	_register_op(_merge_btn, _cond_vertex_merge)
 
 	_weld_btn = _op_button("Weld",
 		"Merge all vertices within 0.0001 units (Merge by Distance).\n"
 		+ "Requires Vertex mode.")
 	_weld_btn.pressed.connect(_on_weld_pressed)
 	vert_grid.add_child(_weld_btn)
+	_register_op(_weld_btn, _cond_vertex_any)
 
 	add_child(_section_label("── Edge ──"))
 
@@ -187,24 +194,28 @@ func _ready() -> void:
 		+ "Requires Edge mode with ≥1 boundary edge selected.")
 	_extrude_edge_btn.pressed.connect(_on_extrude_edge_pressed)
 	edge_grid.add_child(_extrude_edge_btn)
+	_register_op(_extrude_edge_btn, _cond_edge_boundary)
 
 	_bevel_btn = _op_button("Bevel",
 		"Bevel selected edge(s) at 0.1 units width.\n"
 		+ "Requires Edge mode with ≥1 edge selected.")
 	_bevel_btn.pressed.connect(_on_bevel_pressed)
 	edge_grid.add_child(_bevel_btn)
+	_register_op(_bevel_btn, _cond_edge_any)
 
 	_bridge_btn = _op_button("Bridge",
 		"Bridge two open boundary edge loops with a quad strip (F).\n"
 		+ "Requires Edge mode with ≥2 boundary edges from two distinct loops.")
 	_bridge_btn.pressed.connect(_on_bridge_pressed)
 	edge_grid.add_child(_bridge_btn)
+	_register_op(_bridge_btn, _cond_edge_bridge)
 
 	_loop_cut_btn = _op_button("Loop Cut",
 		"Insert an edge loop through a quad ring at the midpoint of the\n"
 		+ "selected edge(s). Requires Edge mode with ≥1 edge selected.")
 	_loop_cut_btn.pressed.connect(_on_loop_cut_pressed)
 	edge_grid.add_child(_loop_cut_btn)
+	_register_op(_loop_cut_btn, _cond_edge_any)
 
 	add_child(_section_label("── Face ──"))
 
@@ -217,18 +228,21 @@ func _ready() -> void:
 		+ "Requires Face mode with ≥1 face selected.")
 	_extrude_btn.pressed.connect(_on_extrude_pressed)
 	face_grid.add_child(_extrude_btn)
+	_register_op(_extrude_btn, _cond_face_any)
 
 	_subdivide_btn = _op_button("Subdivide",
 		"Subdivide selected face(s): each N-gon becomes N quads.\n"
 		+ "Requires Face mode with ≥1 face selected.")
 	_subdivide_btn.pressed.connect(_on_subdivide_pressed)
 	face_grid.add_child(_subdivide_btn)
+	_register_op(_subdivide_btn, _cond_face_any)
 
 	_flip_btn = _op_button("Flip Normals",
 		"Reverse the outward normal of selected face(s) by flipping winding order.\n"
 		+ "Requires Face mode with ≥1 face selected.")
 	_flip_btn.pressed.connect(_on_flip_normals_pressed)
 	face_grid.add_child(_flip_btn)
+	_register_op(_flip_btn, _cond_face_any)
 
 	add_child(_section_label("── General ──"))
 
@@ -241,6 +255,7 @@ func _ready() -> void:
 		+ "Orphaned vertices are removed automatically.")
 	_delete_btn.pressed.connect(_on_delete_pressed)
 	general_grid.add_child(_delete_btn)
+	_register_op(_delete_btn, _cond_any_selection)
 
 	add_child(HSeparator.new())
 
@@ -478,78 +493,101 @@ func _op_button(text: String, tooltip: String) -> Button:
 	return btn
 
 
-## Enable or disable the operations buttons based on the current mode and selection.
-## Called on mode change and on selection change so the button state is always accurate.
-func _update_ops_buttons() -> void:
-	if _extrude_btn == null:
-		return
-	var in_face_mode: bool = _target != null \
-			and _target.selection.get_mode() == SelectionManager.Mode.FACE
-	var has_faces: bool = in_face_mode \
-			and not _target.selection.get_selected_faces().is_empty()
-	_extrude_btn.disabled = not has_faces
-	if _flip_btn != null:
-		_flip_btn.disabled = not has_faces
-	if _delete_btn != null:
-		var mode: SelectionManager.Mode = \
-				_target.selection.get_mode() if _target != null \
-				else SelectionManager.Mode.OBJECT
-		var has_selection: bool = _target != null and (
-				(mode == SelectionManager.Mode.VERTEX \
-					and not _target.selection.get_selected_vertices().is_empty()) or
-				(mode == SelectionManager.Mode.EDGE \
-					and not _target.selection.get_selected_edges().is_empty()) or
-				(mode == SelectionManager.Mode.FACE \
-					and not _target.selection.get_selected_faces().is_empty())
-		)
-		_delete_btn.disabled = not has_selection
-	var in_vertex_mode: bool = _target != null \
+# ---------------------------------------------------------------------------
+# Button-registry helpers
+# ---------------------------------------------------------------------------
+
+## Register [param btn] so [method _update_ops_buttons] will enable it when
+## [param condition].call() returns [code]true[/code] and disable it otherwise.
+## Call once per button inside [method _ready], immediately after the button is
+## added to its parent container.
+func _register_op(btn: Button, condition: Callable) -> void:
+	_op_entries.append({"button": btn, "condition": condition})
+
+
+## [code]true[/code] when Vertex mode is active and ≥2 vertices are selected.
+func _cond_vertex_merge() -> bool:
+	return _target != null \
+			and _target.selection.get_mode() == SelectionManager.Mode.VERTEX \
+			and _target.selection.get_selected_vertices().size() >= 2
+
+
+## [code]true[/code] when Vertex mode is active (selection may be empty).
+func _cond_vertex_any() -> bool:
+	return _target != null \
 			and _target.selection.get_mode() == SelectionManager.Mode.VERTEX
-	var sel_verts: Array[int] = _target.selection.get_selected_vertices() \
-			if in_vertex_mode and _target != null else []
-	if _merge_btn != null:
-		_merge_btn.disabled = sel_verts.size() < 2
-	if _weld_btn != null:
-		_weld_btn.disabled = not in_vertex_mode
-	if _extrude_edge_btn != null:
-		var in_edge_mode: bool = _target != null \
-				and _target.selection.get_mode() == SelectionManager.Mode.EDGE
-		var has_boundary: bool = false
-		if in_edge_mode:
-			for eidx: int in _target.selection.get_selected_edges():
-				if _target.go_build_mesh.edges[eidx].is_boundary():
-					has_boundary = true
-					break
-		_extrude_edge_btn.disabled = not has_boundary
-	if _bevel_btn != null:
-		var in_edge_mode_bevel: bool = _target != null \
-				and _target.selection.get_mode() == SelectionManager.Mode.EDGE
-		var has_edges: bool = in_edge_mode_bevel \
-				and not _target.selection.get_selected_edges().is_empty()
-		_bevel_btn.disabled = not has_edges
-	if _bridge_btn != null:
-		var in_edge_mode_bridge: bool = _target != null \
-				and _target.selection.get_mode() == SelectionManager.Mode.EDGE
-		var has_bridge_edges: bool = false
-		if in_edge_mode_bridge:
-			var boundary_count: int = 0
-			for eidx: int in _target.selection.get_selected_edges():
-				if _target.go_build_mesh.edges[eidx].is_boundary():
-					boundary_count += 1
-			has_bridge_edges = boundary_count >= 2
-		_bridge_btn.disabled = not has_bridge_edges
-	if _loop_cut_btn != null:
-		var in_edge_mode_lc: bool = _target != null \
-				and _target.selection.get_mode() == SelectionManager.Mode.EDGE
-		var has_edges_lc: bool = in_edge_mode_lc \
-				and not _target.selection.get_selected_edges().is_empty()
-		_loop_cut_btn.disabled = not has_edges_lc
-	if _subdivide_btn != null:
-		var in_face_mode_sub: bool = _target != null \
-				and _target.selection.get_mode() == SelectionManager.Mode.FACE
-		var has_faces: bool = in_face_mode_sub \
-				and not _target.selection.get_selected_faces().is_empty()
-		_subdivide_btn.disabled = not has_faces
+
+
+## [code]true[/code] when Edge mode is active and ≥1 edge is selected.
+func _cond_edge_any() -> bool:
+	return _target != null \
+			and _target.selection.get_mode() == SelectionManager.Mode.EDGE \
+			and not _target.selection.get_selected_edges().is_empty()
+
+
+## [code]true[/code] when Edge mode is active and ≥1 selected edge is a
+## boundary (single-face) edge.
+func _cond_edge_boundary() -> bool:
+	if _target == null or _target.go_build_mesh == null:
+		return false
+	if _target.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return false
+	for ei: int in _target.selection.get_selected_edges():
+		if ei < _target.go_build_mesh.edges.size() \
+				and _target.go_build_mesh.edges[ei].is_boundary():
+			return true
+	return false
+
+
+## [code]true[/code] when Edge mode is active and ≥2 selected edges are
+## boundary edges (the minimum required by Bridge).
+func _cond_edge_bridge() -> bool:
+	if _target == null or _target.go_build_mesh == null:
+		return false
+	if _target.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return false
+	var count: int = 0
+	for ei: int in _target.selection.get_selected_edges():
+		if ei < _target.go_build_mesh.edges.size() \
+				and _target.go_build_mesh.edges[ei].is_boundary():
+			count += 1
+	return count >= 2
+
+
+## [code]true[/code] when Face mode is active and ≥1 face is selected.
+func _cond_face_any() -> bool:
+	return _target != null \
+			and _target.selection.get_mode() == SelectionManager.Mode.FACE \
+			and not _target.selection.get_selected_faces().is_empty()
+
+
+## [code]true[/code] when there is at least one selected element in the
+## current non-Object edit mode.
+func _cond_any_selection() -> bool:
+	if _target == null:
+		return false
+	match _target.selection.get_mode():
+		SelectionManager.Mode.VERTEX:
+			return not _target.selection.get_selected_vertices().is_empty()
+		SelectionManager.Mode.EDGE:
+			return not _target.selection.get_selected_edges().is_empty()
+		SelectionManager.Mode.FACE:
+			return not _target.selection.get_selected_faces().is_empty()
+	return false
+
+
+# ---------------------------------------------------------------------------
+# Button-state update
+# ---------------------------------------------------------------------------
+
+## Enable or disable every registered operation button based on the current
+## mode and selection.  Each button evaluates its own condition independently,
+## so a crash in one condition cannot prevent the others from updating.
+## Called on mode change, selection change, and mesh change.
+func _update_ops_buttons() -> void:
+	for entry in _op_entries:
+		entry.button.disabled = not entry.condition.call()
+
 
 
 ## Public entry-point so [GoBuildGizmoPlugin] can trigger edge extrude via
