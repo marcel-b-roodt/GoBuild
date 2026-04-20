@@ -221,8 +221,49 @@ static func _update_faces(
 			continue
 
 		if faces_arr.size() == 1:
-			# Single non-plan face → N-gon approach, no cap needed.
-			np_info[vi] = {"faces": faces_arr, "anchor_idx": -1, "W": -1}
+			# Single non-plan face → normally N-gon, but check for junction:
+			# if any slide_nbr has strictly more faces than vi, this vertex is
+			# at a T-junction (e.g. a cube corner adjacent to a loop-cut ring).
+			# In that case we use the cap approach instead, so the bevel strip
+			# ends cleanly rather than collapsing into a degenerate N-gon.
+			var vi_face_count: int = mesh.faces_of_vertex(vi).size()
+			var junction_v: int = -1
+			for entry: Dictionary in global_slid[vi]:
+				if mesh.faces_of_vertex(entry.slide_nbr).size() > vi_face_count:
+					junction_v = entry.slide_nbr
+					break
+
+			if junction_v == -1:
+				# True outer corner — N-gon approach, no cap needed.
+				np_info[vi] = {"faces": faces_arr, "anchor_idx": -1, "W": -1}
+			else:
+				# T-junction corner: build a cap using the two plan-face slid
+				# copies.  The anchor is placed on the inner-ring edge opposite
+				# junction_v, at [width] from junction_v back toward vi.
+				var sa_entry: Dictionary  # slid copy NOT sliding toward junction
+				var sb_entry: Dictionary  # slid copy sliding toward junction
+				for entry: Dictionary in global_slid[vi]:
+					if entry.slide_nbr == junction_v:
+						sb_entry = entry
+					else:
+						sa_entry = entry
+				var to_vi: Vector3 = mesh.vertices[vi] - mesh.vertices[junction_v]
+				var junc_dist: float = to_vi.length()
+				var t_clamp: float = minf(width, junc_dist) / maxf(junc_dist, 1e-8)
+				var anchor_idx: int = mesh.vertices.size()
+				mesh.vertices.append(mesh.vertices[junction_v] + to_vi * t_clamp)
+				# The non-plan face gets sa_entry (not both) + anchor.
+				# Re-assign chosen_idx for the single non-plan face entry.
+				faces_arr[0]["chosen_idx"] = sa_entry.idx
+				np_info[vi] = {
+					"faces": faces_arr, "anchor_idx": anchor_idx, "W": junction_v
+				}
+				caps_needed.append({
+					"vertices": [sa_entry.idx, sb_entry.idx],
+					"anchor":   anchor_idx,
+					"mat":      mesh.faces[faces_arr[0]["fi"]].material_index,
+					"smooth":   mesh.faces[faces_arr[0]["fi"]].smooth_group,
+				})
 		else:
 			# Multiple non-plan faces → cap approach.
 			# W = the vertex that is a ring-neighbour of vi in EVERY non-plan face
