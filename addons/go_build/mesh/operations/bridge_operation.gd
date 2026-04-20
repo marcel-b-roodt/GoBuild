@@ -55,9 +55,41 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> void:
 	if valid_edges.size() < 2:
 		return
 
-	# ── 2. Split into two connected chains ─────────────────────────────────
+	# ── 2. Split into connected chains ─────────────────────────────────────
 	var chains: Array = _split_into_chains(mesh, valid_edges)
-	if chains.size() < 2:
+	if chains.is_empty():
+		return
+
+	# ── 2b. Fill-hole shortcut ──────────────────────────────────────────────
+	# If all selected edges belong to a SINGLE closed boundary loop (every
+	# vertex in the chain has degree 2 in the selection), fill the hole with a
+	# single face — no new vertices, no quad strip.  This handles triangles,
+	# quads, and arbitrary N-gon holes formed by the selected edges.
+	if chains.size() == 1:
+		var chain: Array[int] = chains[0]
+		# _split_into_chains returns open chains with first != last.
+		# A closed loop is detected when the first and last vertex are
+		# connected by an edge in valid_edges that was not yet walked — OR
+		# when the chain already forms a closed ring (chain[0] == chain[-1]).
+		var is_closed: bool = false
+		if chain.size() >= 2 and chain[0] == chain[chain.size() - 1]:
+			is_closed = true
+			chain.resize(chain.size() - 1)  # Remove duplicate tail.
+		else:
+			# Check if there's a valid_edge directly connecting tail to head.
+			var tail: int = chain[chain.size() - 1]
+			var head: int = chain[0]
+			for ei: int in valid_edges:
+				var e: GoBuildEdge = mesh.edges[ei]
+				if (e.vertex_a == tail and e.vertex_b == head) \
+						or (e.vertex_a == head and e.vertex_b == tail):
+					is_closed = true
+					break
+		if is_closed and chain.size() >= 3:
+			_fill_hole(mesh, chain, valid_edges)
+			mesh.rebuild_edges()
+			return
+		# Open single chain — not a valid bridge input; do nothing.
 		return
 
 	# Use the two longest chains if more than two were found (e.g. user had
@@ -71,6 +103,27 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> void:
 
 	# ── 3. Align loop B to loop A ───────────────────────────────────────────
 	loop_b = _align_loop(mesh, loop_a, loop_b)
+
+	# ── 3b. Two single-edge case: guarantee non-crossing quad ───────────────
+	# When both loops are exactly 2 vertices (one edge each), the general
+	# alignment heuristic may produce a crossing quad where both selected edges
+	# appear as diagonals rather than opposite sides.  Check the two possible
+	# pairings and choose the one with shorter total diagonal length (the
+	# non-crossing configuration always has a smaller sum of cross-distances).
+	if loop_a.size() == 2 and loop_b.size() == 2:
+		var a0: Vector3 = mesh.vertices[loop_a[0]]
+		var a1: Vector3 = mesh.vertices[loop_a[1]]
+		var b0: Vector3 = mesh.vertices[loop_b[0]]
+		var b1: Vector3 = mesh.vertices[loop_b[1]]
+		# Pairing 1: [a0,b0,b1,a1] — cross-diagonals are a0↔b1 and a1↔b0.
+		var cross1: float = a0.distance_squared_to(b1) + a1.distance_squared_to(b0)
+		# Pairing 2: [a0,b1,b0,a1] (reverse b) — cross-diagonals are a0↔b0 and a1↔b1.
+		var cross2: float = a0.distance_squared_to(b0) + a1.distance_squared_to(b1)
+		# The non-crossing quad has the LARGER sum — shorter diagonals mean they
+		# cross.  Pick the pairing whose "bridge" edges are shorter (cross2 < cross1
+		# means b is better reversed for a non-crossing quad).
+		if cross2 < cross1:
+			loop_b.reverse()
 
 	# ── 4. Resample to the same length (longer loop wins) ──────────────────
 	var n: int = maxi(loop_a.size(), loop_b.size()) - 1
@@ -105,6 +158,67 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> void:
 		mesh.faces.append(quad)
 
 	mesh.rebuild_edges()
+
+
+# ---------------------------------------------------------------------------
+# Fill-hole
+# ---------------------------------------------------------------------------
+
+## Fill a closed boundary loop with a single N-gon face.
+##
+## [param chain] is an ordered Array[int] of vertex indices (no duplicate
+## tail) forming the boundary of the hole.  [param source_edges] is used to
+## inherit material and smooth-group from an adjacent face.
+static func _fill_hole(
+		mesh: GoBuildMesh,
+		chain: Array[int],
+		source_edges: Array[int],
+) -> void:
+	# Inherit material from the first adjacent face in the selection.
+	var mat_idx: int = 0
+	var smooth: int  = 0
+	for ei: int in source_edges:
+		if ei >= 0 and ei < mesh.edges.size():
+			for fi: int in mesh.edges[ei].face_indices:
+				mat_idx = mesh.faces[fi].material_index
+				smooth  = mesh.faces[fi].smooth_group
+				break
+		break
+
+	var fill := _FACE_SCRIPT.new()
+	fill.vertex_indices = []
+	for v: int in chain:
+		fill.vertex_indices.append(v)
+	fill.material_index = mat_idx
+	fill.smooth_group   = smooth
+
+	# Generate simple UV projection: normalize positions into [0,1] box.
+	var centroid := Vector3.ZERO
+	for v: int in chain:
+		centroid += mesh.vertices[v]
+	centroid /= float(chain.size())
+
+	# Build a local 2D frame from the first two vertices.
+	var u_axis: Vector3 = Vector3.RIGHT
+	var v_axis: Vector3 = Vector3.FORWARD
+	if chain.size() >= 2:
+		u_axis = (mesh.vertices[chain[1]] - mesh.vertices[chain[0]]).normalized()
+		# Compute a rough face normal via cross products of the chain.
+		var normal := Vector3.ZERO
+		for k: int in chain.size():
+			var p0: Vector3 = mesh.vertices[chain[k]] - centroid
+			var p1: Vector3 = mesh.vertices[chain[(k + 1) % chain.size()]] - centroid
+			normal += p0.cross(p1)
+		normal = normal.normalized()
+		if normal.length_squared() > 0.5:
+			v_axis = normal.cross(u_axis).normalized()
+
+	fill.uvs = []
+	for v: int in chain:
+		var p: Vector3 = mesh.vertices[v] - centroid
+		fill.uvs.append(Vector2(p.dot(u_axis), p.dot(v_axis)))
+
+	mesh.faces.append(fill)
 
 
 # ---------------------------------------------------------------------------
