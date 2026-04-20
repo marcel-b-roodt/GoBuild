@@ -466,8 +466,7 @@ static func _add_bevel_strips(
 		if hint.length_squared() > 1e-8 \
 				and mesh.compute_face_normal(strip).dot(hint) < 0.0:
 			strip.vertex_indices = [na0, na1, nb1, nb0]
-
-			mesh.faces.append(strip)
+		mesh.faces.append(strip)
 
 
 # ── Phase 3b ─────────────────────────────────────────────────────────────────
