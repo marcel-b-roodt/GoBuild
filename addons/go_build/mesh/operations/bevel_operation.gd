@@ -206,14 +206,19 @@ static func _update_faces(mesh: GoBuildMesh, vertex_plan: Dictionary) -> void:
 				if has_uvs:
 					new_uvs.append(face.uvs[k])
 			else:
-				# Non-plan face: insert all global copies in CCW winding order.
+				# Non-plan face: pick the single most-appropriate slid copy so
+				# the face stays a quad (no N-gon growth).  _sort_entries_ccw
+				# puts the entry whose slide_nbr matches the previous vertex
+				# first — that copy is geometrically closest to the original
+				# corner, so it is the correct 1-for-1 replacement.
+				# Inserting all copies would grow the face into an N-gon, which
+				# breaks loop-cut ring traversal and other quad-only operations.
 				var prev_vi: int = old_vis[(k - 1 + old_vis.size()) % old_vis.size()]
 				var sorted_entries: Array = _sort_entries_ccw(
 						global_slid[vi], prev_vi, vi, mesh)
-				for entry in sorted_entries:
-					new_vis.append(entry.idx)
-					if has_uvs:
-						new_uvs.append(face.uvs[k])
+				new_vis.append(sorted_entries[0].idx)
+				if has_uvs:
+					new_uvs.append(face.uvs[k])
 
 		face.vertex_indices.resize(new_vis.size())
 		for k: int in new_vis.size():

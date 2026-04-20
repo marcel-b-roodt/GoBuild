@@ -1205,8 +1205,12 @@ func _commit_param_preview(edited_node: GoBuildMeshInstance) -> void:
 	ur.create_action(action_name)
 	ur.add_do_method(edited_node, "restore_and_bake", final_snapshot)
 	ur.add_undo_method(edited_node, "restore_and_bake", before)
-	ur.add_do_reference(edited_node)
-	ur.add_undo_reference(edited_node)
+	# NOTE: do NOT call add_do_reference / add_undo_reference here.
+	# Those methods hand lifetime ownership to the UndoRedo system, which calls
+	# free() when the action is discarded (e.g. when create_action() clears
+	# forward history after an undo).  edited_node is a permanent scene node
+	# managed by the scene tree, not by UndoRedo — freeing it via the undo
+	# system crashes the editor the next time the node is accessed.
 	# commit_action(false): mesh is already in final state — do NOT re-execute
 	# the do-method.  Calling it again would bake a second bevel on an already-
 	# beveled mesh before the undo system restores final_snapshot, causing a crash.
