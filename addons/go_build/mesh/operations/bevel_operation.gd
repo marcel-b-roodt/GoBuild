@@ -210,7 +210,7 @@ static func _update_faces(
 			var vc2: int = face2.vertex_indices.size()
 			var prev2: int = face2.vertex_indices[(k2 - 1 + vc2) % vc2]
 			var next2: int = face2.vertex_indices[(k2 + 1) % vc2]
-			var sorted2: Array = _sort_entries_ccw(global_slid[vi], prev2, vi, mesh)
+			var sorted2: Array = _sort_entries_ccw(global_slid[vi], prev2, vi, mesh, next2)
 			faces_arr.append({
 				"fi": fi2, "k": k2,
 				"prev_vi": prev2, "next_vi": next2,
@@ -221,49 +221,8 @@ static func _update_faces(
 			continue
 
 		if faces_arr.size() == 1:
-			# Single non-plan face → normally N-gon, but check for junction:
-			# if any slide_nbr has strictly more faces than vi, this vertex is
-			# at a T-junction (e.g. a cube corner adjacent to a loop-cut ring).
-			# In that case we use the cap approach instead, so the bevel strip
-			# ends cleanly rather than collapsing into a degenerate N-gon.
-			var vi_face_count: int = mesh.faces_of_vertex(vi).size()
-			var junction_v: int = -1
-			for entry: Dictionary in global_slid[vi]:
-				if mesh.faces_of_vertex(entry.slide_nbr).size() > vi_face_count:
-					junction_v = entry.slide_nbr
-					break
-
-			if junction_v == -1:
-				# True outer corner — N-gon approach, no cap needed.
-				np_info[vi] = {"faces": faces_arr, "anchor_idx": -1, "W": -1}
-			else:
-				# T-junction corner: build a cap using the two plan-face slid
-				# copies.  The anchor is placed on the inner-ring edge opposite
-				# junction_v, at [width] from junction_v back toward vi.
-				var sa_entry: Dictionary  # slid copy NOT sliding toward junction
-				var sb_entry: Dictionary  # slid copy sliding toward junction
-				for entry: Dictionary in global_slid[vi]:
-					if entry.slide_nbr == junction_v:
-						sb_entry = entry
-					else:
-						sa_entry = entry
-				var to_vi: Vector3 = mesh.vertices[vi] - mesh.vertices[junction_v]
-				var junc_dist: float = to_vi.length()
-				var t_clamp: float = minf(width, junc_dist) / maxf(junc_dist, 1e-8)
-				var anchor_idx: int = mesh.vertices.size()
-				mesh.vertices.append(mesh.vertices[junction_v] + to_vi * t_clamp)
-				# The non-plan face gets sa_entry (not both) + anchor.
-				# Re-assign chosen_idx for the single non-plan face entry.
-				faces_arr[0]["chosen_idx"] = sa_entry.idx
-				np_info[vi] = {
-					"faces": faces_arr, "anchor_idx": anchor_idx, "W": junction_v
-				}
-				caps_needed.append({
-					"vertices": [sa_entry.idx, sb_entry.idx],
-					"anchor":   anchor_idx,
-					"mat":      mesh.faces[faces_arr[0]["fi"]].material_index,
-					"smooth":   mesh.faces[faces_arr[0]["fi"]].smooth_group,
-				})
+			# Single non-plan face → N-gon approach, no cap needed.
+			np_info[vi] = {"faces": faces_arr, "anchor_idx": -1, "W": -1}
 		else:
 			# Multiple non-plan faces → cap approach.
 			# W = the vertex that is a ring-neighbour of vi in EVERY non-plan face
@@ -385,7 +344,7 @@ static func _update_faces(
 				if face_use_ngon.get(vi, true):
 					# N-gon: insert all slid copies in CCW order.
 					var sorted_entries: Array = _sort_entries_ccw(
-							global_slid[vi], prev_vi, vi, mesh)
+							global_slid[vi], prev_vi, vi, mesh, next_vi)
 					for entry: Dictionary in sorted_entries:
 						new_vis.append(entry.idx)
 						if has_uvs:
@@ -396,7 +355,7 @@ static func _update_faces(
 					if chosen == -1:
 						# Fallback (should not occur).
 						var se: Array = _sort_entries_ccw(
-								global_slid[vi], prev_vi, vi, mesh)
+							global_slid[vi], prev_vi, vi, mesh, next_vi)
 						chosen = se[0].idx
 					# Determine if anchor goes before or after chosen in the ring.
 					var info: Dictionary = np_info[vi]
@@ -434,7 +393,8 @@ static func _update_faces(
 # shares the prev_vi→vi edge — it belongs immediately after prev_vi.
 # Fallback: sort by signed angle from the prev_vi direction.
 static func _sort_entries_ccw(
-		entries: Array, prev_vi: int, vi: int, mesh: GoBuildMesh) -> Array:
+		entries: Array, prev_vi: int, vi: int, mesh: GoBuildMesh,
+		next_vi: int = -1) -> Array:
 	if entries.size() == 1:
 		return entries
 
@@ -449,6 +409,22 @@ static func _sort_entries_ccw(
 		for i: int in entries.size():
 			if i != first_i:
 				result.append(entries[i])
+		return result
+
+	# Secondary fast path: if a slide_nbr matches next_vi, that entry belongs
+	# LAST in CCW order (on the far side of vi from prev_vi), so the other
+	# entry goes first.
+	var last_i: int = -1
+	for i: int in entries.size():
+		if entries[i].slide_nbr == next_vi:
+			last_i = i
+			break
+	if last_i != -1:
+		var result: Array = []
+		for i: int in entries.size():
+			if i != last_i:
+				result.append(entries[i])
+		result.append(entries[last_i])
 		return result
 
 	# Angle-based fallback.

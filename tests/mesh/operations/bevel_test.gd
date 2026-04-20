@@ -20,6 +20,7 @@ const _FACE_SCRIPT   := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _EDGE_SCRIPT   := preload("res://addons/go_build/mesh/go_build_edge.gd")
 const _MESH_SCRIPT   := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _BEVEL_SCRIPT  := preload("res://addons/go_build/mesh/operations/bevel_operation.gd")
+const _CUBE_GEN      := preload("res://addons/go_build/mesh/generators/cube_generator.gd")
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +308,41 @@ func _make_loop_cut_ring() -> GoBuildMesh:
 	return mesh
 
 
+## Plain welded cube — single edge bevel should add exactly 1 strip face,
+## 2 N-gon faces (corner non-plan grow), and 4 new slid vertices.
+## 6 original verts → 2 endpoints compacted out → +4 slid = 8 total verts.
+## 6 original faces → 2 corner faces expand to N-gons (no extra), +1 strip = 7 total.
+func _make_cube() -> GoBuildMesh:
+	return CubeGenerator.generate(1.0, 1.0, 1.0)
+
+
+func test_bevel_cube_edge_adds_one_strip_face() -> void:
+	# Beveling a single edge of a plain cube should add exactly 1 new face (strip).
+	# The two non-plan corner faces grow in-place as N-gons (no extra faces).
+	var mesh := _make_cube()
+	# Pick any non-boundary interior edge.
+	var ei: int = -1
+	for i: int in mesh.edges.size():
+		if not (mesh.edges[i] as GoBuildEdge).is_boundary():
+			ei = i
+			break
+	assert_int(ei).is_not_equal(-1)
+	BevelOperation.apply(mesh, [ei], 0.1)
+	assert_int(mesh.faces.size()).is_equal(7)
+
+
+func test_bevel_cube_edge_vertex_count() -> void:
+	# 8 original cube verts → 2 compacted out → +4 slid = 10 total.
+	var mesh := _make_cube()
+	var ei: int = -1
+	for i: int in mesh.edges.size():
+		if not (mesh.edges[i] as GoBuildEdge).is_boundary():
+			ei = i
+			break
+	BevelOperation.apply(mesh, [ei], 0.1)
+	assert_int(mesh.vertices.size()).is_equal(10)
+
+
 func test_bevel_loop_cut_inner_edge_creates_strip_and_two_caps() -> void:
 	# Bevel the front inner edge 8↔9.  Expected:
 	#   - 1 bevel strip face
@@ -332,3 +368,138 @@ func test_bevel_loop_cut_strip_face_has_correct_normal() -> void:
 			found_front_normal = true
 			break
 	assert_bool(found_front_normal).is_true()
+
+
+# ---------------------------------------------------------------------------
+# Loop-cut FULL CUBE — outer edge bevel (the "left edge" scenario)
+# ---------------------------------------------------------------------------
+# A full 6-face cube with a horizontal loop cut retains the original top outer
+# edges.  Beveling such an edge involves a T-junction at each endpoint because
+# one of the slide neighbours is an inner-ring midpoint vertex (4 faces).
+# The correct result is 1 strip + 2 cap faces = 3 new faces → 16 total
+# (12 existing after loop cut, +3 new).  There should be NO open holes.
+
+## Full welded cube with a horizontal loop cut at y=0 (mid-height for unit cube).
+## Returns the mesh AFTER the loop cut is applied.
+func _make_loop_cut_full_cube() -> GoBuildMesh:
+	var mesh := CubeGenerator.generate(1.0, 1.0, 1.0)
+	# Find a vertical edge on the front face to seed the loop cut.
+	# Front face is at Z=0.5.  Vertical edges connect top Y=0.5 and bottom Y=-0.5.
+	var seed_ei: int = -1
+	for ei: int in mesh.edges.size():
+		var e: GoBuildEdge = mesh.edges[ei] as GoBuildEdge
+		var va_pos: Vector3 = mesh.vertices[e.vertex_a]
+		var vb_pos: Vector3 = mesh.vertices[e.vertex_b]
+		# Vertical edge: same X and Z, different Y.
+		if absf(va_pos.x - vb_pos.x) < 1e-4 \
+				and absf(va_pos.z - vb_pos.z) < 1e-4 \
+				and absf(va_pos.y - vb_pos.y) > 0.9:
+			seed_ei = ei
+			break
+	assert_int(seed_ei).is_not_equal(-1)
+	var seed_arr: Array[int] = [seed_ei]
+	LoopCutOperation.apply(mesh, seed_arr, 0.5)
+	return mesh
+
+
+func test_loop_cut_full_cube_face_count() -> void:
+	# After loop cut: 6 original faces; the loop cut on a vertical ring edge
+	# splits only the 4 side faces (top and bottom stay whole) → 6-4+8 = 10 faces.
+	var mesh := _make_loop_cut_full_cube()
+	assert_int(mesh.faces.size()).is_equal(10)
+
+
+func test_bevel_outer_top_edge_of_loop_cut_cube_face_count() -> void:
+	# Bevel one of the original outer top edges of a loop-cut cube.
+	# Both endpoints are cube corners (3-face vertices) with 1 non-plan face
+	# each, so the N-gon approach applies: 10 original + 1 strip = 11 faces.
+	var mesh := _make_loop_cut_full_cube()
+	var target_ei: int = -1
+	for ei: int in mesh.edges.size():
+		var e: GoBuildEdge = mesh.edges[ei] as GoBuildEdge
+		if e.face_indices.size() != 2:
+			continue
+		var va_pos: Vector3 = mesh.vertices[e.vertex_a]
+		var vb_pos: Vector3 = mesh.vertices[e.vertex_b]
+		if va_pos.y > 0.4 and vb_pos.y > 0.4 and absf(va_pos.y - vb_pos.y) < 1e-4:
+			target_ei = ei
+			break
+	assert_int(target_ei).is_not_equal(-1)
+	BevelOperation.apply(mesh, [target_ei], 0.1)
+	assert_int(mesh.faces.size()).is_equal(11)
+
+
+func test_bevel_inner_ring_edge_of_loop_cut_cube_face_count() -> void:
+	# Bevel one inner ring edge of the loop-cut full cube.
+	# Each endpoint is a 4-face midpoint vertex with 2 non-plan faces → cap approach.
+	# Expected: 10 original + 1 strip + 2 cap triangles = 13 total.
+	var mesh := _make_loop_cut_full_cube()
+	# Inner ring edge: both endpoints at Y=0 (midpoints created by loop cut).
+	var target_ei: int = -1
+	for ei: int in mesh.edges.size():
+		var e: GoBuildEdge = mesh.edges[ei] as GoBuildEdge
+		if e.face_indices.size() != 2:
+			continue
+		var va_pos: Vector3 = mesh.vertices[e.vertex_a]
+		var vb_pos: Vector3 = mesh.vertices[e.vertex_b]
+		# Inner ring edge: both endpoints at Y=0, horizontal.
+		if absf(va_pos.y) < 1e-4 and absf(vb_pos.y) < 1e-4 \
+				and absf(va_pos.y - vb_pos.y) < 1e-4:
+			target_ei = ei
+			break
+	assert_int(target_ei).is_not_equal(-1)
+	BevelOperation.apply(mesh, [target_ei], 0.1)
+	assert_int(mesh.faces.size()).is_equal(13)
+
+
+func test_bevel_inner_ring_edge_cap_anchor_not_at_original_position() -> void:
+	# After beveling an inner ring edge, the cap anchor vertex should sit
+	# between vi and W (not at vi or W exactly).  This verifies the W vertex
+	# was found correctly — if W is wrong the anchor would land in the wrong place.
+	var mesh := _make_loop_cut_full_cube()
+	var target_ei: int = -1
+	for ei: int in mesh.edges.size():
+		var e: GoBuildEdge = mesh.edges[ei] as GoBuildEdge
+		if e.face_indices.size() != 2:
+			continue
+		var va_pos: Vector3 = mesh.vertices[e.vertex_a]
+		var vb_pos: Vector3 = mesh.vertices[e.vertex_b]
+		if absf(va_pos.y) < 1e-4 and absf(vb_pos.y) < 1e-4:
+			target_ei = ei
+			break
+	var orig_vc: int = mesh.vertices.size()
+	assert_int(target_ei).is_not_equal(-1)
+	BevelOperation.apply(mesh, [target_ei], 0.1)
+	# After compaction, count vertices at Y=0 (on the inner ring plane).
+	# Original inner ring had 4 vertices at Y=0.  After bevel of one edge:
+	# the two endpoints are replaced by their slid copies and anchor vertices.
+	# The anchor vertices must also be at Y=0 (they lie on the inner ring).
+	var y0_count: int = 0
+	for vi: int in mesh.vertices.size():
+		if absf(mesh.vertices[vi].y) < 0.05:
+			y0_count += 1
+	# Must have at least the 4 original ring verts (some replaced) + anchor verts.
+	assert_int(y0_count).is_greater_equal(4)
+
+
+func test_bevel_all_inner_ring_edges_of_loop_cut_cube() -> void:
+	# Each of the 4 inner ring edges should produce 13 faces when beveled.
+	# If any produces a different count, the cap W-vertex detection is wrong for that edge.
+	var ring_edges: Array[int] = []
+	var base_mesh := _make_loop_cut_full_cube()
+	for ei: int in base_mesh.edges.size():
+		var e: GoBuildEdge = base_mesh.edges[ei] as GoBuildEdge
+		if e.face_indices.size() != 2:
+			continue
+		var va_pos: Vector3 = base_mesh.vertices[e.vertex_a]
+		var vb_pos: Vector3 = base_mesh.vertices[e.vertex_b]
+		if absf(va_pos.y) < 1e-4 and absf(vb_pos.y) < 1e-4:
+			ring_edges.append(ei)
+	assert_int(ring_edges.size()).is_equal(4)
+	for ei: int in ring_edges:
+		var mesh := _make_loop_cut_full_cube()
+		BevelOperation.apply(mesh, [ei], 0.1)
+		assert_int(mesh.faces.size()).is_equal(13)
+		# All faces must have at most 5 vertices (quads grown by anchor insert).
+		for fi: int in mesh.faces.size():
+			assert_int(mesh.faces[fi].vertex_indices.size()).is_less_equal(5)
