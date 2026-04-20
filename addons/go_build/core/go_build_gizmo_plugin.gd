@@ -22,7 +22,8 @@ const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face
 const _EDGE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_edge.gd")
 const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
-const _MESH_INSTANCE_SCRIPT := preload(_MESH_INSTANCE_SCRIPT_PATH)
+const _MESH_INSTANCE_SCRIPT  := preload(_MESH_INSTANCE_SCRIPT_PATH)
+const _DRAG_HANDLER_SCRIPT   := preload("res://addons/go_build/core/go_build_drag_handler.gd")
 
 ## Must match [constant GoBuildGizmo.AXIS_HANDLE_OFFSET].
 const AXIS_HANDLE_OFFSET: int = 1_000_000
@@ -150,12 +151,18 @@ var plane_quad_mesh_xz: ArrayMesh
 ## A single shared mesh — positioned and scaled per-axis at draw time.
 var scale_cube_mesh: ArrayMesh
 
-## Ctrl-snap step override (toolbar); -1.0 = use editor grid step.
-var snap_step_override: float = -1.0
-## Ctrl-snap step for rotation (degrees). Default 15°.
-var rot_snap_override: float = 15.0
-## Ctrl-snap step for scale ratio. Default 0.1 (snaps to 0.1, 0.2, 0.3 …).
-var scale_snap_override: float = 0.1
+## Ctrl-snap step override — delegates to [GoBuildDragHandler].
+var snap_step_override: float:
+	get: return _drag_handler.snap_step_override
+	set(v): _drag_handler.snap_step_override = v
+## Ctrl-snap step for rotation (degrees) — delegates to [GoBuildDragHandler].
+var rot_snap_override: float:
+	get: return _drag_handler.rot_snap_override
+	set(v): _drag_handler.rot_snap_override = v
+## Ctrl-snap step for scale ratio — delegates to [GoBuildDragHandler].
+var scale_snap_override: float:
+	get: return _drag_handler.scale_snap_override
+	set(v): _drag_handler.scale_snap_override = v
 
 ## Currently hovered transform handle ID, or [code]-1[/code] when no handle is
 ## under the cursor.  Written by [code]plugin.gd[/code] via [method _update_hover]
@@ -165,56 +172,18 @@ var _hovered_handle_id: int = -1
 
 var _editor_plugin: EditorPlugin = null
 
-## Drag state (populated by begin_drag / _get_handle_value, cleared by commit_drag) ──
-## Vertex index → original position before the current drag started.
-var _drag_initial_verts: Dictionary = {}
-## Axis-line parameter at the moment the drag began (set on first _set_handle call).
-## Also used as an "uninitialised" sentinel (value == INF).
-var _drag_initial_t: float = INF
-## World-space direction from the selection centroid to the first rotate-plane
-## hit point. Initialised on the first [_set_handle] call of a rotate drag.
-var _drag_start_dir: Vector3 = Vector3.ZERO
-## World-space rotation axis captured in [_get_handle_value] for rotate drags.
-var _drag_world_axis: Vector3 = Vector3.ZERO
-## Full mesh snapshot taken at the start of a drag — used for cancel / undo.
-var _drag_restore: Dictionary = {}
-## Optional action-name override.  When non-empty, commit_drag / _commit_handle
-## use this string instead of _drag_action_name(handle_id).  Lets callers that
-## perform a pre-operation (e.g. Extrude) before the drag label the combined
-## undo step correctly.  Cleared by reset_drag_state.
-var _drag_action_name_override: String = ""
-## When true, update_drag routes to _apply_inset_drag regardless of handle_id.
-## Set by begin_inset_drag; cleared by reset_drag_state.
-var _inset_mode: bool = false
-## Maps inner-ring vertex index → local-space face centroid.
-## Populated by begin_inset_drag via InsetOperation.apply; cleared by reset_drag_state.
-var _inset_centroids: Dictionary = {}
+## Drag handler — owns all drag state, apply methods, and the deferred-bake /
+## deferred-gizmo-redraw queues.  All drag API on this class delegates to it.
+var _drag_handler: GoBuildDragHandler = GoBuildDragHandler.new()
 
-## Deferred-bake state ─────────────────────────────────────────────────────
-## During a drag, InputEventMouseMotion can fire many times per engine frame.
-## Calling node.bake() (full ArrayMesh rebuild + GPU upload) on every event is
-## the primary source of frame hitches.  Instead we set a dirty flag and let
-## _flush_pending_bake coalesce all per-event mutations into a single bake at
-## end-of-frame.  The pending node reference is cleared at commit / cancel so
-## a stale flush cannot overwrite a restored or committed mesh state.
-var _bake_pending_node: GoBuildMeshInstance = null
-var _bake_scheduled:    bool = false
-## When true, _flush_pending_bake routes to bake_vertex_positions() instead of
-## bake().  Set by begin_drag (vertex positions are the only thing changing);
-## cleared by reset_drag_state so the commit/cancel full-bake is never skipped.
-## bake_vertex_positions() leaves normals stale — always call bake() on commit.
-var _drag_vertex_update_mode: bool = false
-
-## Deferred-gizmo-redraw state ──────────────────────────────────────────────
-## Mirrors the deferred-bake pattern above but for update_gizmos().
-## _redraw() builds PackedVector3Arrays for all edges/vertices and calls
-## add_mesh with new ArrayMesh objects (cones) on every invocation — expensive
-## when called per-motion-event during a drag.  Coalescing to once per frame
-## keeps the overlay responsive without the per-event allocation cost.
-## Non-drag callers (selection changes, mode switches) call update_gizmos()
-## directly and bypass this throttle — they need an immediate redraw.
-var _gizmo_redraw_pending_node: GoBuildMeshInstance = null
-var _gizmo_redraw_scheduled:    bool = false
+## Passthrough properties: [code]selection_input_controller.gd[/code] sets these
+## directly on the plugin; actual storage lives on [GoBuildDragHandler].
+var _drag_restore: Dictionary:
+	get: return _drag_handler._drag_restore
+	set(v): _drag_handler._drag_restore = v
+var _drag_action_name_override: String:
+	get: return _drag_handler._drag_action_name_override
+	set(v): _drag_handler._drag_action_name_override = v
 
 func setup(plugin: EditorPlugin) -> void:
 	_editor_plugin      = plugin
@@ -378,21 +347,8 @@ func _get_handle_value(
 	if node == null or node.go_build_mesh == null:
 		return null
 
-	# Cache per-vertex initial positions so _set_handle can restore + re-apply.
-	_drag_initial_verts.clear()
-	_drag_initial_t = INF
-	_drag_start_dir = Vector3.ZERO
-	var affected := _get_affected_vertex_indices(node)
-	for idx: int in affected:
-		_drag_initial_verts[idx] = node.go_build_mesh.vertices[idx]
-
-	# For rotate drags, pre-compute the world axis so _set_handle can use it.
-	if handle_id >= ROT_HANDLE_OFFSET and handle_id < SCALE_HANDLE_OFFSET:
-		var local_axis: Vector3 = _get_local_axis(handle_id - ROT_HANDLE_OFFSET)
-		_drag_world_axis = (node.global_transform.basis * local_axis).normalized()
-
-	# Return a full snapshot for undo/cancel.
-	return node.go_build_mesh.take_snapshot()
+	_drag_handler.init_drag_capture(node, handle_id)
+	return _drag_handler.get_drag_restore()
 
 
 # ---------------------------------------------------------------------------
@@ -413,24 +369,12 @@ func _set_handle(
 		camera: Camera3D,
 		screen_pos: Vector2,
 ) -> void:
-	if handle_id < AXIS_HANDLE_OFFSET or _drag_initial_verts.is_empty():
+	if handle_id < AXIS_HANDLE_OFFSET or _drag_handler.is_drag_empty():
 		return
 	var node := gizmo.get_node_3d() as GoBuildMeshInstance
 	if node == null:
 		return
-
-	if handle_id >= UNIFORM_SCALE_HANDLE_ID:
-		_apply_uniform_scale_drag(node, camera, screen_pos)
-	elif handle_id >= VIEW_PLANE_HANDLE_ID:
-		_apply_viewport_plane_drag(node, camera, screen_pos)
-	elif handle_id >= PLANE_HANDLE_OFFSET:
-		_apply_plane_drag(node, handle_id - PLANE_HANDLE_OFFSET, camera, screen_pos)
-	elif handle_id >= SCALE_HANDLE_OFFSET:
-		_apply_scale_drag(node, handle_id - SCALE_HANDLE_OFFSET, camera, screen_pos)
-	elif handle_id >= ROT_HANDLE_OFFSET:
-		_apply_rotate_drag(node, handle_id - ROT_HANDLE_OFFSET, camera, screen_pos)
-	else:
-		_apply_translate_drag(node, handle_id - AXIS_HANDLE_OFFSET, camera, screen_pos)
+	_drag_handler.update_drag(node, handle_id, camera, screen_pos)
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +391,7 @@ func _commit_handle(
 		gizmo: EditorNode3DGizmo,
 		handle_id: int,
 		_secondary: bool,
-		restore: Variant,
+		_restore: Variant,
 		cancel: bool,
 ) -> void:
 	if handle_id < AXIS_HANDLE_OFFSET:
@@ -456,225 +400,60 @@ func _commit_handle(
 	if node == null:
 		return
 
-	# Clear the deferred-bake queue before any explicit bake below.
-	_bake_pending_node = null
-	_bake_scheduled    = false
-	# Clear deferred gizmo redraw — explicit update_gizmos calls below cover it.
-	_gizmo_redraw_pending_node = null
-	_gizmo_redraw_scheduled    = false
-
-	if cancel:
-		node.restore_and_bake(restore as Dictionary)
-		node.update_gizmos()
-	elif _drag_initial_t != INF:
-		node.bake()   # ensure final dragged state is visible before snapshot
-		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
-		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
-		var action_name: String = _drag_action_name_override \
-				if not _drag_action_name_override.is_empty() \
-				else _drag_action_name(handle_id)
-		ur.create_action(action_name)
-		ur.add_do_method(node, "restore_and_bake", snapshot_after)
-		ur.add_undo_method(node, "restore_and_bake", restore as Dictionary)
-		ur.commit_action()
-
-	reset_drag_state()
+	_drag_handler.commit_drag(node, handle_id, cancel, _editor_plugin.get_undo_redo())
 
 
-## Clear all in-progress drag state.
-## Called on mode change, focus loss, and node removal to ensure a stale drag
-## does not corrupt subsequent operations.
+## Delegates to [GoBuildDragHandler] — see [method GoBuildDragHandler.reset_drag_state].
 func reset_drag_state() -> void:
-	_drag_initial_t = INF
-	_drag_initial_verts.clear()
-	_drag_start_dir  = Vector3.ZERO
-	_drag_world_axis = Vector3.ZERO
-	_drag_restore    = {}
-	_drag_action_name_override = ""
-	_drag_vertex_update_mode = false
-	_inset_mode = false
-	_inset_centroids.clear()
-	# Clear deferred-bake state.  Any queued _flush_pending_bake call will
-	# find _bake_pending_node == null and exit without baking.
-	_bake_pending_node = null
-	_bake_scheduled    = false
-	# Clear deferred-gizmo-redraw state for the same reason.
-	_gizmo_redraw_pending_node = null
-	_gizmo_redraw_scheduled    = false
+	_drag_handler.reset_drag_state()
 
 
-## Schedule a deferred mesh bake for [param node], coalescing multiple
-## per-motion-event requests into a single bake per rendered frame.
-##
-## During a fast drag, [InputEventMouseMotion] can fire several times between
-## engine frames.  Calling [method GoBuildMeshInstance.bake] on each event
-## rebuilds the full [ArrayMesh] and uploads it to the GPU — O(faces) per event.
-## This method sets a dirty flag and defers the bake to end-of-frame via
-## [method Object.call_deferred], where vertex data has settled to its
-## per-frame final position.  Vertex positions and the gizmo overlay are
-## still updated every event for responsive feedback.
-func _schedule_bake(node: GoBuildMeshInstance) -> void:
-	_bake_pending_node = node
-	if not _bake_scheduled:
-		_bake_scheduled = true
-		call_deferred("_flush_pending_bake")
-
-
-## Flush a pending deferred bake.  Invoked at end-of-frame via call_deferred.
-## Guards against a stale flush after commit / cancel by checking
-## [member _bake_pending_node] — cleared by [method commit_drag] and
-## [method reset_drag_state] before the deferred call fires.
-##
-## During an active drag ([member _drag_vertex_update_mode] is true), routes to
-## [method GoBuildMeshInstance.bake_vertex_positions] — updates only the GPU
-## vertex buffer, leaving normals and UVs unchanged.  This avoids the full
-## [ArrayMesh] rebuild and cuts GPU upload cost to vertex-positions-only.
-## [method commit_drag] always performs a full [method GoBuildMeshInstance.bake]
-## afterward to restore correct normals.
-func _flush_pending_bake() -> void:
-	_bake_scheduled = false
-	if _bake_pending_node != null and is_instance_valid(_bake_pending_node):
-		if _drag_vertex_update_mode:
-			_bake_pending_node.bake_vertex_positions()
-		else:
-			_bake_pending_node.bake()
-	_bake_pending_node = null
-
-
-## Schedule a deferred gizmo redraw for [param node], coalescing multiple
-## per-motion-event requests into a single [method Node3D.update_gizmos] call
-## per rendered frame.
-##
-## [method Node3D.update_gizmos] triggers [method GoBuildGizmo._redraw], which
-## allocates [PackedVector3Array] objects for all edges and vertex cubes, and
-## calls [method EditorNode3DGizmo.add_mesh] with freshly-built cone meshes
-## (3 × [ArrayMesh]) on every invocation.  Calling this per-motion-event during
-## a drag causes continuous GDScript allocation pressure and GPU resource churn.
-##
-## Only use this from the drag hot-path in [code]plugin.gd[/code].  Non-drag
-## callers (selection changes, mode switches, cancel) should call
-## [method Node3D.update_gizmos] directly — they need an immediate redraw.
+## Delegates to [GoBuildDragHandler.schedule_gizmo_redraw].
+## Called from [code]plugin.gd[/code] via [SelectionInputController] hot-path.
 func schedule_gizmo_redraw(node: GoBuildMeshInstance) -> void:
-	_gizmo_redraw_pending_node = node
-	if not _gizmo_redraw_scheduled:
-		_gizmo_redraw_scheduled = true
-		call_deferred("_flush_pending_gizmo_redraw")
-
-
-## Flush a pending deferred gizmo redraw.  Invoked at end-of-frame via call_deferred.
-## Guards against a stale flush after commit / cancel / reset by checking
-## [member _gizmo_redraw_pending_node].
-func _flush_pending_gizmo_redraw() -> void:
-	_gizmo_redraw_scheduled = false
-	if _gizmo_redraw_pending_node != null and is_instance_valid(_gizmo_redraw_pending_node):
-		_gizmo_redraw_pending_node.update_gizmos()
-	_gizmo_redraw_pending_node = null
+	_drag_handler.schedule_gizmo_redraw(node)
 
 
 # ---------------------------------------------------------------------------
-# Public drag API — used by plugin.gd (custom drag path for SELECT mode)
+# Public drag API — delegates to GoBuildDragHandler (custom SELECT mode path)
 # ---------------------------------------------------------------------------
-## Godot's native _set_handle pipeline only fires in Move mode (KEY_W).
-## We keep the editor in Select mode (KEY_Q) to suppress the node-level
-## transform widget, so plugin.gd drives all handle drags through this API.
 
-## Initialise a handle drag for [param handle_id] on [param node].
-## Caches initial vertex positions and a full mesh snapshot for undo/cancel.
-## Returns [code]true[/code] if the drag was successfully started.
+## See [method GoBuildDragHandler.begin_drag].
 func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
-	if handle_id < AXIS_HANDLE_OFFSET:
-		return false
-	if node == null or node.go_build_mesh == null:
-		return false
-	var affected: Array[int] = _get_affected_vertex_indices(node)
-	if affected.is_empty():
-		return false
-
-	_drag_initial_verts.clear()
-	_drag_initial_t   = INF
-	_drag_start_dir   = Vector3.ZERO
-	_drag_world_axis  = Vector3.ZERO
-	for idx: int in affected:
-		_drag_initial_verts[idx] = node.go_build_mesh.vertices[idx]
-
-	if handle_id >= ROT_HANDLE_OFFSET and handle_id < SCALE_HANDLE_OFFSET:
-		var local_axis: Vector3 = _get_local_axis(handle_id - ROT_HANDLE_OFFSET)
-		_drag_world_axis = (node.global_transform.basis * local_axis).normalized()
-
-	_drag_restore = node.go_build_mesh.take_snapshot()
-	# Engage the fast vertex-position-only bake path for the duration of this drag.
-	# _flush_pending_bake will call bake_vertex_positions() each frame instead of
-	# the full bake(), saving the ArrayMesh rebuild and full GPU upload cost.
-	# reset_drag_state() clears this flag; commit_drag() always does a full bake()
-	# before calling reset_drag_state() so the final mesh has correct normals.
-	_drag_vertex_update_mode = true
-	return true
+	return _drag_handler.begin_drag(node, handle_id)
 
 
-## Apply the in-progress drag to [param node] given the current [param camera]
-## and mouse [param screen_pos].  Rebuilds the mesh and gizmo overlay immediately.
+## See [method GoBuildDragHandler.update_drag].
 func update_drag(
 		node: GoBuildMeshInstance,
 		handle_id: int,
 		camera: Camera3D,
 		screen_pos: Vector2,
 ) -> void:
-	if handle_id < AXIS_HANDLE_OFFSET or _drag_initial_verts.is_empty():
-		return
-	if node == null:
-		return
-	if _inset_mode:
-		_apply_inset_drag(node, camera, screen_pos)
-		return
-	if handle_id >= UNIFORM_SCALE_HANDLE_ID:
-		_apply_uniform_scale_drag(node, camera, screen_pos)
-	elif handle_id >= VIEW_PLANE_HANDLE_ID:
-		_apply_viewport_plane_drag(node, camera, screen_pos)
-	elif handle_id >= PLANE_HANDLE_OFFSET:
-		_apply_plane_drag(node, handle_id - PLANE_HANDLE_OFFSET, camera, screen_pos)
-	elif handle_id >= SCALE_HANDLE_OFFSET:
-		_apply_scale_drag(node, handle_id - SCALE_HANDLE_OFFSET, camera, screen_pos)
-	elif handle_id >= ROT_HANDLE_OFFSET:
-		_apply_rotate_drag(node, handle_id - ROT_HANDLE_OFFSET, camera, screen_pos)
-	else:
-		_apply_translate_drag(node, handle_id - AXIS_HANDLE_OFFSET, camera, screen_pos)
+	_drag_handler.update_drag(node, handle_id, camera, screen_pos)
 
 
-## Finalise or cancel the current drag on [param node].
-## On [param cancel], restores the mesh to the snapshot taken in [method begin_drag].
-## On confirm, pushes a single undo/redo action.
+## See [method GoBuildDragHandler.commit_drag].
 func commit_drag(node: GoBuildMeshInstance, handle_id: int, cancel: bool) -> void:
-	if handle_id < AXIS_HANDLE_OFFSET or node == null:
-		return
+	_drag_handler.commit_drag(node, handle_id, cancel, _editor_plugin.get_undo_redo())
 
-	# Clear the deferred-bake queue — we handle baking explicitly below so the
-	# final visual state is guaranteed correct regardless of frame timing.
-	# The queued _flush_pending_bake call will see _bake_pending_node == null
-	# and exit without touching the mesh.
-	_bake_pending_node = null
-	_bake_scheduled    = false
-	# Clear the deferred-gizmo-redraw queue for the same reason — the explicit
-	# update_gizmos() calls below cover the post-commit redraw.
-	_gizmo_redraw_pending_node = null
-	_gizmo_redraw_scheduled    = false
 
-	if cancel:
-		node.restore_and_bake(_drag_restore)
-		node.update_gizmos()
-	elif _drag_initial_t != INF:
-		# Explicitly bake the final dragged vertex state before snapshotting.
-		node.bake()
-		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
-		var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
-		var action_name: String = _drag_action_name_override \
-				if not _drag_action_name_override.is_empty() \
-				else _drag_action_name(handle_id)
-		ur.create_action(action_name)
-		ur.add_do_method(node, "restore_and_bake", snapshot_after)
-		ur.add_undo_method(node, "restore_and_bake", _drag_restore)
-		ur.commit_action()
+## See [method GoBuildDragHandler.begin_inset_drag].
+func begin_inset_drag(
+		node: GoBuildMeshInstance,
+		handle_id: int,
+		centroids: Dictionary,
+) -> bool:
+	return _drag_handler.begin_inset_drag(node, handle_id, centroids)
 
-	reset_drag_state()
+
+## See [method GoBuildDragHandler.begin_extrude_drag].
+func begin_extrude_drag(
+		node: GoBuildMeshInstance,
+		handle_id: int,
+		top_ring_indices: Array[int],
+) -> bool:
+	return _drag_handler.begin_extrude_drag(node, handle_id, top_ring_indices)
 
 
 # ---------------------------------------------------------------------------
@@ -766,391 +545,6 @@ func compute_node_gizmo_scale(node: GoBuildMeshInstance) -> float:
 	return compute_world_gizmo_scale(node.global_position)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-## Return the local-space unit vector for axis index 0=X, 1=Y, 2=Z.
-func _get_local_axis(axis_idx: int) -> Vector3:
-	match axis_idx:
-		0: return Vector3.RIGHT
-		1: return Vector3.UP
-		2: return Vector3.BACK
-	return Vector3.ZERO
-
-
-## Apply a translate drag along axis [param axis_idx] to all cached vertices.
-## When Ctrl is held, snaps the scalar travel distance to [method _get_snap_step].
-## When V is held, snaps the centroid to the nearest non-dragged mesh vertex,
-## projected onto the drag axis (vertex snap).
-func _apply_translate_drag(
-		node: GoBuildMeshInstance,
-		axis_idx: int,
-		camera: Camera3D,
-		screen_pos: Vector2,
-) -> void:
-	var local_axis: Vector3  = _get_local_axis(axis_idx)
-	var gbm: GoBuildMesh     = node.go_build_mesh
-	var local_centroid: Vector3 = _compute_drag_centroid()
-	var world_centroid: Vector3 = node.global_transform * local_centroid
-	var world_axis: Vector3  = (node.global_transform.basis * local_axis).normalized()
-
-	# Vertex snap (V held): project the centroid→snap-vertex vector onto the axis.
-	if Input.is_key_pressed(KEY_V):
-		var snap_world: Vector3 = _find_vertex_snap_world_pos(node, camera, screen_pos)
-		if snap_world != Vector3.INF:
-			var t_delta: float = (snap_world - world_centroid).dot(world_axis)
-			var delta_local: Vector3 = \
-					node.global_transform.basis.inverse() * (world_axis * t_delta)
-			for idx: int in _drag_initial_verts:
-				gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
-			if _drag_initial_t == INF:
-				_drag_initial_t = 0.0
-			_schedule_bake(node)
-			return
-
-	var t_now: float = _project_to_axis(camera, screen_pos, world_centroid, world_axis)
-
-	if _drag_initial_t == INF:
-		_drag_initial_t = t_now
-
-	var t_delta: float = t_now - _drag_initial_t
-	if Input.is_key_pressed(KEY_CTRL):
-		t_delta = snappedf(t_delta, _get_snap_step())
-	var delta_world: Vector3 = world_axis * t_delta
-	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
-
-	for idx: int in _drag_initial_verts:
-		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
-
-	# Defer the full mesh bake to end-of-frame so multiple motion events
-	# per frame coalesce into a single ArrayMesh rebuild + GPU upload.
-	# The gizmo overlay (update_gizmos) is called by the plugin.gd caller.
-	_schedule_bake(node)
-
-
-## Apply a rotate drag around axis [param axis_idx] to all cached vertices.
-## Uses [method Vector3.signed_angle_to] to compute the delta angle each frame.
-func _apply_rotate_drag(
-		node: GoBuildMeshInstance,
-		axis_idx: int,
-		camera: Camera3D,
-		screen_pos: Vector2,
-) -> void:
-	var local_axis: Vector3  = _get_local_axis(axis_idx)
-	var gbm: GoBuildMesh     = node.go_build_mesh
-	var local_centroid: Vector3 = _compute_drag_centroid()
-	var world_centroid: Vector3 = node.global_transform * local_centroid
-
-	# Project mouse ray onto the plane perpendicular to the rotation axis.
-	var hit: Vector3 = _project_to_rotation_plane(
-			camera, screen_pos, world_centroid, _drag_world_axis)
-	if hit == Vector3.INF:
-		return
-
-	var dir: Vector3 = hit - world_centroid
-	if dir.length_squared() < 1e-7:
-		return
-	dir = dir.normalized()
-
-	# Initialise the reference direction on the first frame.
-	if _drag_initial_t == INF:
-		_drag_start_dir = dir
-		_drag_initial_t = 0.0
-		return
-
-	# delta_angle is signed: positive = CCW around the world axis.
-	var delta_angle: float = _drag_start_dir.signed_angle_to(dir, _drag_world_axis)
-	if Input.is_key_pressed(KEY_CTRL):
-		delta_angle = snappedf(delta_angle, deg_to_rad(rot_snap_override))
-
-	for idx: int in _drag_initial_verts:
-		var local_pos: Vector3 = _drag_initial_verts[idx] - local_centroid
-		gbm.vertices[idx] = local_centroid + local_pos.rotated(local_axis, delta_angle)
-
-	# Defer bake — same throttle as _apply_translate_drag.
-	_schedule_bake(node)
-
-
-## Apply a planar drag for [param plane_idx] (0=XY, 1=YZ, 2=XZ) to all cached
-## vertices.  Projects the mouse ray onto the world-space plane that passes through
-## the selection centroid with the matching local normal axis, then translates
-## vertices by the delta from the first-frame hit point.
-## [b]Ctrl held[/b] snaps each component of the world-space delta to the editor
-## grid step via [method _get_snap_step].
-## [b]V held[/b] snaps the centroid to the nearest non-dragged mesh vertex,
-## constrained to move only within the drag plane.
-func _apply_plane_drag(
-		node: GoBuildMeshInstance,
-		plane_idx: int,
-		camera: Camera3D,
-		screen_pos: Vector2,
-) -> void:
-	# Plane normals: XY=Z, YZ=X, XZ=Y.
-	var local_normals: Array[Vector3] = [Vector3.BACK, Vector3.RIGHT, Vector3.UP]
-	var local_normal: Vector3  = local_normals[plane_idx]
-	var gbm: GoBuildMesh       = node.go_build_mesh
-	var local_centroid: Vector3 = _compute_drag_centroid()
-	var world_centroid: Vector3 = node.global_transform * local_centroid
-	var world_normal: Vector3  = (node.global_transform.basis * local_normal).normalized()
-
-	# Vertex snap (V held): move centroid to the nearest non-dragged vertex,
-	# but remove the component perpendicular to the plane so movement stays in-plane.
-	if Input.is_key_pressed(KEY_V):
-		var snap_world: Vector3 = _find_vertex_snap_world_pos(node, camera, screen_pos)
-		if snap_world != Vector3.INF:
-			var raw_delta: Vector3 = snap_world - world_centroid
-			raw_delta -= world_normal * raw_delta.dot(world_normal)
-			var delta_local: Vector3 = node.global_transform.basis.inverse() * raw_delta
-			for idx: int in _drag_initial_verts:
-				gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
-			if _drag_initial_t == INF:
-				_drag_initial_t = 0.0
-			_schedule_bake(node)
-			return
-
-	# First frame: record the initial intersection as the drag origin.
-	if _drag_initial_t == INF:
-		var hit0: Vector3 = _project_to_rotation_plane(camera, screen_pos, world_centroid, world_normal)
-		if hit0 == Vector3.INF:
-			return
-		_drag_start_dir = hit0   # reuse _drag_start_dir as the initial world-space hit
-		_drag_initial_t = 0.0
-		return
-
-	var hit: Vector3 = _project_to_rotation_plane(camera, screen_pos, world_centroid, world_normal)
-	if hit == Vector3.INF:
-		return
-
-	var delta_world: Vector3 = hit - _drag_start_dir
-	if Input.is_key_pressed(KEY_CTRL):
-		delta_world = delta_world.snapped(Vector3.ONE * _get_snap_step())
-	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
-	for idx: int in _drag_initial_verts:
-		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
-	_schedule_bake(node)
-
-
-## Apply a per-axis scale drag for [param axis_idx] to all cached vertices.
-## Projects the mouse ray onto the axis, computes a scale ratio from the initial
-## projection, and scales the per-axis displacement of each vertex from the centroid.
-func _apply_scale_drag(
-		node: GoBuildMeshInstance,
-		axis_idx: int,
-		camera: Camera3D,
-		screen_pos: Vector2,
-) -> void:
-	var local_axis: Vector3  = _get_local_axis(axis_idx)
-	var gbm: GoBuildMesh     = node.go_build_mesh
-	var local_centroid: Vector3 = _compute_drag_centroid()
-	var world_centroid: Vector3 = node.global_transform * local_centroid
-	var world_axis: Vector3  = (node.global_transform.basis * local_axis).normalized()
-
-	var t_now: float = _project_to_axis(camera, screen_pos, world_centroid, world_axis)
-	if _drag_initial_t == INF:
-		_drag_initial_t = t_now
-	if abs(_drag_initial_t) < 1e-5:
-		return   # Avoid division by zero when dragging at the centroid.
-
-	var scale_ratio: float = t_now / _drag_initial_t
-	if Input.is_key_pressed(KEY_CTRL):
-		scale_ratio = snappedf(scale_ratio, scale_snap_override)
-	for idx: int in _drag_initial_verts:
-		var local_pos: Vector3 = _drag_initial_verts[idx] - local_centroid
-		# Scale only the component along the dragged axis; keep perpendicular unchanged.
-		var along: float   = local_pos.dot(local_axis)
-		var perp: Vector3  = local_pos - local_axis * along
-		gbm.vertices[idx]  = local_centroid + perp + local_axis * along * scale_ratio
-	_schedule_bake(node)
-
-
-## Apply a viewport-plane drag to all cached vertices.
-## On the first call, records the camera forward vector as the plane normal and
-## the initial mouse-plane intersection as the drag origin ([member _drag_start_dir]).
-## Subsequent calls translate the selection by [code]hit - _drag_start_dir[/code].
-## [b]Ctrl held[/b] snaps the world-space delta to the editor grid step.
-## [b]V held[/b] snaps the centroid to the nearest non-dragged mesh vertex.
-## Unlike axis/plane snap (which constrain movement to their respective axis or
-## plane), the viewport-plane handle is unconstrained, so vertex snap moves the
-## selection to the exact 3D world position of the target vertex.
-func _apply_viewport_plane_drag(
-		node: GoBuildMeshInstance,
-		camera: Camera3D,
-		screen_pos: Vector2,
-) -> void:
-	var gbm: GoBuildMesh        = node.go_build_mesh
-	var local_centroid: Vector3 = _compute_drag_centroid()
-	var world_centroid: Vector3 = node.global_transform * local_centroid
-
-	# Vertex snap (V held): snap the centroid directly to the nearest non-dragged
-	# vertex world position — no camera-plane constraint.  This ensures the dragged
-	# selection lands exactly on top of the target vertex in 3D, not merely at the
-	# same screen-space XY at the original depth.
-	if Input.is_key_pressed(KEY_V):
-		var snap_world: Vector3 = _find_vertex_snap_world_pos(node, camera, screen_pos)
-		if snap_world != Vector3.INF:
-			var delta_local: Vector3 = \
-					node.global_transform.basis.inverse() * (snap_world - world_centroid)
-			for idx: int in _drag_initial_verts:
-				gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
-			if _drag_initial_t == INF:
-				_drag_initial_t = 0.0
-			_schedule_bake(node)
-			return
-
-	# First frame: capture camera-forward as plane normal + record initial hit.
-	if _drag_initial_t == INF:
-		_drag_world_axis = -camera.global_transform.basis.z   # camera forward = -Z
-		var hit0: Vector3 = _project_to_rotation_plane(
-				camera, screen_pos, world_centroid, _drag_world_axis)
-		if hit0 == Vector3.INF:
-			return
-		_drag_start_dir = hit0
-		_drag_initial_t = 0.0
-		return
-
-	var hit: Vector3 = _project_to_rotation_plane(
-			camera, screen_pos, world_centroid, _drag_world_axis)
-	if hit == Vector3.INF:
-		return
-
-	var delta_world: Vector3 = hit - _drag_start_dir
-	if Input.is_key_pressed(KEY_CTRL):
-		delta_world = delta_world.snapped(Vector3.ONE * _get_snap_step())
-	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
-	for idx: int in _drag_initial_verts:
-		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
-	_schedule_bake(node)
-
-
-## Return the undo/redo action name for [param handle_id].
-func _drag_action_name(handle_id: int) -> String:
-	if handle_id >= UNIFORM_SCALE_HANDLE_ID:
-		return "Scale Elements (Uniform)"
-	if handle_id >= SCALE_HANDLE_OFFSET and handle_id < PLANE_HANDLE_OFFSET:
-		return "Scale Elements"
-	if handle_id >= ROT_HANDLE_OFFSET and handle_id < SCALE_HANDLE_OFFSET:
-		return "Rotate Elements"
-	return "Move Elements"
-
-
-## Apply a uniform (all-axis) scale drag. Projects the mouse onto a camera-facing
-## plane through the centroid and scales all vertex offsets by current/initial dist.
-## [b]Ctrl[/b] snaps the ratio to 0.1 increments.
-func _apply_uniform_scale_drag(
-		node: GoBuildMeshInstance, camera: Camera3D, screen_pos: Vector2,
-) -> void:
-	var gbm: GoBuildMesh        = node.go_build_mesh
-	var local_centroid: Vector3 = _compute_drag_centroid()
-	var world_centroid: Vector3 = node.global_transform * local_centroid
-	var cam_forward: Vector3    = -camera.global_transform.basis.z
-	var hit: Vector3 = _ray_plane_intersect(
-			camera.project_ray_origin(screen_pos),
-			camera.project_ray_normal(screen_pos),
-			world_centroid, cam_forward)
-	if hit == Vector3.INF:
-		return
-	var dist: float = hit.distance_to(world_centroid)
-	if _drag_initial_t == INF:
-		if dist < 1e-3:
-			return
-		_drag_initial_t = dist
-		return
-	if _drag_initial_t < 1e-3:
-		return
-	var scale_ratio: float = dist / _drag_initial_t
-	if Input.is_key_pressed(KEY_CTRL):
-		scale_ratio = snappedf(scale_ratio, scale_snap_override)
-	for idx: int in _drag_initial_verts:
-		gbm.vertices[idx] = local_centroid \
-				+ (_drag_initial_verts[idx] - local_centroid) * scale_ratio
-	_schedule_bake(node)
-
-
-## Apply an inset drag to the inner-ring vertices created by [method begin_inset_drag].
-## On the first frame, records the initial screen position via [member _drag_start_dir].
-## Subsequent frames compute an inset amount from the screen-space distance moved
-## and blend each inner vertex from its initial position toward its face centroid.
-## [b]Ctrl[/b] snaps the amount to [member scale_snap_override] increments.
-func _apply_inset_drag(
-		node: GoBuildMeshInstance,
-		_camera: Camera3D,
-		screen_pos: Vector2,
-) -> void:
-	if _drag_initial_t == INF:
-		_drag_start_dir = Vector3(screen_pos.x, screen_pos.y, 0.0)
-		_drag_initial_t = 0.0
-		return
-	var start_screen := Vector2(_drag_start_dir.x, _drag_start_dir.y)
-	var amount: float = start_screen.distance_to(screen_pos) * 0.005
-	amount = clampf(amount, 0.0, 0.99)
-	if Input.is_key_pressed(KEY_CTRL):
-		amount = snappedf(amount, scale_snap_override)
-	var gbm: GoBuildMesh = node.go_build_mesh
-	for idx: int in _drag_initial_verts:
-		if _inset_centroids.has(idx):
-			var init_pos: Vector3 = _drag_initial_verts[idx]
-			var centroid: Vector3 = _inset_centroids[idx]
-			gbm.vertices[idx] = lerp(init_pos, centroid, amount)
-	_schedule_bake(node)
-
-
-## Start an inset drag: initialises inset state then begins a normal drag.
-## [param centroids] maps each inner-ring vertex index to its local face centroid
-## (obtained from [method InsetOperation.apply]).
-## Returns false if [method begin_drag] fails.
-func begin_inset_drag(
-		node: GoBuildMeshInstance,
-		handle_id: int,
-		centroids: Dictionary,
-) -> bool:
-	var started: bool = begin_drag(node, handle_id)
-	if not started:
-		return false
-	_inset_mode     = true
-	_inset_centroids = centroids
-	return true
-
-
-## Start an extrude drag: begins a normal translate drag then restricts
-## [member _drag_initial_verts] to only the extruded cap vertices.
-##
-## [b]Why this is needed:[/b] After [method ExtrudeOperation.apply] at distance 0
-## the new top-ring vertices are coincident with the original base vertices.
-## [method rebuild_coincident_groups] therefore groups them together, and
-## [method begin_drag] via [method _get_affected_vertex_indices] expands the
-## affected set to include both rings. Translating all of them moves both
-## rings by the same delta — no separation, no visible extrusion. Restricting
-## [member _drag_initial_verts] to the cap ensures only the cap moves.
-##
-## [param top_ring_indices] must be the vertex indices for the extruded cap
-## faces [b]after[/b] [method ExtrudeOperation.apply] has replaced them.
-## Returns false if [method begin_drag] fails.
-func begin_extrude_drag(
-		node: GoBuildMeshInstance,
-		handle_id: int,
-		top_ring_indices: Array[int],
-) -> bool:
-	var started: bool = begin_drag(node, handle_id)
-	if not started:
-		return false
-	# Overwrite to cap-only: discard coincident base verts that begin_drag added.
-	_drag_initial_verts.clear()
-	for vidx: int in top_ring_indices:
-		_drag_initial_verts[vidx] = node.go_build_mesh.vertices[vidx]
-	return true
-
-
-## Return the grid-snap step from EditorSettings ([code]editors/3d/grid_step[/code]).
-## Falls back to [code]1.0[/code] if the key is absent or the editor is not running.
-func _get_snap_step() -> float:
-	if snap_step_override > 0.0: return snap_step_override
-	if not Engine.is_editor_hint(): return 1.0
-	var es: EditorSettings = EditorInterface.get_editor_settings()
-	if es.has_setting("editors/3d/grid_step"):
-		return maxf(float(es.get_setting("editors/3d/grid_step")), 0.001)
-	return 1.0
-
 
 ## Return the local-space centroid of the current selection on [param node].
 ## Returns [code]Vector3.ZERO[/code] when the selection is empty or no mesh exists.
@@ -1180,166 +574,8 @@ func get_selection_local_centroid(node: GoBuildMeshInstance) -> Vector3:
 					count += 1
 	return sum / count if count > 0 else Vector3.ZERO
 
-
-## Return the arithmetic mean of the cached initial vertex positions.
-func _compute_drag_centroid() -> Vector3:
-	var c := Vector3.ZERO
-	for idx: int in _drag_initial_verts:
-		c += _drag_initial_verts[idx]
-	return c / _drag_initial_verts.size()
-
-
-## Find the world-space position of the mesh vertex nearest to [param screen_pos]
-## (measured in screen-space pixels), excluding vertices currently being dragged.
-##
-## Skips vertices whose index is in [member _drag_initial_verts] so the snap
-## target is always a vertex OTHER than the ones being moved — i.e. the user
-## snaps TO a fixed vertex, not to themselves.
-##
-## Returns [code]Vector3.INF[/code] if no eligible vertex is visible (e.g. the
-## entire mesh is selected and all vertices are being dragged).
-##
-## Used by the vertex-snap branch ([kbd]V[/kbd] modifier) inside
-## [method _apply_translate_drag], [method _apply_plane_drag], and
-## [method _apply_viewport_plane_drag].
-func _find_vertex_snap_world_pos(
-		node: GoBuildMeshInstance,
-		camera: Camera3D,
-		screen_pos: Vector2,
-) -> Vector3:
-	var gbm: GoBuildMesh = node.go_build_mesh
-	if gbm == null or gbm.vertices.is_empty():
-		return Vector3.INF
-	var gt: Transform3D = node.global_transform
-	var best_dist_sq: float = INF
-	var best_pos: Vector3   = Vector3.INF
-	for i: int in gbm.vertices.size():
-		if _drag_initial_verts.has(i):
-			continue   # Do not snap to the dragged vertices themselves.
-		var world_pos: Vector3 = gt * gbm.vertices[i]
-		if not camera.is_position_in_frustum(world_pos):
-			continue
-		var screen_v: Vector2 = camera.unproject_position(world_pos)
-		var dist_sq: float = screen_v.distance_squared_to(screen_pos)
-		if dist_sq < best_dist_sq:
-			best_dist_sq = dist_sq
-			best_pos     = world_pos
-	return best_pos
-
-
-## Project [param screen_pos] onto the world-space line through
-## [param axis_origin] along [param axis_dir] and return the parametric t.
-## Uses the line-to-line closest-approach formula.
-func _project_to_axis(
-		camera: Camera3D,
-		screen_pos: Vector2,
-		axis_origin: Vector3,
-		axis_dir: Vector3,
-) -> float:
-	var cam_origin: Vector3 = camera.project_ray_origin(screen_pos)
-	var cam_dir: Vector3   = camera.project_ray_normal(screen_pos)
-	var r: Vector3 = axis_origin - cam_origin
-	var b: float   = axis_dir.dot(cam_dir)
-	var c: float   = axis_dir.dot(r)
-	var f: float   = cam_dir.dot(r)
-	var denom: float = 1.0 - b * b
-	if abs(denom) < 1e-7:
-		return 0.0  # Axis and camera ray are nearly parallel.
-	return (b * f - c) / denom
-
-
-## Project [param screen_pos] onto the plane defined by [param plane_origin]
-## and [param plane_normal].  Returns [code]Vector3.INF[/code] if the camera
-## ray is parallel to the plane or hits from behind.
-func _project_to_rotation_plane(
-		camera: Camera3D,
-		screen_pos: Vector2,
-		plane_origin: Vector3,
-		plane_normal: Vector3,
-) -> Vector3:
-	var ray_origin: Vector3 = camera.project_ray_origin(screen_pos)
-	var ray_dir: Vector3    = camera.project_ray_normal(screen_pos)
-	return _ray_plane_intersect(ray_origin, ray_dir, plane_origin, plane_normal)
-
-
-## Pure-math ray-plane intersection (no camera dependency).
-## Returns [code]Vector3.INF[/code] when the ray is parallel to the plane or
-## the intersection is behind [param ray_origin].
-## Public so it can be unit-tested directly.
-static func _ray_plane_intersect(
-		ray_origin: Vector3,
-		ray_dir: Vector3,
-		plane_origin: Vector3,
-		plane_normal: Vector3,
-) -> Vector3:
-	var denom: float = plane_normal.dot(ray_dir)
-	if abs(denom) < 1e-7:
-		return Vector3.INF   # Ray is parallel to the plane.
-	var t: float = plane_normal.dot(plane_origin - ray_origin) / denom
-	if t < 0.0:
-		return Vector3.INF   # Intersection is behind the camera.
-	return ray_origin + ray_dir * t
-
-
-## Collect unique vertex indices affected by the current selection on [param node],
-## then expand each to include all coincident partners from
-## [member GoBuildMesh.coincident_groups].
-##
-## Generators like [CubeGenerator] create split (per-face) vertex grids, so a
-## single logical corner may be represented by several vertex indices at the same
-## 3D position.  Without the expansion, dragging vertex 0 of a cube would leave
-## the copies on adjacent faces behind.
-func _get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]:
-	var sel: SelectionManager = node.selection
-	var gbm: GoBuildMesh = node.go_build_mesh
-	if gbm == null:
-		return []
-
-	# ── Step 1: collect directly selected / implied vertex indices ──────────
-	var result: Array[int] = []
-	match sel.get_mode():
-		SelectionManager.Mode.VERTEX:
-			result.assign(sel.get_selected_vertices())
-		SelectionManager.Mode.EDGE:
-			for eidx: int in sel.get_selected_edges():
-				var edge: GoBuildEdge = gbm.edges[eidx]
-				if not result.has(edge.vertex_a):
-					result.append(edge.vertex_a)
-				if not result.has(edge.vertex_b):
-					result.append(edge.vertex_b)
-		SelectionManager.Mode.FACE:
-			for fidx: int in sel.get_selected_faces():
-				for vidx: int in gbm.faces[fidx].vertex_indices:
-					if not result.has(vidx):
-						result.append(vidx)
-
-	# ── Step 2: expand to coincident partners ───────────────────────────────
-	# coincident_groups is parallel to vertices (same size) when built.
-	# Skip expansion when the map hasn't been built yet (e.g. manually
-	# constructed test meshes that never called rebuild_edges).
-	if gbm.coincident_groups.size() == gbm.vertices.size():
-		# Build a set of the group IDs we need to include.
-		var groups_needed: Dictionary = {}
-		for idx: int in result:
-			groups_needed[gbm.coincident_groups[idx]] = true
-
-		# Build a fast-lookup set of what's already in result.
-		var already_included: Dictionary = {}
-		for idx: int in result:
-			already_included[idx] = true
-
-		# Add every vertex whose group is in groups_needed but isn't yet included.
-		for idx: int in gbm.vertices.size():
-			if gbm.coincident_groups[idx] in groups_needed and not already_included.has(idx):
-				result.append(idx)
-				already_included[idx] = true
-
-	return result
-
-
 ## Build a canonical unit-scale cone [ArrayMesh] for [param axis_dir].
-##
-## Canonical layout: base centre at the local origin, apex at
+#### Canonical layout: base centre at the local origin, apex at
 ## [code]axis_dir * CONE_HEIGHT[/code], base radius [code]_CONE_RADIUS[/code].
 ## Built once per axis in [method setup] and cached in [member cone_mesh_x] /
 ## [member cone_mesh_y] / [member cone_mesh_z].

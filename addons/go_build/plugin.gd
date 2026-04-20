@@ -184,6 +184,7 @@ func _on_editor_focus_regained() -> void:
 	GoBuildDebug.log("[GoBuild] PLUGIN._on_editor_focus_regained  node=%s" % _edited_node.name)
 
 	if _input_controller != null:
+		_input_controller.cancel_param_preview(_edited_node)
 		_input_controller.cancel_drag(_edited_node)
 		_input_controller.cancel_box_select(_edited_node)
 
@@ -281,7 +282,10 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 	if _input_controller != null:
 		_input_controller.draw_overlay(overlay)
-	_draw_mode_hint(overlay)
+	if _input_controller != null and _input_controller.has_active_param_preview():
+		_draw_param_preview_hint(overlay)
+	else:
+		_draw_mode_hint(overlay)
 
 
 func _handle_keyboard(event: InputEvent) -> int:
@@ -448,6 +452,24 @@ func _draw_mode_hint(overlay: Control) -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.9, 0.9, 0.9, 0.85))
 
 
+## Draw the active parameter-preview label in the viewport overlay.
+## Shown in place of the mode-hint when a parameter-preview is active.
+func _draw_param_preview_hint(overlay: Control) -> void:
+	if _input_controller == null:
+		return
+	var hint: String = _input_controller.get_param_preview_overlay_text()
+	if hint.is_empty():
+		return
+	var font: Font = ThemeDB.fallback_font
+	var fsize: int = 13
+	var m: float   = 8.0
+	var pos := Vector2(m, overlay.size.y - m)
+	overlay.draw_string(font, pos + Vector2(1.0, 1.0), hint,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.60))
+	overlay.draw_string(font, pos, hint,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(1.0, 0.85, 0.3, 0.95))
+
+
 func _build_overlay_hint() -> String:
 	if _edited_node == null or _gizmo_plugin == null:
 		return ""
@@ -556,6 +578,28 @@ func _refresh_panel_context() -> void:
 	_panel.update_context(_build_panel_context())
 
 
+## Enter parameter-preview mode for the given operation.
+## Called from [GoBuildPanel] via [code]_plugin.call("begin_param_preview", preview)[/code].
+## Takes a mesh snapshot, optionally scales sensitivity by gizmo scale, applies
+## the default parameter, and passes the preview to [SelectionInputController].
+func begin_param_preview(preview: GoBuildParamPreview) -> void:
+	if _input_controller == null or _edited_node == null or _gizmo_plugin == null:
+		return
+	preview.node     = _edited_node
+	preview.snapshot = _edited_node.go_build_mesh.take_snapshot()
+	if preview.scale_by_gizmo:
+		var s: float = _gizmo_plugin.compute_node_gizmo_scale(_edited_node)
+		preview.units_per_pixel *= s
+	# Apply the default parameter so the result is visible on entry.
+	preview.apply_fn.call(preview.param_start)
+	preview.param = preview.param_start
+	_edited_node.bake()
+	_edited_node.update_gizmos()
+	_input_controller.begin_param_preview(preview)
+	_refresh_panel_context()
+	update_overlays()
+
+
 # ---------------------------------------------------------------------------
 # Signal handlers
 # ---------------------------------------------------------------------------
@@ -588,6 +632,7 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 	GoBuildDebug.log("[GoBuild] PLUGIN._on_mode_changed  mode=%d  edited_null=%s" \
 			% [mode, str(_edited_node == null)])
 	if _input_controller != null:
+		_input_controller.cancel_param_preview(_edited_node)
 		_input_controller.cancel_drag(_edited_node)
 		_input_controller.clear_hover(_edited_node)
 		_input_controller.cancel_box_select(_edited_node)

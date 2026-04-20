@@ -210,7 +210,9 @@ func test_unselected_face_is_unchanged() -> void:
 	# original_face1 is now at index 1.
 	assert_int(mesh.faces.size()).is_equal(5)
 	var unchanged: GoBuildFace = mesh.faces[1]
-	assert_int(unchanged.vertex_indices.size()).is_equal(4)
+	# Phase 4 stitching inserts the midpoint of the shared edge v1↔v2 (index 7)
+	# into face 1 to avoid a T-junction, growing it from 4 to 5 vertices.
+	assert_int(unchanged.vertex_indices.size()).is_equal(5)
 	assert_int(unchanged.vertex_indices[0]).is_equal(1)
 	assert_int(unchanged.vertex_indices[1]).is_equal(4)
 	assert_int(unchanged.vertex_indices[2]).is_equal(5)

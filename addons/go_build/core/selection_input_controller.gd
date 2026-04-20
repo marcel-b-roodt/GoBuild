@@ -11,11 +11,12 @@ class_name SelectionInputController
 extends RefCounted
 
 # Self-preloads — dependency order:
-const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
+const _SEL_MGR_SCRIPT        := preload("res://addons/go_build/core/selection_manager.gd")
 const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
-const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
-const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
-const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_panel.gd")
+const _MESH_INSTANCE_SCRIPT  := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+const _GIZMO_PLUGIN_SCRIPT   := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
+const _DRAG_HANDLER_SCRIPT   := preload("res://addons/go_build/core/go_build_drag_handler.gd")
+const _PANEL_SCRIPT          := preload("res://addons/go_build/core/go_build_panel.gd")
 const _EXTRUDE_SCRIPT       := preload(
 		"res://addons/go_build/mesh/operations/extrude_operation.gd")
 const _INSET_SCRIPT         := preload(
@@ -24,6 +25,8 @@ const _EDGE_EXTRUDE_SCRIPT  := preload(
 		"res://addons/go_build/mesh/operations/edge_extrude_operation.gd")
 const _EDGE_SCRIPT          := preload(
 		"res://addons/go_build/mesh/go_build_edge.gd")
+const _PARAM_PREVIEW_SCRIPT := preload(
+		"res://addons/go_build/core/go_build_param_preview.gd")
 
 # ---------------------------------------------------------------------------
 # Constants (were in plugin.gd)
@@ -42,6 +45,9 @@ const _SCALE_HANDLE_PICK_RADIUS_SQ: float   = 144.0  # 12 px
 const _PLANE_HANDLE_PICK_RADIUS_SQ: float   = 225.0  # 15 px
 ## Squared screen-space pixel radius for viewport-plane handle hit-testing.
 const _VIEW_PLANE_PICK_RADIUS_SQ: float     = 196.0  # 14 px
+## Minimum microseconds between full apply+bake flushes during parameter preview.
+## Caps mesh rebuilds to ~20 fps so the editor stays responsive.
+const _PREVIEW_APPLY_INTERVAL_USEC: int = 50_000  # 50 ms → ~20 fps
 
 # ---------------------------------------------------------------------------
 # External references (set by setup())
@@ -80,6 +86,45 @@ var _handle_press_pos:  Vector2 = Vector2.ZERO
 var _right_click_press_pos: Vector2 = Vector2.ZERO
 var _right_click_dragged:   bool    = false
 
+# ── Parameter-preview state ─────────────────────────────────────────────────
+## Active preview, or [code]null[/code] when idle.
+var _param_preview: GoBuildParamPreview = null
+## Accumulated horizontal mouse delta since the preview started.
+var _param_preview_delta: float = 0.0
+## Unified deferred apply — coalesces restore_snapshot + apply_fn + bake + update_gizmos
+## to at most once per frame so rapid motion events don't each trigger a full bake.
+var _preview_apply_scheduled: bool             = false
+var _preview_apply_node: GoBuildMeshInstance   = null
+var _preview_apply_target: float               = 0.0
+## True when motion arrived since the last flush — prevents infinite reschedule.
+var _preview_apply_dirty: bool                 = false
+## Timestamp (Engine.get_process_time_usec) of the last completed apply flush.
+## Used to throttle bake/apply to a maximum rate so the editor stays responsive.
+var _preview_last_apply_usec: int              = 0
+## Mouse mode saved at preview start so it can be restored on cancel/commit.
+var _preview_saved_mouse_mode: Input.MouseMode = Input.MOUSE_MODE_VISIBLE
+## Ignored until call_deferred fires _accept_preview_motion.
+## Prevents synthetic events from the triggering button click / popup close
+## and from the warp itself from jumping the parameter on the first frame.
+var _preview_accepting_motion: bool            = false
+## After accepting motion, events whose mm.relative is longer than the large-
+## relative threshold are still skipped for this many events.  Handles warp
+## synthetic events that arrive one frame later than the deferred gate.
+var _preview_filter_count: int                 = 0
+## Viewport-local anchor position (centre of the 3D viewport).
+## Used for the overlay indicator.
+var _preview_anchor_vp: Vector2                = Vector2.ZERO
+## SubViewportContainer display pixel size, captured at preview start.
+## Used for the overlay indicator drawing.
+var _preview_vp_size: Vector2                  = Vector2.ZERO
+## True while parameter-preview is active.
+## Used by the panel to avoid refreshing stats on every bake_preview call.
+var _preview_active: bool = false
+## Virtual cursor position in viewport-local space.
+## Accumulates mm.relative from the anchor; used to draw the directional
+## indicator and to derive _param_preview_delta.
+var _preview_virtual_pos: Vector2              = Vector2.ZERO
+
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -107,6 +152,8 @@ func process_input(
 		camera: Camera3D,
 		event: InputEvent,
 ) -> int:
+	if _param_preview != null:
+		return _handle_param_preview_input(edited_node, camera, event)
 	if event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
 		if mm.button_mask & MOUSE_BUTTON_MASK_RIGHT:
@@ -121,17 +168,60 @@ func process_input(
 	return 0
 
 
-## Draw the box-select rectangle.  Call from [method EditorPlugin._forward_3d_draw_over_viewport].
+## Draw the box-select rectangle and param-preview indicator.
+## Call from [method EditorPlugin._forward_3d_draw_over_viewport].
 func draw_overlay(overlay: Control) -> void:
-	if not _box_select_active:
-		return
-	var rect: Rect2 = _get_box_select_rect()
-	overlay.draw_rect(rect, Color(0.25, 0.45, 0.8, 0.15), true)
-	overlay.draw_rect(rect, Color(0.5, 0.7, 1.0, 0.85), false)
+	if _box_select_active:
+		var rect: Rect2 = _get_box_select_rect()
+		overlay.draw_rect(rect, Color(0.25, 0.45, 0.8, 0.15), true)
+		overlay.draw_rect(rect, Color(0.5, 0.7, 1.0, 0.85), false)
+	if _param_preview != null and _preview_accepting_motion:
+		_draw_preview_indicator(overlay)
+
+
+## Draw the parameter-preview scrub indicator:
+##   • White anchor dot at the warp origin (viewport centre).
+##   • Coloured horizontal line from anchor to the current accumulated delta.
+##     Green when delta ≥ 0 (increasing param), red when negative.
+##   • Tick mark at the live position.
+##   • Dashed zero-line across the full height for reference.
+func _draw_preview_indicator(overlay: Control) -> void:
+	var anchor := _preview_anchor_vp
+	# Clamp display position to safe area — the actual delta accumulation is unclamped.
+	var m   := 8.0
+	var vp  := Vector2(
+			clampf(_preview_virtual_pos.x, m, overlay.size.x - m),
+			clampf(_preview_virtual_pos.y, m, overlay.size.y - m))
+
+	var col_pos  := Color(0.25, 0.85, 0.35, 0.90)  # green — positive / larger param
+	var col_neg  := Color(0.90, 0.30, 0.25, 0.90)  # red   — negative / smaller param
+	var col_line := col_pos if _param_preview_delta >= 0.0 else col_neg
+	var col_shad := Color(0.0, 0.0, 0.0, 0.55)
+
+	# Faint crosshair at anchor for spatial reference.
+	overlay.draw_line(Vector2(anchor.x, 0.0), Vector2(anchor.x, overlay.size.y),
+			Color(1.0, 1.0, 1.0, 0.12), 1.0)
+	overlay.draw_line(Vector2(0.0, anchor.y), Vector2(overlay.size.x, anchor.y),
+			Color(1.0, 1.0, 1.0, 0.08), 1.0)
+
+	# Shadow then coloured directional line from anchor to virtual cursor.
+	overlay.draw_line(anchor, vp, col_shad, 4.0)
+	overlay.draw_line(anchor, vp, col_line, 2.5)
+
+	# Anchor dot — white ring over dark fill.
+	overlay.draw_circle(anchor, 5.5, col_shad)
+	overlay.draw_circle(anchor, 4.5, Color.WHITE)
+	overlay.draw_circle(anchor, 3.0, Color(0.15, 0.15, 0.15))
+
+	# Virtual-cursor dot — coloured ring with white centre.
+	overlay.draw_circle(vp, 7.5, col_shad)
+	overlay.draw_circle(vp, 6.5, col_line)
+	overlay.draw_circle(vp, 3.5, Color.WHITE)
 
 
 ## Cancel any in-progress handle drag.  Safe to call when idle.
 func cancel_drag(edited_node: GoBuildMeshInstance) -> void:
+	cancel_param_preview(edited_node)
 	_cancel_active_drag(edited_node)
 
 
@@ -153,6 +243,105 @@ func has_active_drag() -> bool:
 ## True while a handle press is pending (before drag threshold is crossed).
 func has_active_press() -> bool:
 	return _pressed_handle_id != -1
+
+
+# ---------------------------------------------------------------------------
+# Parameter-preview
+# ---------------------------------------------------------------------------
+
+## Enter parameter-preview mode.  Called by [code]plugin.begin_param_preview[/code]
+## after the snapshot and initial apply are already complete.
+func begin_param_preview(preview: GoBuildParamPreview) -> void:
+	_param_preview       = preview
+	_param_preview_delta = 0.0
+	# Initialise apply target to param_start so that a commit with zero mouse
+	# movement applies the visible default rather than 0.
+	_preview_apply_target    = preview.param_start
+	_preview_last_apply_usec = 0
+	# Capture viewport display size for the overlay indicator.
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	_preview_vp_size = Vector2(1280, 720)  # safe fallback
+	if sv != null:
+		var vp_parent := sv.get_parent() as Control
+		if vp_parent != null:
+			_preview_vp_size = Vector2(vp_parent.size)
+	_preview_anchor_vp   = _preview_vp_size * 0.5
+	_preview_virtual_pos = _preview_anchor_vp
+	# No warp: the virtual cursor starts at the viewport centre in logic-space
+	# regardless of physical cursor position, so warping is never needed and
+	# only causes a visible jump when triggering from a context menu.
+	_preview_saved_mouse_mode = Input.mouse_mode
+	Input.mouse_mode          = Input.MOUSE_MODE_HIDDEN
+	# Defer accepting motion so button-release events in this frame drain first.
+	# Layer-2 filter (_preview_filter_count) then skips any large synthetic
+	# events that arrive one frame later.
+	_preview_active          = true
+	_preview_accepting_motion = false
+	_preview_filter_count     = 4
+	call_deferred("_accept_preview_motion")
+
+
+## Called at start of the frame after [method begin_param_preview] to allow
+## motion events.  The deferred call lets synthetic warp/click events drain first.
+func _accept_preview_motion() -> void:
+	_preview_accepting_motion = true
+
+## [code]true[/code] while a parameter-preview is active.
+func has_active_param_preview() -> bool:
+	return _param_preview != null
+
+## One-line overlay text for the active preview.
+## Returns an empty string when idle.
+func get_param_preview_overlay_text() -> String:
+	if _param_preview == null:
+		return ""
+	var snap_hint: String = ""
+	if _param_preview.snap_to_start:
+		snap_hint = "  [near %.2f snaps]" % _param_preview.param_start
+	return "%s: %.4f%s   LMB=accept   RMB/Esc=cancel" % [
+		_param_preview.param_label, _param_preview.param, snap_hint]
+
+## Cancel the active preview and restore the mesh.  Safe to call when idle.
+func cancel_param_preview(edited_node: GoBuildMeshInstance) -> void:
+	if _param_preview == null:
+		return
+	_preview_apply_scheduled  = false
+	_preview_apply_node       = null
+	_preview_apply_dirty      = false
+	_preview_apply_target     = 0.0
+	_preview_last_apply_usec  = 0
+	_preview_accepting_motion = false
+	_preview_filter_count     = 0
+	_preview_virtual_pos      = Vector2.ZERO
+	_preview_active           = false
+	Input.mouse_mode = _preview_saved_mouse_mode
+	if edited_node != null and is_instance_valid(edited_node):
+		edited_node.end_preview()
+		edited_node.restore_and_bake(_param_preview.snapshot)
+	_param_preview = null
+	_param_preview_delta = 0.0
+
+
+func _schedule_preview_apply(node: GoBuildMeshInstance, target: float) -> void:
+	_preview_apply_node   = node
+	_preview_apply_target = target
+	_preview_apply_dirty  = true
+	if not _preview_apply_scheduled:
+		_preview_apply_scheduled = true
+		call_deferred("_flush_preview_apply")
+
+
+func _flush_preview_apply() -> void:
+	_preview_apply_scheduled = false
+	var node := _preview_apply_node
+	_preview_apply_node  = null
+	_preview_apply_dirty = false
+	if node == null or not is_instance_valid(node) or _param_preview == null:
+		return
+	node.go_build_mesh.restore_snapshot(_param_preview.snapshot)
+	_param_preview.apply_fn.call(_preview_apply_target)
+	node.bake_preview()
+	_editor_plugin.update_overlays()
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +443,14 @@ func _handle_mouse_motion(
 						edited_node, _active_handle_id, camera, mm.position)
 				_gizmo_plugin.schedule_gizmo_redraw(edited_node)
 				return 1
-			_pressed_handle_id = -1
+			# begin_drag failed (e.g. nothing selected) — fall back to box-select
+			# so subsequent motion events are consumed and do not leak to Godot's
+			# native W-mode gizmo.
+			_pressed_handle_id  = -1
+			_box_select_started = true
+			_box_select_active  = false
+			_box_select_start   = _handle_press_pos
+			_box_select_current = mm.position
 		return 1
 	if not _box_select_started:
 		_update_hover(edited_node, camera, mm.position)
@@ -266,8 +462,10 @@ func _handle_mouse_motion(
 			_box_select_active = true
 	if _box_select_active:
 		_editor_plugin.update_overlays()
-		return 1
-	return 0
+	# Always consume motion while a box-select is pending (threshold not crossed).
+	# Without this, the event passes to Godot's native W-mode gizmo which can
+	# move the entire node if the editor is not reliably in SELECT mode (Q).
+	return 1
 
 
 # ---------------------------------------------------------------------------
@@ -586,7 +784,7 @@ func _find_rotate_handle(
 
 	for i: int in 3:
 		var world_normal: Vector3 = (gt.basis * local_normals[i]).normalized()
-		var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+		var hit: Vector3 = GoBuildDragHandler._ray_plane_intersect(
 				ray_origin, ray_dir, world_centroid, world_normal)
 		if hit == Vector3.INF:
 			continue
@@ -803,6 +1001,15 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 	var mode: SelectionManager.Mode = edited_node.selection.get_mode()
 	if mode == SelectionManager.Mode.OBJECT:
 		return
+	# Convert viewport-local position to screen (OS window) coordinates.
+	# mb.position from _forward_3d_gui_input is relative to the 3D SubViewport.
+	# The SubViewport's parent Control holds the viewport at a known screen location.
+	var screen_at: Vector2i = Vector2i(at)
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if sv != null:
+		var vp_parent := sv.get_parent() as Control
+		if vp_parent != null:
+			screen_at = Vector2i(vp_parent.get_screen_position() + at)
 	var sel: SelectionManager = edited_node.selection
 	var popup := PopupMenu.new()
 	EditorInterface.get_base_control().add_child(popup)
@@ -814,19 +1021,23 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 		SelectionManager.Mode.VERTEX:
 			if not sel.get_selected_vertices().is_empty():
 				popup.add_separator()
-				popup.add_item("Delete", 10)
 				if sel.get_selected_vertices().size() >= 2:
 					popup.add_item("Merge at Center  (M)", 11)
+				popup.add_item("Weld (Merge by Distance)", 12)
+				popup.add_item("Delete", 10)
 		SelectionManager.Mode.EDGE:
 			if not sel.get_selected_edges().is_empty():
 				popup.add_separator()
-				popup.add_item("Bevel   [planned]", 20)
+				popup.add_item("Bevel", 20)
+				popup.add_item("Loop Cut", 23)
+				popup.add_item("Bridge  (F)", 22)
+				popup.add_item("Extrude Edge", 21)
 				popup.add_item("Delete", 10)
 		SelectionManager.Mode.FACE:
 			if not sel.get_selected_faces().is_empty():
 				popup.add_separator()
 				popup.add_item("Extrude", 30)
-				popup.add_item("Inset   [planned]", 31)
+				popup.add_item("Subdivide", 33)
 				popup.add_separator()
 				popup.add_item("Flip Normals", 32)
 				popup.add_item("Delete", 10)
@@ -834,7 +1045,7 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 	var mode_int: int = mode as int
 	popup.id_pressed.connect(
 			func(id: int) -> void: _on_context_menu_pressed(id, mode_int, edited_node))
-	popup.popup(Rect2i(Vector2i(at), Vector2i.ZERO))
+	popup.popup(Rect2i(screen_at, Vector2i.ZERO))
 
 
 func _on_context_menu_pressed(
@@ -860,17 +1071,143 @@ func _on_context_menu_pressed(
 				SelectionManager.Mode.FACE:
 					for i: int in gbm.faces.size():
 						sel.select_face(i)
-		30:  # Extrude — delegate to panel for undo/redo wiring
-			if _panel != null:
-				_panel.trigger_extrude()
-		32:  # Flip Normals — delegate to panel for undo/redo wiring
-			if _panel != null:
-				_panel.trigger_flip_normals()
-		10:  # Delete — delegate to panel for undo/redo wiring
+		10:  # Delete
 			if _panel != null:
 				_panel.trigger_delete()
-		11:  # Merge vertices — delegate to panel for undo/redo wiring
+		11:  # Merge vertices
 			if _panel != null:
 				_panel.trigger_merge()
-		_:
-			pass  # Planned features: no-op stubs
+		12:  # Weld (merge by distance)
+			if _panel != null:
+				_panel.trigger_weld()
+		20:  # Bevel edges
+			if _panel != null:
+				_panel.trigger_bevel()
+		21:  # Extrude edge
+			if _panel != null:
+				_panel.trigger_extrude_edge()
+		22:  # Bridge
+			if _panel != null:
+				_panel.trigger_bridge()
+		23:  # Loop Cut
+			if _panel != null:
+				_panel.trigger_loop_cut()
+		30:  # Extrude face
+			if _panel != null:
+				_panel.trigger_extrude()
+		32:  # Flip Normals
+			if _panel != null:
+				_panel.trigger_flip_normals()
+		33:  # Subdivide
+			if _panel != null:
+				_panel.trigger_subdivide()
+
+
+# ---------------------------------------------------------------------------
+# Parameter-preview input handling
+# ---------------------------------------------------------------------------
+
+func _handle_param_preview_input(
+		edited_node: GoBuildMeshInstance,
+		_camera: Camera3D,
+		event: InputEvent,
+) -> int:
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if key.pressed and key.keycode == KEY_ESCAPE:
+			cancel_param_preview(edited_node)
+			return EditorPlugin.AFTER_GUI_INPUT_STOP
+		return EditorPlugin.AFTER_GUI_INPUT_PASS
+
+	if event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		# Layer 1 gate: block all motion until deferred _accept_preview_motion fires.
+		if not _preview_accepting_motion:
+			return EditorPlugin.AFTER_GUI_INPUT_STOP
+		# Layer 2 filter: skip large-relative events for the first few events after
+		# accepting, which handles synthetic motion from the startup warp and popup
+		# close that may arrive one or two frames later.
+		if _preview_filter_count > 0:
+			if mm.relative.length_squared() > 50.0 * 50.0:
+				_preview_filter_count -= 1
+				return EditorPlugin.AFTER_GUI_INPUT_STOP
+			_preview_filter_count = 0  # first normal-sized event — stop filtering
+		_preview_virtual_pos += mm.relative
+		# Radial: Euclidean distance from anchor in any direction (always >= 0).
+		# Linear: project cumulative cursor offset onto the edge's screen-space
+		# direction so the cut follows the mouse along the edge's visual axis.
+		if _param_preview.radial:
+			_param_preview_delta = _preview_virtual_pos.distance_to(_preview_anchor_vp)
+		else:
+			_param_preview_delta = (_preview_virtual_pos - _preview_anchor_vp) \
+					.dot(_param_preview.screen_direction)
+		var raw := _param_preview.param_start \
+				+ _param_preview_delta * _param_preview.units_per_pixel
+		var new_param := clampf(raw, _param_preview.param_min, _param_preview.param_max)
+		if _param_preview.snap_to_start \
+				and absf(new_param - _param_preview.param_start) \
+				< _param_preview.snap_threshold:
+			new_param = _param_preview.param_start
+		_param_preview.param = new_param
+		# Refresh overlay immediately (cheap) so indicator is always current.
+		_editor_plugin.update_overlays()
+		# Defer the expensive restore_snapshot + apply_fn + bake + update_gizmos.
+		# All events within a frame are coalesced into one mesh rebuild.
+		_schedule_preview_apply(edited_node, new_param)
+		return EditorPlugin.AFTER_GUI_INPUT_STOP
+
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if not mb.pressed:
+			return EditorPlugin.AFTER_GUI_INPUT_PASS
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			_commit_param_preview(edited_node)
+			return EditorPlugin.AFTER_GUI_INPUT_STOP
+		if mb.button_index == MOUSE_BUTTON_RIGHT:
+			cancel_param_preview(edited_node)
+			return EditorPlugin.AFTER_GUI_INPUT_STOP
+
+	return EditorPlugin.AFTER_GUI_INPUT_PASS
+
+
+func _commit_param_preview(edited_node: GoBuildMeshInstance) -> void:
+	if _param_preview == null:
+		return
+	_preview_apply_scheduled  = false
+	_preview_apply_node       = null
+	_preview_apply_dirty      = false
+	_preview_accepting_motion = false
+	_preview_filter_count     = 0
+	_preview_virtual_pos      = Vector2.ZERO
+	_preview_last_apply_usec  = 0
+	_preview_active           = false
+	Input.mouse_mode = _preview_saved_mouse_mode
+	# Capture all needed refs before nulling _param_preview.
+	var action_name  := _param_preview.action_name
+	var before       := _param_preview.snapshot
+	var apply_fn     := _param_preview.apply_fn
+	var final_target := _preview_apply_target
+	_param_preview        = null
+	_param_preview_delta  = 0.0
+	_preview_apply_target = 0.0
+	if edited_node == null or not is_instance_valid(edited_node):
+		return
+	# Apply final state synchronously so the mesh is always up-to-date even if
+	# the last deferred flush hasn't fired yet (or was throttled).
+	edited_node.go_build_mesh.restore_snapshot(before)
+	apply_fn.call(final_target)
+	edited_node.end_preview()
+	edited_node.bake()
+	# Capture the post-operation snapshot to store as the redo state.
+	var final_snapshot := edited_node.go_build_mesh.take_snapshot()
+	edited_node.update_gizmos()
+	var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
+	ur.create_action(action_name)
+	ur.add_do_method(edited_node, "restore_and_bake", final_snapshot)
+	ur.add_undo_method(edited_node, "restore_and_bake", before)
+	ur.add_do_reference(edited_node)
+	ur.add_undo_reference(edited_node)
+	# commit_action(false): mesh is already in final state — do NOT re-execute
+	# the do-method.  Calling it again would bake a second bevel on an already-
+	# beveled mesh before the undo system restores final_snapshot, causing a crash.
+	ur.commit_action(false)

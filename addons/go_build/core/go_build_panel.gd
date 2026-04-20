@@ -28,6 +28,8 @@ const _SUBDIVIDE_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/subdivide_operation.gd")
 const _LOOP_CUT_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/loop_cut_operation.gd")
+const _PARAM_PREVIEW_SCRIPT := \
+		preload("res://addons/go_build/core/go_build_param_preview.gd")
 
 const _VERSION := "0.1.0"
 
@@ -35,7 +37,7 @@ const _VERSION := "0.1.0"
 const _EXTRUDE_DEFAULT_DISTANCE: float = 0.5
 
 ## Default bevel width in local mesh units.
-const _BEVEL_DEFAULT_WIDTH: float = 0.1
+const _BEVEL_DEFAULT_WIDTH: float = 0.01
 
 var _status_label: Label
 var _stats_label: Label
@@ -382,6 +384,27 @@ func trigger_merge() -> void:
 	_on_merge_pressed()
 
 
+## Called by external code (e.g. the right-click context menu)
+## to weld (merge by distance) vertices in the current mesh.
+## Equivalent to pressing the Weld panel button.
+func trigger_weld() -> void:
+	_on_weld_pressed()
+
+
+## Called by external code (e.g. the right-click context menu)
+## to bevel the current edge selection with the parameter preview.
+## Equivalent to pressing the Bevel panel button.
+func trigger_bevel() -> void:
+	_on_bevel_pressed()
+
+
+## Called by external code (e.g. the right-click context menu)
+## to subdivide the current face selection.
+## Equivalent to pressing the Subdivide panel button.
+func trigger_subdivide() -> void:
+	_on_subdivide_pressed()
+
+
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------
@@ -590,6 +613,25 @@ func _update_ops_buttons() -> void:
 
 
 
+## Apply [param op_callable] as a single undo/redo [param action_name] on the
+## active target, then refresh the panel UI.
+## Set [param clear_selection] to [code]false[/code] when the operation should keep
+## the current selection (e.g. Flip Normals).
+func _run_op(
+		action_name: String,
+		op_callable: Callable,
+		clear_selection: bool = true,
+) -> void:
+	if _target == null or _plugin == null:
+		return
+	_target.apply_operation(action_name, op_callable, _plugin.get_undo_redo())
+	if clear_selection:
+		_target.selection.clear()
+	_target.update_gizmos()
+	_update_ops_buttons()
+	_refresh()
+
+
 ## Public entry-point so [GoBuildGizmoPlugin] can trigger edge extrude via
 ## keyboard shortcut (Shift+E while in Edge mode).
 func trigger_extrude_edge() -> void:
@@ -649,21 +691,16 @@ func _on_bevel_pressed() -> void:
 	var sel_edges: Array[int] = _target.selection.get_selected_edges()
 	if sel_edges.is_empty():
 		return
-
 	var edges_to_bevel: Array[int] = []
 	edges_to_bevel.assign(sel_edges)
-
-	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-	_target.apply_operation(
-		"Bevel Edge",
-		func(): BevelOperation.apply(_target.go_build_mesh, edges_to_bevel, _BEVEL_DEFAULT_WIDTH),
-		ur,
-	)
-
-	_target.selection.clear()
-	_target.update_gizmos()
-	_update_ops_buttons()
-	_refresh()
+	var preview := GoBuildParamPreview.new()
+	preview.action_name    = "Bevel Edge"
+	preview.param_label    = "Width"
+	preview.param_start    = _BEVEL_DEFAULT_WIDTH
+	preview.param_min      = 0.0001
+	preview.apply_fn       = func(p: float) -> void: \
+			BevelOperation.apply(_target.go_build_mesh, edges_to_bevel, p)
+	_plugin.call("begin_param_preview", preview)
 
 
 ## Public entry-point for the F keyboard shortcut (Bridge in Edge mode).
@@ -682,26 +719,15 @@ func _on_bridge_pressed() -> void:
 	var sel_edges: Array[int] = _target.selection.get_selected_edges()
 	if sel_edges.size() < 2:
 		return
-
 	var edges_to_bridge: Array[int] = []
 	edges_to_bridge.assign(sel_edges)
-
-	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-	_target.apply_operation(
-		"Bridge Edge Loops",
-		func(): BridgeOperation.apply(_target.go_build_mesh, edges_to_bridge),
-		ur,
-	)
-
-	_target.selection.clear()
-	_target.update_gizmos()
-	_update_ops_buttons()
-	_refresh()
+	_run_op("Bridge Edge Loops",
+			func(): BridgeOperation.apply(_target.go_build_mesh, edges_to_bridge))
 
 
-## Extrude the currently selected faces by [constant _EXTRUDE_DEFAULT_DISTANCE].
+## Extrude the currently selected faces.
 ## Requires Face mode and at least one selected face.
-## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+## Enters parameter-preview mode — drag to adjust extrude distance, LMB to commit.
 func _on_extrude_pressed() -> void:
 	if _target == null or _plugin == null:
 		return
@@ -710,27 +736,17 @@ func _on_extrude_pressed() -> void:
 	var sel_faces: Array[int] = _target.selection.get_selected_faces()
 	if sel_faces.is_empty():
 		return
-
-	# Capture a copy of the face indices at press time so the Callable closure
-	# uses the correct set even if the selection changes during the undo/redo cycle.
 	var faces_to_extrude: Array[int] = []
 	faces_to_extrude.assign(sel_faces)
-
-	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-	_target.apply_operation(
-		"Extrude Face",
-		func(): ExtrudeOperation.apply(
-				_target.go_build_mesh, faces_to_extrude, _EXTRUDE_DEFAULT_DISTANCE),
-		ur,
-	)
-
-	# Clear the selection after the operation — the extruded face indices are
-	# now the top faces; keeping them selected with stale state would confuse
-	# subsequent operations.
-	_target.selection.clear()
-	_target.update_gizmos()
-	_update_ops_buttons()
-	_refresh()
+	var preview := GoBuildParamPreview.new()
+	preview.action_name = "Extrude Face"
+	preview.param_label = "Distance"
+	preview.param_start = _EXTRUDE_DEFAULT_DISTANCE
+	preview.param_min   = -100.0
+	preview.param_max   = 100.0
+	preview.apply_fn    = func(p: float) -> void: \
+			ExtrudeOperation.apply(_target.go_build_mesh, faces_to_extrude, p)
+	_plugin.call("begin_param_preview", preview)
 
 
 ## Subdivide the currently selected faces into quads.
@@ -744,21 +760,10 @@ func _on_subdivide_pressed() -> void:
 	var sel_faces: Array[int] = _target.selection.get_selected_faces()
 	if sel_faces.is_empty():
 		return
-
 	var faces_to_subdivide: Array[int] = []
 	faces_to_subdivide.assign(sel_faces)
-
-	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-	_target.apply_operation(
-		"Subdivide Face",
-		func(): SubdivideOperation.apply(_target.go_build_mesh, faces_to_subdivide),
-		ur,
-	)
-
-	_target.selection.clear()
-	_target.update_gizmos()
-	_update_ops_buttons()
-	_refresh()
+	_run_op("Subdivide Face",
+			func(): SubdivideOperation.apply(_target.go_build_mesh, faces_to_subdivide))
 
 
 ## Flip the outward normals of the currently selected faces.
@@ -772,24 +777,11 @@ func _on_flip_normals_pressed() -> void:
 	var sel_faces: Array[int] = _target.selection.get_selected_faces()
 	if sel_faces.is_empty():
 		return
-
-	# Capture a copy of the face indices at press time so the Callable closure
-	# uses the correct set even if the selection changes during the undo/redo cycle.
 	var faces_to_flip: Array[int] = []
 	faces_to_flip.assign(sel_faces)
-
-	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-	_target.apply_operation(
-		"Flip Normals",
-		func(): FlipNormalsOperation.apply(_target.go_build_mesh, faces_to_flip),
-		ur,
-	)
-
-	# Keep the face selection — flipped faces remain valid targets for subsequent
-	# operations (e.g. flip again to restore, or extrude through the inside).
-	_target.update_gizmos()
-	_update_ops_buttons()
-	_refresh()
+	_run_op("Flip Normals",
+			func(): FlipNormalsOperation.apply(_target.go_build_mesh, faces_to_flip),
+			false)
 
 
 ## Delete the currently selected vertices, edges, or faces.
@@ -865,21 +857,10 @@ func _on_merge_pressed() -> void:
 	var sel_verts: Array[int] = _target.selection.get_selected_vertices()
 	if sel_verts.size() < 2:
 		return
-
 	var to_merge: Array[int] = []
 	to_merge.assign(sel_verts)
-
-	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-	_target.apply_operation(
-		"Merge Vertices",
-		func(): WeldOperation.apply_merge(_target.go_build_mesh, to_merge),
-		ur,
-	)
-
-	_target.selection.clear()
-	_target.update_gizmos()
-	_update_ops_buttons()
-	_refresh()
+	_run_op("Merge Vertices",
+			func(): WeldOperation.apply_merge(_target.go_build_mesh, to_merge))
 
 
 ## Weld all vertices within 0.0001 units of each other (Merge by Distance).
@@ -890,18 +871,8 @@ func _on_weld_pressed() -> void:
 		return
 	if _target.selection.get_mode() != SelectionManager.Mode.VERTEX:
 		return
-
-	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-	_target.apply_operation(
-		"Weld Vertices",
-		func(): WeldOperation.apply_weld_by_threshold(_target.go_build_mesh),
-		ur,
-	)
-
-	_target.selection.clear()
-	_target.update_gizmos()
-	_update_ops_buttons()
-	_refresh()
+	_run_op("Weld Vertices",
+			func(): WeldOperation.apply_weld_by_threshold(_target.go_build_mesh))
 
 
 ## Public entry-point for keyboard shortcut or context-menu trigger.
@@ -911,7 +882,8 @@ func trigger_loop_cut() -> void:
 
 ## Insert an edge loop through the quad ring(s) seeded by the selected edge(s).
 ## Requires Edge mode with at least one edge selected.
-## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+## Enters parameter-preview mode — drag to position the loop cut, LMB to commit.
+## Near the midpoint (t ≈ 0.5), the cut snaps precisely to the midpoint.
 func _on_loop_cut_pressed() -> void:
 	if _target == null or _plugin == null:
 		return
@@ -920,18 +892,46 @@ func _on_loop_cut_pressed() -> void:
 	var sel_edges: Array[int] = _target.selection.get_selected_edges()
 	if sel_edges.is_empty():
 		return
-
 	var edges_to_cut: Array[int] = []
 	edges_to_cut.assign(sel_edges)
 
-	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-	_target.apply_operation(
-		"Loop Cut",
-		func(): LoopCutOperation.apply(_target.go_build_mesh, edges_to_cut),
-		ur,
-	)
+	# Project the seed edge into screen space to determine the visual drag direction.
+	# screen_dir points from vertex_a to vertex_b in viewport pixels (normalised).
+	# The parameter delta = dot(cursor_offset, screen_dir) × units_per_pixel, so
+	# dragging along the edge moves the cut in the matching visual direction whether
+	# the edge runs horizontally, vertically, or diagonally on screen.
+	var upp: float = 0.004
+	var screen_dir: Vector2 = Vector2(1.0, 0.0)  # safe fallback — horizontal
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if sv != null:
+		var cam: Camera3D = sv.get_camera_3d()
+		if cam != null:
+			var gbm: GoBuildMesh = _target.go_build_mesh
+			var seed_e: GoBuildEdge = gbm.edges[edges_to_cut[0]]
+			var va_w: Vector3 = _target.global_transform \
+					* gbm.vertices[seed_e.vertex_a]
+			var vb_w: Vector3 = _target.global_transform \
+					* gbm.vertices[seed_e.vertex_b]
+			var sv_a: Vector2 = cam.unproject_position(va_w)
+			var sv_b: Vector2 = cam.unproject_position(vb_w)
+			var dir: Vector2 = sv_b - sv_a
+			# Only replace the fallback when the edge projects to a non-degenerate
+			# length (edge nearly perpendicular to view → keep horizontal fallback).
+			if dir.length() > 1.0:
+				screen_dir = dir.normalized()
 
-	_target.selection.clear()
-	_target.update_gizmos()
-	_update_ops_buttons()
-	_refresh()
+	var preview := GoBuildParamPreview.new()
+	preview.action_name      = "Loop Cut"
+	preview.param_label      = "Position"
+	preview.param_start      = 0.5
+	preview.param_min        = 0.0
+	preview.param_max        = 1.0
+	preview.units_per_pixel  = upp
+	preview.screen_direction = screen_dir
+	preview.scale_by_gizmo   = false
+	preview.snap_to_start    = true
+	preview.snap_threshold   = 0.04
+	preview.radial           = false
+	preview.apply_fn         = func(p: float) -> void: \
+			LoopCutOperation.apply(_target.go_build_mesh, edges_to_cut, p)
+	_plugin.call("begin_param_preview", preview)

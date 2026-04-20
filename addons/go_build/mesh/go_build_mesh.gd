@@ -366,10 +366,20 @@ func take_snapshot() -> Dictionary:
 
 
 ## Restore the mesh from a snapshot produced by [method take_snapshot].
-## Automatically rebuilds the edge list after restoring.
+## Deep-copies face objects from the snapshot so subsequent operations cannot
+## corrupt the snapshot's face references.  Automatically rebuilds the edge list.
 func restore_snapshot(snapshot: Dictionary) -> void:
 	vertices.assign(snapshot["vertices"])
-	faces.assign(snapshot["faces"])
+	var fresh_faces: Array[GoBuildFace] = []
+	for f: GoBuildFace in snapshot["faces"]:
+		var nf := GoBuildFace.new()
+		nf.vertex_indices.assign(f.vertex_indices)
+		nf.uvs.assign(f.uvs)
+		nf.uv2s.assign(f.uv2s)
+		nf.material_index = f.material_index
+		nf.smooth_group   = f.smooth_group
+		fresh_faces.append(nf)
+	faces.assign(fresh_faces)
 	material_slots.assign(snapshot["material_slots"])
 	rebuild_edges()
 

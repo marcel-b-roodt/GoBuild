@@ -18,3 +18,7 @@ max-public-methods: 60
 # extract GoBuildDragHandler to reduce this file to ~900 lines.
 max-file-lines: 1600
 
+# _handle_param_preview_input routes keyboard-cancel, motion, and three mouse-
+# button cases — each branch needs its own early return.  Nine returns is still
+# well-reasoned; do not force an artificial helper split.
+max-returns: 10
