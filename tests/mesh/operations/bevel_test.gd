@@ -247,3 +247,88 @@ func test_out_of_range_index_is_skipped() -> void:
 	BevelOperation.apply(mesh, [999], 0.1)
 	assert_int(mesh.vertices.size()).is_equal(6)
 	assert_int(mesh.faces.size()).is_equal(2)
+
+
+# ---------------------------------------------------------------------------
+# Loop-cut ring bevel — cap faces at T-junction endpoints
+# ---------------------------------------------------------------------------
+# A closed 4-face ring (like an open-top/bottom cube column) with a horizontal
+# loop cut applied at y=0.5 produces 8 faces.  The inner horizontal edges each
+# have two plan faces (the two halves of one original quad) and two non-plan
+# faces (the two halves of the neighbouring original quad).
+#
+# After the cut (t=0.5 on vertical edges of the ring):
+#   Vertices 0-7 as in _make_closed_ring (y=1 top, y=0 bottom).
+#   New mid-ring vertices: 8=(0,0.5,0) 9=(1,0.5,0) 10=(1,0.5,1) 11=(0,0.5,1)
+#   8 new faces (2 per original face): see _make_loop_cut_ring below.
+#
+# Bevelling edge 8↔9 (front inner horizontal):
+#   • 2 plan faces: front-top [8,0,1,9] and front-bot [4,8,9,5]
+#   • At v8: 2 non-plan faces (left-top [11,3,0,8] and left-bot [7,11,8,4])
+#     → cap needed, W = v11
+#   • At v9: 2 non-plan faces (right-top [9,1,2,10] and right-bot [5,9,10,6])
+#     → cap needed, W = v10
+#   Expected result: 1 bevel strip + 2 cap triangles = 3 new faces → 11 total.
+
+## Flat closed ring (4 side faces, no top/bottom) after a horizontal loop cut.
+## Produces the T-junction topology needed to exercise bevel endpoint caps.
+func _make_loop_cut_ring() -> GoBuildMesh:
+	var mesh := GoBuildMesh.new()
+	mesh.vertices = [
+		Vector3(0.0, 1.0, 0.0),  # 0  TFL
+		Vector3(1.0, 1.0, 0.0),  # 1  TFR
+		Vector3(1.0, 1.0, 1.0),  # 2  TBR
+		Vector3(0.0, 1.0, 1.0),  # 3  TBL
+		Vector3(0.0, 0.0, 0.0),  # 4  BFL
+		Vector3(1.0, 0.0, 0.0),  # 5  BFR
+		Vector3(1.0, 0.0, 1.0),  # 6  BBR
+		Vector3(0.0, 0.0, 1.0),  # 7  BBL
+		Vector3(0.0, 0.5, 0.0),  # 8  MFL
+		Vector3(1.0, 0.5, 0.0),  # 9  MFR
+		Vector3(1.0, 0.5, 1.0),  # 10 MBR
+		Vector3(0.0, 0.5, 1.0),  # 11 MBL
+	]
+	var add_quad := func(a: int, b: int, c: int, d: int) -> void:
+		var f := GoBuildFace.new()
+		f.vertex_indices = [a, b, c, d]
+		f.uvs = [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+		mesh.faces.append(f)
+	# Top halves
+	add_quad.call(8,  0, 1,  9)   # 0 front-top
+	add_quad.call(9,  1, 2, 10)   # 1 right-top
+	add_quad.call(10, 2, 3, 11)   # 2 back-top
+	add_quad.call(11, 3, 0,  8)   # 3 left-top
+	# Bottom halves
+	add_quad.call(4,  8,  9, 5)   # 4 front-bot
+	add_quad.call(5,  9, 10, 6)   # 5 right-bot
+	add_quad.call(6, 10, 11, 7)   # 6 back-bot
+	add_quad.call(7, 11,  8, 4)   # 7 left-bot
+	mesh.rebuild_edges()
+	return mesh
+
+
+func test_bevel_loop_cut_inner_edge_creates_strip_and_two_caps() -> void:
+	# Bevel the front inner edge 8↔9.  Expected:
+	#   - 1 bevel strip face
+	#   - 2 cap triangle faces (one per endpoint)
+	#   → 8 original + 3 new = 11 total faces
+	var mesh := _make_loop_cut_ring()
+	var ei: int = mesh.find_edge(8, 9)
+	assert_int(ei).is_not_equal(-1)
+	BevelOperation.apply(mesh, [ei], 0.1)
+	assert_int(mesh.faces.size()).is_equal(11)
+
+
+func test_bevel_loop_cut_strip_face_has_correct_normal() -> void:
+	# The bevel strip for front inner edge 8↔9 should face outward (+Z direction).
+	var mesh := _make_loop_cut_ring()
+	var ei: int = mesh.find_edge(8, 9)
+	BevelOperation.apply(mesh, [ei], 0.1)
+	# Strip is the 9th face (index 8) — the first new face added after the 8 original.
+	var found_front_normal := false
+	for fi: int in mesh.faces.size():
+		var n: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
+		if n.z > 0.9:
+			found_front_normal = true
+			break
+	assert_bool(found_front_normal).is_true()

@@ -119,8 +119,13 @@ static func _build_vertex_plan(
 			for pair in [[va, nbr_a], [vb, nbr_b]]:
 				var vi: int    = pair[0]
 				var slide: int = pair[1]
-				var offset: Vector3 = \
-						(mesh.vertices[slide] - mesh.vertices[vi]).normalized() * width
+				var to_slide: Vector3 = mesh.vertices[slide] - mesh.vertices[vi]
+				var edge_len: float = to_slide.length()
+				if edge_len < 1e-8:
+					continue
+				# Clamp: never slide past the neighbour vertex.
+				var clamped_width: float = minf(width, edge_len)
+				var offset: Vector3 = to_slide / edge_len * clamped_width
 
 				if not raw_offsets[fi].has(vi):
 					raw_offsets[fi][vi] = []
@@ -479,8 +484,8 @@ static func _add_endpoint_caps(
 	for cap: Dictionary in caps_needed:
 		var verts: Array = cap["vertices"]
 		var anchor: int  = cap["anchor"]
-		# Build polygon [v0, v1, …, anchor] (untyped to allow reverse()).
-		var vis: Array = []
+		# Build polygon [v0, v1, …, anchor] as a typed Array[int].
+		var vis: Array[int] = []
 		for v: int in verts:
 			vis.append(v)
 		vis.append(anchor)
@@ -490,11 +495,11 @@ static func _add_endpoint_caps(
 			if verts[0] in existing.vertex_indices:
 				outward += mesh.compute_face_normal(existing)
 		var cap_face := _FACE_SCRIPT.new()
-		cap_face.vertex_indices = vis
+		cap_face.vertex_indices.assign(vis)
 		var cap_normal: Vector3 = mesh.compute_face_normal(cap_face)
 		if outward.length_squared() > 1e-8 and cap_normal.dot(outward) < 0.0:
 			vis.reverse()
-			cap_face.vertex_indices = vis
+			cap_face.vertex_indices.assign(vis)
 		cap_face.material_index = cap["mat"]
 		cap_face.smooth_group   = cap["smooth"]
 		mesh.faces.append(cap_face)
