@@ -51,8 +51,23 @@ var coincident_groups: Array[int] = []
 ## Returns an empty [ArrayMesh] if there are no faces.
 func bake() -> ArrayMesh:
 	var array_mesh := ArrayMesh.new()
+	_bake_into(array_mesh)
+	return array_mesh
+
+
+## Like [method bake] but clears and repopulates [param target] in place rather
+## than allocating a new [ArrayMesh].  The caller retains the same object
+## reference, so no property-setter notification fires on the owning node.
+## Used by [method GoBuildMeshInstance.bake_preview] to avoid the Godot
+## inspector update that re-assigning [member MeshInstance3D.mesh] causes.
+func bake_into(target: ArrayMesh) -> void:
+	target.clear_surfaces()
+	_bake_into(target)
+
+
+func _bake_into(array_mesh: ArrayMesh) -> void:
 	if faces.is_empty():
-		return array_mesh
+		return
 
 	# Pre-compute face normals for all faces once.
 	var face_normals: Array[Vector3] = []
@@ -89,8 +104,6 @@ func bake() -> ArrayMesh:
 		var surf_idx: int = array_mesh.get_surface_count() - 1
 		if mat_idx < material_slots.size() and material_slots[mat_idx] != null:
 			array_mesh.surface_set_material(surf_idx, material_slots[mat_idx])
-
-	return array_mesh
 
 
 ## Build packed vertex-position byte arrays for all material surfaces, in the

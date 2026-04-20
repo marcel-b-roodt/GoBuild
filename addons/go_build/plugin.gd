@@ -593,7 +593,8 @@ func begin_param_preview(preview: GoBuildParamPreview) -> void:
 	# Apply the default parameter so the result is visible on entry.
 	preview.apply_fn.call(preview.param_start)
 	preview.param = preview.param_start
-	_edited_node.bake()
+	_edited_node.begin_preview()
+	_edited_node.bake_preview()
 	_edited_node.update_gizmos()
 	_input_controller.begin_param_preview(preview)
 	_refresh_panel_context()

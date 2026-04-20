@@ -86,88 +86,98 @@ static func apply(
 ##
 ## Returns an Array of Dictionaries, each with keys:
 ##   face_idx  : int   — index into mesh.faces
-##   va        : int   — vertex index of edge side A in this face
-##   vb        : int   — vertex index of edge side B in this face
+##   va        : int   — ring-directed entry-edge vertex A
+##   vb        : int   — ring-directed entry-edge vertex B
+##   opp_va    : int   — ring-directed far-edge vertex A
+##   opp_vb    : int   — ring-directed far-edge vertex B
 ##
-## Each dict represents one quad face and the pair of vertices (va, vb) that
-## form the entry edge of the ring walk in that face.  The cut will be inserted
-## between va and vb.
-##
-## [param already_cut] is the set of face indices cut by earlier ring passes.
-## The walk terminates (without including the face) if it hits an already-cut
-## face, a non-quad face, or a boundary edge on the far side.
+## The seed edge is shared by at most two faces.
+## [param half_a] walks from face_0 of the seed, [param half_b] walks from face_1
+## so the two halves never duplicate a face.  For a closed ring, half_a already
+## covers all faces; half_b is not run in that case.
 static func _collect_ring(
 		mesh: GoBuildMesh,
 		seed_ei: int,
 		already_cut: Dictionary,
 ) -> Array:
-	var ring: Array = []
-
 	var seed: GoBuildEdge = mesh.edges[seed_ei]
 
-	# Walk in one direction from the seed edge, then the other.
-	# Each half-walk returns an ordered list of (face, va, vb) entries.
-	var half_a: Array = _walk_half(mesh, seed.vertex_a, seed.vertex_b, already_cut)
-	var half_b: Array = _walk_half(mesh, seed.vertex_b, seed.vertex_a, already_cut)
+	# Identify the (up to) two faces that share the seed edge and are cuttable.
+	var start_a: int = -1
+	var start_b: int = -1
+	for fi: int in seed.face_indices:
+		if not already_cut.has(fi) and mesh.faces[fi].vertex_indices.size() == 4:
+			if start_a == -1:
+				start_a = fi
+			else:
+				start_b = fi
+				break
 
-	# Detect closed loop: the ring closes when both walks end at the same face
-	# (i.e. the last face in half_a and the last face in half_b are the same as
-	# the seed face — or they converge).  For a closed loop we skip the
-	# duplicate face that would appear at the junction.
-	#
-	# Simpler approach: combine half_b (reversed, since it walked the other way)
-	# with half_a.  If both ends reach the same face that is already in the list
-	# (a closed loop), the final entry is a duplicate and must be dropped.
+	if start_a == -1:
+		return []
+
+	# Walk from start_a in the va→vb ring direction.
+	var half_a: Array = _walk_half(mesh, seed.vertex_a, seed.vertex_b, already_cut, start_a)
+	if half_a.is_empty():
+		return []
+
+	# Detect a closed ring: the last entry's far edge is the seed edge itself,
+	# meaning the walk looped back.  In that case half_a contains every face and
+	# we must NOT run half_b (which would traverse all faces again, producing
+	# duplicate entries that cause double-cuts and crashes).
+	var last: Dictionary = half_a[half_a.size() - 1]
+	var ova: int = last["opp_va"]
+	var ovb: int = last["opp_vb"]
+	var ring_closed: bool = (ova == seed.vertex_a and ovb == seed.vertex_b) \
+			or (ova == seed.vertex_b and ovb == seed.vertex_a)
+
+	if ring_closed or start_b == -1:
+		return half_a
+
+	# Open ring: walk from start_b in the vb→va direction to cover the other half.
+	var half_b: Array = _walk_half(mesh, seed.vertex_b, seed.vertex_a, already_cut, start_b)
+
+	# Combine: reversed half_b (walking toward seed) + half_a (walking away from seed).
 	var combined: Array = []
-	# half_b entries walked in reverse direction — prepend them before the seed
-	# face entries in half_a.  half_b[0] is the face immediately on the other
-	# side of the seed edge from half_a[0].
 	for i: int in range(half_b.size() - 1, -1, -1):
 		combined.append(half_b[i])
 	for entry in half_a:
 		combined.append(entry)
 
-	# Deduplicate: if closed loop, the last entry repeats the first.
+	# Safety dedup in case both halves converged at the same terminal face.
 	if combined.size() >= 2:
-		var first_fi: int = combined[0]["face_idx"]
-		var last_fi: int  = combined[combined.size() - 1]["face_idx"]
-		if first_fi == last_fi:
+		if combined[0]["face_idx"] == combined[combined.size() - 1]["face_idx"]:
 			combined.resize(combined.size() - 1)
 
-	ring = combined
-	return ring
+	return combined
 
 
 ## Walk one half of the ring starting from a face containing edge (va, vb).
 ##
-## Returns an Array of {face_idx, va, vb} Dictionaries in walk order.
-## [param va] and [param vb] are the entry-edge vertices for the first face.
-## The "opposite edge" in each quad is the pair of vertices diagonally across
-## from the entry edge: for quad [A, B, C, D] with entry edge A→B,
-## the opposite edge is C→D (indices 2 and 3 in a CCW quad).
+## Returns an Array of Dictionaries in walk order, each with keys:
+##   face_idx  : int — index into mesh.faces
+##   va        : int — entry-edge vertex A (ring-directed)
+##   vb        : int — entry-edge vertex B (ring-directed)
+##   opp_va    : int — far-edge vertex A (ring-directed; becomes next face's va)
+##   opp_vb    : int — far-edge vertex B (ring-directed; becomes next face's vb)
+##
+## [param start_fi] is the face index to begin from — must be one of the faces
+## sharing the seed edge (provided by [method _collect_ring]).
 static func _walk_half(
 		mesh: GoBuildMesh,
 		va: int,
 		vb: int,
 		already_cut: Dictionary,
+		start_fi: int,
 ) -> Array:
 	var result: Array = []
 
-	# Find the face that contains edge va→vb or vb→va and has not been cut yet.
-	# We pick the first valid face.
-	var ei: int = _find_edge_index(mesh, va, vb)
-	if ei == -1:
+	if start_fi == -1 \
+			or already_cut.has(start_fi) \
+			or mesh.faces[start_fi].vertex_indices.size() != 4:
 		return result
 
-	var edge: GoBuildEdge = mesh.edges[ei]
-	var cur_fi: int = -1
-	for fi: int in edge.face_indices:
-		if not already_cut.has(fi) and mesh.faces[fi].vertex_indices.size() == 4:
-			cur_fi = fi
-			break
-	if cur_fi == -1:
-		return result
-
+	var cur_fi: int = start_fi
 	var cur_va: int = va
 	var cur_vb: int = vb
 	var visited: Dictionary = {}
@@ -179,45 +189,43 @@ static func _walk_half(
 		if face.vertex_indices.size() != 4:
 			break
 
-		visited[cur_fi] = true
-		result.append({"face_idx": cur_fi, "va": cur_va, "vb": cur_vb})
-
-		# Find the opposite edge in this quad.
-		# A quad has vertices [v0, v1, v2, v3] in order.  If the entry edge is
-		# v_k → v_{k+1}, the opposite edge is v_{k+2} → v_{k+3} (mod 4).
+		# Locate cur_va in the face and determine walk direction.
 		var pos_a: int = -1
 		for k: int in 4:
 			if face.vertex_indices[k] == cur_va:
-				# Check that the next vertex is cur_vb (or prev — can enter reversed).
 				var next_k: int = (k + 1) % 4
 				var prev_k: int = (k + 3) % 4
-				if face.vertex_indices[next_k] == cur_vb or face.vertex_indices[prev_k] == cur_vb:
+				if face.vertex_indices[next_k] == cur_vb \
+						or face.vertex_indices[prev_k] == cur_vb:
 					pos_a = k
 					break
 		if pos_a == -1:
-			break  # Entry edge not found in face — degenerate, stop.
+			break  # Degenerate — entry edge not found.
 
-		# Determine entry direction so opposite is always across the quad.
 		var next_a: int = (pos_a + 1) % 4
 		var forward: bool = face.vertex_indices[next_a] == cur_vb
 
-		var opp_va_pos: int
-		var opp_vb_pos: int
+		# Compute the far-edge vertices so they are ring-directed:
+		# lerp(opp_va, opp_vb, t) places the far cut at the same proportional
+		# position as lerp(cur_va, cur_vb, t) on the entry edge.
+		# For a CCW quad [p0,p1,p2,p3] with entry p0→p1 (forward):
+		#   far edge is p3→p2 (anti-parallel), so opp_va=p3, opp_vb=p2.
+		# For entry p0←p1 (backward, cur_va=p0, cur_vb=p3):
+		#   far edge (ring-consistent) is p1→p2, so opp_va=p1, opp_vb=p2.
+		var opp_va: int
+		var opp_vb: int
 		if forward:
-			# Entry a→b at pos_a → pos_a+1; opposite edge at pos_a+2 → pos_a+3.
-			opp_va_pos = (pos_a + 2) % 4
-			opp_vb_pos = (pos_a + 3) % 4
+			opp_va = face.vertex_indices[(pos_a + 3) % 4]
+			opp_vb = face.vertex_indices[(pos_a + 2) % 4]
 		else:
-			# Entry b→a at pos_a → (pos_a+3 is cur_vb); opposite at pos_a+2 → pos_a+1
-			# (i.e. the pair across from cur_va using the reversed direction).
-			opp_va_pos = (pos_a + 2) % 4
-			opp_vb_pos = (pos_a + 1) % 4
+			opp_va = face.vertex_indices[(pos_a + 1) % 4]
+			opp_vb = face.vertex_indices[(pos_a + 2) % 4]
 
-		var opp_va: int = face.vertex_indices[opp_va_pos]
-		var opp_vb: int = face.vertex_indices[opp_vb_pos]
+		visited[cur_fi] = true
+		result.append({"face_idx": cur_fi, "va": cur_va, "vb": cur_vb,
+				"opp_va": opp_va, "opp_vb": opp_vb})
 
-		# The opposite edge becomes the entry edge for the next face.
-		# Find the edge and then pick the adjacent face that is not cur_fi.
+		# opp_va/opp_vb become the entry edge for the next face.
 		var opp_ei: int = _find_edge_index(mesh, opp_va, opp_vb)
 		if opp_ei == -1:
 			break
@@ -231,11 +239,9 @@ static func _walk_half(
 				next_fi = fi
 				break
 
-		# Prepare the entry edge for the next face: the new entry is the
-		# opposite edge of the current face as seen from the next face.
 		cur_va = opp_va
 		cur_vb = opp_vb
-		cur_fi = next_fi  # May be -1 → loop exits.
+		cur_fi = next_fi
 
 	return result
 
@@ -255,122 +261,75 @@ static func _find_edge_index(mesh: GoBuildMesh, va: int, vb: int) -> int:
 
 ## Split each quad face in [param ring] at position [param t] along the entry edge.
 ##
-## For each face {face_idx, va, vb}:
-##   1. Add (or reuse) a cut vertex on edge va→vb at position lerp(va, vb, t).
-##   2. Add (or reuse) a cut vertex on the opposite edge vb_opp→va_opp at t.
-##   3. Replace the original face with two new quads split at the cut line.
-##
-## Edge midpoints that lie on a shared edge between two consecutive ring faces
-## are reused (keyed by canonical min_max vertex pair + t) so no T-junctions
-## form along the cut line.
+## Each ring entry must have keys: face_idx, va, vb, opp_va, opp_vb.
+## va→vb is the ring-directed entry edge; opp_va→opp_vb is the ring-directed
+## far edge.  lerp(va, vb, t) and lerp(opp_va, opp_vb, t) are consistent across
+## all faces so moving t moves the cut line uniformly around the ring.
 static func _cut_ring(
 		mesh: GoBuildMesh,
 		ring: Array,
 		t: float,
 		cut_faces: Dictionary,
 ) -> void:
-	# Key: "%d_%d_%.6f" % [min(va, vb), max(va, vb), t] → new vertex index.
+	# Cache key: "%d_%d_%d_%.6f" % [min(a,b), max(a,b), ring_dir_a, t]
+	# ring_dir_a: the lower-indexed of the two vertices when the ring says lerp(a→b,t).
+	# This encodes both the canonical edge identity AND the ring-directed t, so
+	# two faces that share an edge but have it in opposite ring-directions produce
+	# different keys and never collide.  That is correct: they want the same 3D
+	# position (lerp(a,b,t) == lerp(b,a,1-t) only at t=0.5), but the cache is
+	# just a deduplication aid for the case when the SAME ring direction is used
+	# (adjacent faces sharing an edge always approach it from the same direction
+	# because opp_va/opp_vb from face N become va/vb for face N+1).
 	var cut_verts: Dictionary = {}
 
 	for entry in ring:
-		var fi: int       = entry["face_idx"]
-		var entry_va: int = entry["va"]
-		var entry_vb: int = entry["vb"]
-
+		var fi: int      = entry["face_idx"]
+		var va: int      = entry["va"]
+		var vb: int      = entry["vb"]
+		var ova: int     = entry["opp_va"]
+		var ovb: int     = entry["opp_vb"]
 		var face: GoBuildFace = mesh.faces[fi]
-		# Quad vertex order: [v0, v1, v2, v3] CCW from outside.
-		# Locate the entry edge inside the face.
-		var pos_a: int = -1
-		for k: int in 4:
-			if face.vertex_indices[k] == entry_va:
-				var next_k: int = (k + 1) % 4
-				var prev_k: int = (k + 3) % 4
-				if face.vertex_indices[next_k] == entry_vb \
-						or face.vertex_indices[prev_k] == entry_vb:
-					pos_a = k
-					break
-		if pos_a == -1:
-			continue  # Defensive — should not happen.
 
-		# Determine direction.
-		var next_a: int = (pos_a + 1) % 4
-		var forward: bool = face.vertex_indices[next_a] == entry_vb
+		# Entry-edge cut: lerp(va→vb, t).  Key is canonical (min,max) + low vertex
+		# so that the same directed edge always maps to the same key.
+		var key_entry: String = "%d_%d_%d_%.6f" % [mini(va, vb), maxi(va, vb), mini(va, vb), t]
+		if not cut_verts.has(key_entry):
+			cut_verts[key_entry] = mesh.vertices.size()
+			mesh.vertices.append(mesh.vertices[va].lerp(mesh.vertices[vb], t))
+		var m_entry: int = cut_verts[key_entry]
 
-		var idx0: int  # entry_va's ring position
-		var idx1: int  # entry_vb's ring position  (entry edge: idx0→idx1)
-		var idx2: int  # opposite_vb's ring position
-		var idx3: int  # opposite_va's ring position (opposite edge: idx2→idx3 mirrored)
-		if forward:
-			idx0 = pos_a
-			idx1 = (pos_a + 1) % 4
-			idx2 = (pos_a + 2) % 4
-			idx3 = (pos_a + 3) % 4
-		else:
-			idx0 = pos_a
-			idx1 = (pos_a + 3) % 4
-			idx2 = (pos_a + 2) % 4
-			idx3 = (pos_a + 1) % 4
+		# Far-edge cut: lerp(opp_va→opp_vb, t).
+		var key_far: String = "%d_%d_%d_%.6f" % [mini(ova, ovb), maxi(ova, ovb), mini(ova, ovb), t]
+		if not cut_verts.has(key_far):
+			cut_verts[key_far] = mesh.vertices.size()
+			mesh.vertices.append(mesh.vertices[ova].lerp(mesh.vertices[ovb], t))
+		var m_far: int = cut_verts[key_far]
 
-		var v0: int = face.vertex_indices[idx0]  # entry_va
-		var v1: int = face.vertex_indices[idx1]  # entry_vb
-		var v2: int = face.vertex_indices[idx2]  # far_vb
-		var v3: int = face.vertex_indices[idx3]  # far_va
+		# Determine winding.
+		# The face is stored CCW-from-outside.  Find va's position in the face to
+		# decide which replacement-quad order preserves that winding.
+		# forward=true : va→vb runs in the face's CCW direction (v_k → v_{k+1}).
+		#   Quad A: [va,  m_entry, m_far,  opp_va]
+		#   Quad B: [m_entry, vb,  ovb,   m_far ]  (note: ovb==opp_vb)
+		# forward=false: va→vb runs against CCW (v_k → v_{k-1}).
+		#   Swap order to keep CCW winding:
+		#   Quad A: [m_entry, va,  opp_va, m_far]  (reversed A)
+		#   Quad B: [vb, m_entry, m_far,  ovb  ]  (reversed B)
+		var pos_va: int = face.vertex_indices.find(va)
+		var forward: bool = face.vertex_indices[(pos_va + 1) % 4] == vb
 
-		# Cut vertex on entry edge v0→v1.
-		var key01: String = "%d_%d_%.6f" % [mini(v0, v1), maxi(v0, v1), t]
-		if not cut_verts.has(key01):
-			# Insert at lerp(v0→v1, t), but orient consistently by always
-			# lerping from the lower to the higher index regardless of direction.
-			var lerp_pos: Vector3
-			if v0 < v1:
-				lerp_pos = mesh.vertices[v0].lerp(mesh.vertices[v1], t)
-			else:
-				lerp_pos = mesh.vertices[v1].lerp(mesh.vertices[v0], 1.0 - t)
-			cut_verts[key01] = mesh.vertices.size()
-			mesh.vertices.append(lerp_pos)
-		var m01: int = cut_verts[key01]
-
-		# Cut vertex on opposite edge v3→v2 (the mirror of the entry edge).
-		# Opposite edge connects v3 to v2 (they are the vertices of the far side
-		# in the same traversal direction as v0→v1).  We use the same canonical
-		# min/max key so adjacent ring faces share the vertex.
-		var key32: String = "%d_%d_%.6f" % [mini(v3, v2), maxi(v3, v2), t]
-		if not cut_verts.has(key32):
-			var lerp_pos: Vector3
-			if v3 < v2:
-				lerp_pos = mesh.vertices[v3].lerp(mesh.vertices[v2], t)
-			else:
-				lerp_pos = mesh.vertices[v2].lerp(mesh.vertices[v3], 1.0 - t)
-			cut_verts[key32] = mesh.vertices.size()
-			mesh.vertices.append(lerp_pos)
-		var m32: int = cut_verts[key32]
-
-		# Build two replacement quads preserving CCW-from-outside winding.
-		#
-		# When forward=true the original ring order is [v0, v1, v2, v3] with
-		# the entry edge v0→v1 already CCW in the ring.
-		#   Quad A: [v0, m01, m32, v3]   (side containing v0 and v3)
-		#   Quad B: [m01, v1, v2, m32]   (side containing v1 and v2)
-		#
-		# When forward=false the entry edge was traversed backwards (v0 is
-		# entry_va = the vertex found at pos_a, but the ring there goes
-		# v1→v0, so v0 and v1 are swapped relative to the ring order).
-		# Using [v0, m01, m32, v3] in that case produces a CW triangle.
-		# Swap the two quads so the winding matches the original face:
-		#   Quad A: [m01, v0, v3, m32]   (right half, CCW)
-		#   Quad B: [v1, m01, m32, v2]   (left  half, CCW)
 		var qa := GoBuildFace.new()
 		var qb := GoBuildFace.new()
 		if forward:
-			qa.vertex_indices = [v0, m01, m32, v3]
+			qa.vertex_indices = [va,      m_entry, m_far, ova]
 			qa.uvs = [Vector2(0.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(0.0, 1.0)]
-			qb.vertex_indices = [m01, v1, v2, m32]
+			qb.vertex_indices = [m_entry, vb,      ovb,   m_far]
 			qb.uvs = [Vector2(t, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(t, 1.0)]
 		else:
-			qa.vertex_indices = [m01, v0, v3, m32]
-			qa.uvs = [Vector2(t, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(t, 1.0)]
-			qb.vertex_indices = [v1, m01, m32, v2]
-			qb.uvs = [Vector2(0.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(0.0, 1.0)]
+			qa.vertex_indices = [m_entry, va,  ova,  m_far]
+			qa.uvs = [Vector2(t, 0.0), Vector2(0.0, 0.0), Vector2(0.0, 1.0), Vector2(t, 1.0)]
+			qb.vertex_indices = [vb, m_entry, m_far, ovb]
+			qb.uvs = [Vector2(1.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(1.0, 1.0)]
 		qa.material_index = face.material_index
 		qa.smooth_group   = face.smooth_group
 		qb.material_index = face.material_index
@@ -378,5 +337,4 @@ static func _cut_ring(
 
 		mesh.faces[fi] = qa
 		mesh.faces.append(qb)
-
 		cut_faces[fi] = true

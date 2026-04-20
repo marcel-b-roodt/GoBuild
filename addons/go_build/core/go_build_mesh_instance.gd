@@ -34,6 +34,11 @@ var selection: SelectionManager = SelectionManager.new()
 ## Enabled by the plugin while this node is being edited; never exported.
 var _edit_cull_override: bool = false
 
+## Persistent ArrayMesh used during parameter-preview so [member mesh] is never
+## reassigned (which would trigger Godot's inspector property notification).
+## Null when no preview is active.
+var _preview_mesh: ArrayMesh = null
+
 
 func _ready() -> void:
 	bake()
@@ -53,6 +58,41 @@ func bake() -> void:
 	if _edit_cull_override:
 		_apply_cull_overrides()
 	mesh_changed.emit()
+
+
+## Begin preview mode: allocate a persistent [ArrayMesh] and assign it to
+## [member mesh] once.  Subsequent [method bake_preview] calls repopulate it
+## in-place without reassigning [member mesh], so no inspector notification fires.
+## Call [method end_preview] on commit or cancel to restore normal operation.
+func begin_preview() -> void:
+	if _preview_mesh != null:
+		return  # Already in preview mode.
+	_preview_mesh = ArrayMesh.new()
+	mesh = _preview_mesh
+
+
+## End preview mode: clear the persistent preview mesh reference.
+## The caller must follow with [method bake] or [method restore_and_bake] to
+## reassign [member mesh] properly (with cull overrides and [signal mesh_changed]).
+func end_preview() -> void:
+	_preview_mesh = null
+
+
+## Preview-only bake: repopulates [member _preview_mesh] in-place without
+## reassigning [member mesh], emitting [signal mesh_changed], or applying
+## cull overrides.  The inspector does not see a property change.
+##
+## Requires [method begin_preview] to have been called first.
+## Falls back to a regular [method bake] if preview mode is not active.
+func bake_preview() -> void:
+	if go_build_mesh == null:
+		mesh = null
+		return
+	if _preview_mesh == null:
+		# Preview mode not initialised — fall back gracefully.
+		bake()
+		return
+	go_build_mesh.bake_into(_preview_mesh)
 
 
 ## Fast alternative to [method bake] for use during a vertex-position-only drag.
