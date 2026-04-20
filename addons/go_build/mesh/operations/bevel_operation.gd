@@ -220,18 +220,34 @@ static func _update_faces(
 			np_info[vi] = {"faces": faces_arr, "anchor_idx": -1, "W": -1}
 		else:
 			# Multiple non-plan faces → cap approach.
-			# Find continuation vertex W: the next_vi most non-plan faces share.
-			var next_counts: Dictionary = {}
+			# Find continuation vertex W: the neighbour of vi in the non-plan faces
+			# that appears in the MOST faces (i.e. lies on the shared unselected edge).
+			# We count ALL ring-neighbours of vi (prev and next) across every non-plan
+			# face, then pick the one with the highest count.
+			var nbr_counts: Dictionary = {}
 			for face_info: Dictionary in faces_arr:
-				var nxt: int = face_info["next_vi"]
-				next_counts[nxt] = next_counts.get(nxt, 0) + 1
+				var fi_np: int = face_info["fi"]
+				var face_np: GoBuildFace = mesh.faces[fi_np]
+				var k_np: int = face_np.vertex_indices.find(vi)
+				var vc_np: int = face_np.vertex_indices.size()
+				for delta: int in [-1, 1]:
+					var nb: int = face_np.vertex_indices[(k_np + delta + vc_np) % vc_np]
+					nbr_counts[nb] = nbr_counts.get(nb, 0) + 1
+			# Filter out any vertex that is also a plan-face vertex (i.e. a bevel
+			# endpoint on the selected edge — we never cap toward the other bevel end).
+			var plan_verts: Dictionary = {}
+			for pfi: int in vertex_plan:
+				for pvi: int in vertex_plan[pfi]:
+					plan_verts[pvi] = true
 			var best_w: int  = -1
 			var best_cnt: int = 0
-			for w: int in next_counts:
-				if next_counts[w] > best_cnt:
-					best_cnt = next_counts[w]
-					best_w   = w
-			# Create anchor vertex at [width] along vi → w.
+			for nb: int in nbr_counts:
+				if plan_verts.has(nb):
+					continue
+				if nbr_counts[nb] > best_cnt:
+					best_cnt = nbr_counts[nb]
+					best_w   = nb
+			# Create anchor vertex at [width] along vi → best_w.
 			var anchor_idx: int = -1
 			if best_w != -1:
 				var dir: Vector3 = \
@@ -318,15 +334,26 @@ static func _update_faces(
 						var se: Array = _sort_entries_ccw(
 								global_slid[vi], prev_vi, vi, mesh)
 						chosen = se[0].idx
+					# Determine if anchor goes before or after chosen in the ring.
+					var info: Dictionary = np_info[vi]
+					var anchor: int = info["anchor_idx"]
+					var cont_w: int = info["W"]
+					if anchor != -1 and cont_w != -1 and cont_w == prev_vi:
+						# W is the vertex that PRECEDES vi: anchor goes before chosen.
+						new_vis.append(anchor)
+						if has_uvs:
+							new_uvs.append(face.uvs[k])
 					new_vis.append(chosen)
 					if has_uvs:
 						new_uvs.append(face.uvs[k])
 					# Also insert anchor between chosen and the continuation vertex W.
-					var info: Dictionary = np_info[vi]
-					if info["W"] == next_vi and info["anchor_idx"] != -1:
-						new_vis.append(info["anchor_idx"])
-						if has_uvs:
-							new_uvs.append(face.uvs[k])
+					# W may be either next_vi OR prev_vi depending on ring orientation.
+					if anchor != -1 and cont_w != -1:
+						if cont_w == next_vi:
+							# anchor goes between chosen and next_vi: append now.
+							new_vis.append(anchor)
+							if has_uvs:
+								new_uvs.append(face.uvs[k])
 
 		face.vertex_indices.resize(new_vis.size())
 		for k: int in new_vis.size():

@@ -218,6 +218,27 @@ static func _fill_hole(
 		var p: Vector3 = mesh.vertices[v] - centroid
 		fill.uvs.append(Vector2(p.dot(u_axis), p.dot(v_axis)))
 
+	# ── Validate winding against adjacent faces ──────────────────────────────
+	# Build a set of all vertices in the hole chain for fast lookup.
+	var chain_set: Dictionary = {}
+	for v: int in chain:
+		chain_set[v] = true
+	# Average the normals of all faces that share at least one boundary vertex.
+	var neighbour_normal := Vector3.ZERO
+	for face: GoBuildFace in mesh.faces:
+		var shared: bool = false
+		for v: int in face.vertex_indices:
+			if chain_set.has(v):
+				shared = true
+				break
+		if shared:
+			neighbour_normal += mesh.compute_face_normal(face)
+	var fill_normal: Vector3 = mesh.compute_face_normal(fill)
+	if neighbour_normal.length_squared() > 1e-8 \
+			and fill_normal.dot(neighbour_normal) < 0.0:
+		fill.vertex_indices.reverse()
+		fill.uvs.reverse()
+
 	mesh.faces.append(fill)
 
 
