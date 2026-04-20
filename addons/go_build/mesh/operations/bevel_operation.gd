@@ -55,9 +55,10 @@ static func apply(
 	# 2 entries in different directions → expansion (face grows by 1 vertex).
 	var vertex_plan: Dictionary = _build_vertex_plan(mesh, valid, width)
 
-	_update_faces(mesh, vertex_plan)
+	var caps_needed: Array[Dictionary] = []
+	_update_faces(mesh, vertex_plan, caps_needed)
 	_add_bevel_strips(mesh, valid, vertex_plan)
-	_split_endpoint_ngons(mesh)
+	_add_endpoint_caps(mesh, caps_needed)
 	_compact_vertices(mesh)
 	mesh.rebuild_edges()
 
@@ -164,7 +165,9 @@ static func _build_vertex_plan(
 #   inserting them in CCW order to close the mesh (e.g. a 4-gon grows to a
 #   5-gon when one of its corners belongs to a single bevelled edge, or to a
 #   6-gon when two non-shared bevelled edges both touch that corner).
-static func _update_faces(mesh: GoBuildMesh, vertex_plan: Dictionary) -> void:
+static func _update_faces(
+		mesh: GoBuildMesh, vertex_plan: Dictionary,
+		caps_needed: Array[Dictionary]) -> void:
 	# global_slid[vi] = Array of {idx, slide_nbr, plan_fi} — one per plan face.
 	var global_slid: Dictionary = {}
 	for fi in vertex_plan:
@@ -207,19 +210,25 @@ static func _update_faces(mesh: GoBuildMesh, vertex_plan: Dictionary) -> void:
 				if has_uvs:
 					new_uvs.append(face.uvs[k])
 			else:
-				# Non-plan face: insert all global copies in CCW winding order to
-				# keep the mesh sealed at the bevel endpoints.  This may temporarily
-				# grow the face into an N-gon; _split_endpoint_ngons splits each
-				# run of consecutive slid copies with a diagonal, giving
-				# quads + triangles instead of N-gons so the rest of the mesh
-				# (loop cut ring walk, etc.) is not blocked by faces with > 4 vertices.
+				# Non-plan face: insert only the best-fit slid copy (keeps quad
+				# topology).  Extra copies are recorded as caps_needed so that
+				# _add_endpoint_caps can close each bevel endpoint with a triangle.
 				var prev_vi: int = old_vis[(k - 1 + old_vis.size()) % old_vis.size()]
 				var sorted_entries: Array = _sort_entries_ccw(
 						global_slid[vi], prev_vi, vi, mesh)
-				for entry in sorted_entries:
-					new_vis.append(entry.idx)
-					if has_uvs:
-						new_uvs.append(face.uvs[k])
+				new_vis.append(sorted_entries[0].idx)
+				if has_uvs:
+					new_uvs.append(face.uvs[k])
+				# Record cap info for dropped copies.
+				var next_vi: int = old_vis[(k + 1) % old_vis.size()]
+				for i: int in range(1, sorted_entries.size()):
+					caps_needed.append({
+						"chosen": sorted_entries[0].idx,
+						"dropped": sorted_entries[i].idx,
+						"anchor": next_vi,
+						"mat": face.material_index,
+						"smooth": face.smooth_group,
+					})
 
 		face.vertex_indices.resize(new_vis.size())
 		for k: int in new_vis.size():
@@ -315,7 +324,37 @@ static func _add_bevel_strips(
 				and mesh.compute_face_normal(strip).dot(hint) < 0.0:
 			strip.vertex_indices = [na0, na1, nb1, nb0]
 
-		mesh.faces.append(strip)
+			mesh.faces.append(strip)
+
+
+# ── Phase 3b ─────────────────────────────────────────────────────────────────
+# Add a triangular cap face for each bevel endpoint where the non-plan face
+# received only ONE slid copy (chosen) but the bevel strip ends with a second
+# copy (dropped).  The cap triangle seals the gap: [chosen, dropped, anchor]
+# where anchor is the vertex immediately after the original bevel vertex in the
+# non-plan face's ring (the vertex the gap "opens toward").
+static func _add_endpoint_caps(
+		mesh: GoBuildMesh, caps_needed: Array[Dictionary]) -> void:
+	for cap: Dictionary in caps_needed:
+		var chosen: int  = cap["chosen"]
+		var dropped: int = cap["dropped"]
+		var anchor: int  = cap["anchor"]
+		var tri := _FACE_SCRIPT.new()
+		tri.vertex_indices = [chosen, dropped, anchor]
+		tri.material_index = cap["mat"]
+		tri.smooth_group   = cap["smooth"]
+		# Validate winding direction — flip if normal points inward.
+		# We use the chosen→dropped edge and expect the normal to point outward.
+		# Use the mesh's existing face normals to determine "outward" direction:
+		# average the face normals of the faces containing "chosen".
+		var outward: Vector3 = Vector3.ZERO
+		for existing: GoBuildFace in mesh.faces:
+			if chosen in existing.vertex_indices:
+				outward += mesh.compute_face_normal(existing)
+		var tri_normal: Vector3 = mesh.compute_face_normal(tri)
+		if outward.length_squared() > 1e-8 and tri_normal.dot(outward) < 0.0:
+			tri.vertex_indices = [chosen, anchor, dropped]
+		mesh.faces.append(tri)
 
 
 # For vertex [param vi] in face [param fi], return the slid index whose
@@ -347,96 +386,6 @@ static func _plan_idx_not_toward(
 
 # ── Phase 3b ─────────────────────────────────────────────────────────────────
 # After _update_faces and _add_bevel_strips, any non-plan face that received
-# more than one consecutive slid copy of the same original vertex is an N-gon.
-# Split each such face by inserting a diagonal between the consecutive slid
-# copies, producing a triangle (bevel cap) + the remaining ring.
-#
-# Example: 5-gon [a, s0, s1, b, c] where s0 and s1 are consecutive slid copies:
-#   → triangle [s0, s1, b] (the endpoint cap)
-#   → quad     [a, s0, b, c] (the healed face)
-#
-# This keeps the mesh sealed (no holes) and avoids N-gon faces that block
-# loop-cut ring traversal.  Only consecutive duplicate runs are split; simple
-# 1-for-1 replacements (most plan faces) are left untouched.
-static func _split_endpoint_ngons(mesh: GoBuildMesh) -> void:
-	# Collect new faces to append after iterating (to avoid modifying while iterating).
-	var new_faces: Array[GoBuildFace] = []
-
-	for fi: int in mesh.faces.size():
-		var face: GoBuildFace = mesh.faces[fi]
-		var vc: int = face.vertex_indices.size()
-		if vc <= 4:
-			continue  # Quad or smaller — no split needed.
-
-		# Find the first run of 2 consecutive vertices that are NOT in any other
-		# face's original edge (heuristic: we find the first pair (k, k+1) such
-		# that neither vertex appears in more than one face position in this face).
-		# Simpler: any face with > 4 verts must have a "seam" between two slid
-		# copies.  We split at the first run of 2 identical-origin vertices.
-		# Since we don't track origin here, we split the N-gon greedily: take
-		# indices [k, k+1] and split into triangle [k, k+1, k+2] + remaining ring.
-		# Repeat until all faces have <= 4 vertices.
-		var current_vis: Array[int] = []
-		for v: int in face.vertex_indices:
-			current_vis.append(v)
-		var current_uvs: Array[Vector2] = []
-		var has_uvs: bool = face.uvs.size() == vc
-		if has_uvs:
-			for uv: Vector2 in face.uvs:
-				current_uvs.append(uv)
-
-		# While face has more than 4 verts, peel off a triangle at position 1.
-		# Position 1 is chosen because the slid copies are always inserted at a
-		# corner (position 1 relative to the prior vertex in the ring).
-		# We try each split point to find one where the triangle is non-degenerate.
-		var safety: int = 0
-		while current_vis.size() > 4 and safety < 32:
-			safety += 1
-			var n: int = current_vis.size()
-			# Find the best split: a triple (k-1, k, k+1) where all 3 are distinct.
-			var split_k: int = -1
-			for k: int in n:
-				var v0: int = current_vis[(k - 1 + n) % n]
-				var v1: int = current_vis[k]
-				var v2: int = current_vis[(k + 1) % n]
-				if v0 != v1 and v1 != v2 and v0 != v2:
-					split_k = k
-					break
-			if split_k == -1:
-				break  # Degenerate — can't split.
-
-			var n2: int = current_vis.size()
-			var k_prev: int = (split_k - 1 + n2) % n2
-			var k_next: int = (split_k + 1) % n2
-
-			# Triangle: [k_prev, split_k, k_next]
-			var tri := _FACE_SCRIPT.new()
-			tri.vertex_indices = [current_vis[k_prev], current_vis[split_k], current_vis[k_next]]
-			tri.material_index = face.material_index
-			tri.smooth_group   = face.smooth_group
-			if has_uvs and k_prev < current_uvs.size() and split_k < current_uvs.size() \
-					and k_next < current_uvs.size():
-				tri.uvs = [current_uvs[k_prev], current_uvs[split_k], current_uvs[k_next]]
-			new_faces.append(tri)
-
-			# Remove split_k from the ring to get the remaining face.
-			current_vis.remove_at(split_k)
-			if has_uvs and split_k < current_uvs.size():
-				current_uvs.remove_at(split_k)
-
-		# Update the original face with the reduced ring.
-		face.vertex_indices.resize(current_vis.size())
-		for k: int in current_vis.size():
-			face.vertex_indices[k] = current_vis[k]
-		if has_uvs:
-			face.uvs.resize(current_uvs.size())
-			for k: int in current_uvs.size():
-				face.uvs[k] = current_uvs[k]
-
-	for f: GoBuildFace in new_faces:
-		mesh.faces.append(f)
-
-
 ## Remove every vertex not referenced by any face and remap face indices.
 static func _compact_vertices(mesh: GoBuildMesh) -> void:
 	var used: Dictionary = {}
