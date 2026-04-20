@@ -56,7 +56,7 @@ static func apply(
 	var vertex_plan: Dictionary = _build_vertex_plan(mesh, valid, width)
 
 	var caps_needed: Array[Dictionary] = []
-	_update_faces(mesh, vertex_plan, caps_needed)
+	_update_faces(mesh, vertex_plan, width, caps_needed)
 	_add_bevel_strips(mesh, valid, vertex_plan)
 	_add_endpoint_caps(mesh, caps_needed)
 	_compact_vertices(mesh)
@@ -160,13 +160,21 @@ static func _build_vertex_plan(
 #   that (face, vertex) pair.  Replace vi 1-for-1 with the summed slid vertex.
 #
 # Non-plan face (fi is NOT in vertex_plan for vi):
-#   The face shares vertex vi with bevel-adjacent faces, but is not itself
-#   adjacent to any selected edge.  It must absorb ALL slid copies of vi,
-#   inserting them in CCW order to close the mesh (e.g. a 4-gon grows to a
-#   5-gon when one of its corners belongs to a single bevelled edge, or to a
-#   6-gon when two non-shared bevelled edges both touch that corner).
+#
+#   One non-plan face at vi (corner vertex, e.g. plain cube corner):
+#     Insert ALL slid copies in CCW order so the face grows smoothly into an
+#     N-gon (a 4-gon → 5-gon).  The bevel-strip end edge is shared between the
+#     strip and this N-gon — no extra cap face is needed.
+#
+#   Two or more non-plan faces at vi (midpoint/T vertex, e.g. loop-cut point):
+#     Each non-plan face receives exactly ONE slid copy (the best-fit one).
+#     A new "anchor" vertex is created on the continuation edge at [param width]
+#     units from vi.  It is inserted into each non-plan face ring between the
+#     chosen slid copy and the continuation vertex, keeping faces as quads (+1).
+#     A cap polygon [chosen0, chosen1, …, anchor] is recorded and added by
+#     _add_endpoint_caps to seal the gap.
 static func _update_faces(
-		mesh: GoBuildMesh, vertex_plan: Dictionary,
+		mesh: GoBuildMesh, vertex_plan: Dictionary, width: float,
 		caps_needed: Array[Dictionary]) -> void:
 	# global_slid[vi] = Array of {idx, slide_nbr, plan_fi} — one per plan face.
 	var global_slid: Dictionary = {}
@@ -178,6 +186,87 @@ static func _update_faces(
 			entry["plan_fi"] = fi
 			global_slid[vi].append(entry)
 
+	# ── Precompute per-vertex non-plan face info ──────────────────────────────
+	# np_info[vi] = {
+	#   "faces":      Array of {fi, k, prev_vi, next_vi, chosen_idx},
+	#   "anchor_idx": int  (-1 → N-gon approach, no cap),
+	#   "W":          int  (-1 → N-gon approach, else continuation vertex),
+	# }
+	var np_info: Dictionary = {}
+	for vi: int in global_slid:
+		var faces_arr: Array = []
+		for fi2: int in mesh.faces.size():
+			if vertex_plan.has(fi2) and vertex_plan[fi2].has(vi):
+				continue  # plan face — skip
+			var face2: GoBuildFace = mesh.faces[fi2]
+			var k2: int = face2.vertex_indices.find(vi)
+			if k2 == -1:
+				continue
+			var vc2: int = face2.vertex_indices.size()
+			var prev2: int = face2.vertex_indices[(k2 - 1 + vc2) % vc2]
+			var next2: int = face2.vertex_indices[(k2 + 1) % vc2]
+			var sorted2: Array = _sort_entries_ccw(global_slid[vi], prev2, vi, mesh)
+			faces_arr.append({
+				"fi": fi2, "k": k2,
+				"prev_vi": prev2, "next_vi": next2,
+				"chosen_idx": sorted2[0].idx,
+			})
+
+		if faces_arr.is_empty():
+			continue
+
+		if faces_arr.size() == 1:
+			# Single non-plan face → N-gon approach, no cap needed.
+			np_info[vi] = {"faces": faces_arr, "anchor_idx": -1, "W": -1}
+		else:
+			# Multiple non-plan faces → cap approach.
+			# Find continuation vertex W: the next_vi most non-plan faces share.
+			var next_counts: Dictionary = {}
+			for face_info: Dictionary in faces_arr:
+				var nxt: int = face_info["next_vi"]
+				next_counts[nxt] = next_counts.get(nxt, 0) + 1
+			var best_w: int  = -1
+			var best_cnt: int = 0
+			for w: int in next_counts:
+				if next_counts[w] > best_cnt:
+					best_cnt = next_counts[w]
+					best_w   = w
+			# Create anchor vertex at [width] along vi → w.
+			var anchor_idx: int = -1
+			if best_w != -1:
+				var dir: Vector3 = \
+						(mesh.vertices[best_w] - mesh.vertices[vi]).normalized()
+				anchor_idx = mesh.vertices.size()
+				mesh.vertices.append(mesh.vertices[vi] + width * dir)
+			np_info[vi] = {"faces": faces_arr, "anchor_idx": anchor_idx, "W": best_w}
+			# Record the cap polygon for _add_endpoint_caps.
+			if anchor_idx != -1:
+				var chosen_verts: Array[int] = []
+				for face_info: Dictionary in faces_arr:
+					chosen_verts.append(face_info["chosen_idx"])
+				caps_needed.append({
+					"vertices": chosen_verts,
+					"anchor":   anchor_idx,
+					"mat":      mesh.faces[faces_arr[0]["fi"]].material_index,
+					"smooth":   mesh.faces[faces_arr[0]["fi"]].smooth_group,
+				})
+
+	# Build fast-lookup tables derived from np_info.
+	# face_use_ngon[vi]        → true  = N-gon; false = single-copy + anchor.
+	# face_chosen_map[vi][fi]  → chosen slid-copy index for a specific face.
+	var face_use_ngon: Dictionary    = {}
+	var face_chosen_map: Dictionary  = {}
+	for vi: int in np_info:
+		var info: Dictionary = np_info[vi]
+		if info["anchor_idx"] == -1:
+			face_use_ngon[vi] = true
+		else:
+			face_use_ngon[vi]  = false
+			face_chosen_map[vi] = {}
+			for face_info: Dictionary in info["faces"]:
+				face_chosen_map[vi][face_info["fi"]] = face_info["chosen_idx"]
+
+	# ── Update face rings ─────────────────────────────────────────────────────
 	for fi: int in mesh.faces.size():
 		var face: GoBuildFace = mesh.faces[fi]
 		var needs_update: bool = false
@@ -210,25 +299,34 @@ static func _update_faces(
 				if has_uvs:
 					new_uvs.append(face.uvs[k])
 			else:
-				# Non-plan face: insert only the best-fit slid copy (keeps quad
-				# topology).  Extra copies are recorded as caps_needed so that
-				# _add_endpoint_caps can close each bevel endpoint with a triangle.
+				# Non-plan face.
 				var prev_vi: int = old_vis[(k - 1 + old_vis.size()) % old_vis.size()]
-				var sorted_entries: Array = _sort_entries_ccw(
-						global_slid[vi], prev_vi, vi, mesh)
-				new_vis.append(sorted_entries[0].idx)
-				if has_uvs:
-					new_uvs.append(face.uvs[k])
-				# Record cap info for dropped copies.
 				var next_vi: int = old_vis[(k + 1) % old_vis.size()]
-				for i: int in range(1, sorted_entries.size()):
-					caps_needed.append({
-						"chosen": sorted_entries[0].idx,
-						"dropped": sorted_entries[i].idx,
-						"anchor": next_vi,
-						"mat": face.material_index,
-						"smooth": face.smooth_group,
-					})
+				if face_use_ngon.get(vi, true):
+					# N-gon: insert all slid copies in CCW order.
+					var sorted_entries: Array = _sort_entries_ccw(
+							global_slid[vi], prev_vi, vi, mesh)
+					for entry: Dictionary in sorted_entries:
+						new_vis.append(entry.idx)
+						if has_uvs:
+							new_uvs.append(face.uvs[k])
+				else:
+					# Single copy + anchor.  Use precomputed chosen_idx.
+					var chosen: int = face_chosen_map[vi].get(fi, -1)
+					if chosen == -1:
+						# Fallback (should not occur).
+						var se: Array = _sort_entries_ccw(
+								global_slid[vi], prev_vi, vi, mesh)
+						chosen = se[0].idx
+					new_vis.append(chosen)
+					if has_uvs:
+						new_uvs.append(face.uvs[k])
+					# Also insert anchor between chosen and the continuation vertex W.
+					var info: Dictionary = np_info[vi]
+					if info["W"] == next_vi and info["anchor_idx"] != -1:
+						new_vis.append(info["anchor_idx"])
+						if has_uvs:
+							new_uvs.append(face.uvs[k])
 
 		face.vertex_indices.resize(new_vis.size())
 		for k: int in new_vis.size():
@@ -328,33 +426,34 @@ static func _add_bevel_strips(
 
 
 # ── Phase 3b ─────────────────────────────────────────────────────────────────
-# Add a triangular cap face for each bevel endpoint where the non-plan face
-# received only ONE slid copy (chosen) but the bevel strip ends with a second
-# copy (dropped).  The cap triangle seals the gap: [chosen, dropped, anchor]
-# where anchor is the vertex immediately after the original bevel vertex in the
-# non-plan face's ring (the vertex the gap "opens toward").
+# Seal each bevel endpoint that has 2+ non-plan faces with a cap polygon.
+# cap["vertices"] holds the chosen slid-copy index from each non-plan face;
+# cap["anchor"] is a new vertex at [width] distance along the continuation
+# edge.  For 2 non-plan faces this produces a triangle; 3+ produces an N-gon.
 static func _add_endpoint_caps(
 		mesh: GoBuildMesh, caps_needed: Array[Dictionary]) -> void:
 	for cap: Dictionary in caps_needed:
-		var chosen: int  = cap["chosen"]
-		var dropped: int = cap["dropped"]
+		var verts: Array = cap["vertices"]
 		var anchor: int  = cap["anchor"]
-		var tri := _FACE_SCRIPT.new()
-		tri.vertex_indices = [chosen, dropped, anchor]
-		tri.material_index = cap["mat"]
-		tri.smooth_group   = cap["smooth"]
-		# Validate winding direction — flip if normal points inward.
-		# We use the chosen→dropped edge and expect the normal to point outward.
-		# Use the mesh's existing face normals to determine "outward" direction:
-		# average the face normals of the faces containing "chosen".
+		# Build polygon [v0, v1, …, anchor] (untyped to allow reverse()).
+		var vis: Array = []
+		for v: int in verts:
+			vis.append(v)
+		vis.append(anchor)
+		# Validate winding: average outward normal from faces containing verts[0].
 		var outward: Vector3 = Vector3.ZERO
 		for existing: GoBuildFace in mesh.faces:
-			if chosen in existing.vertex_indices:
+			if verts[0] in existing.vertex_indices:
 				outward += mesh.compute_face_normal(existing)
-		var tri_normal: Vector3 = mesh.compute_face_normal(tri)
-		if outward.length_squared() > 1e-8 and tri_normal.dot(outward) < 0.0:
-			tri.vertex_indices = [chosen, anchor, dropped]
-		mesh.faces.append(tri)
+		var cap_face := _FACE_SCRIPT.new()
+		cap_face.vertex_indices = vis
+		var cap_normal: Vector3 = mesh.compute_face_normal(cap_face)
+		if outward.length_squared() > 1e-8 and cap_normal.dot(outward) < 0.0:
+			vis.reverse()
+			cap_face.vertex_indices = vis
+		cap_face.material_index = cap["mat"]
+		cap_face.smooth_group   = cap["smooth"]
+		mesh.faces.append(cap_face)
 
 
 # For vertex [param vi] in face [param fi], return the slid index whose
@@ -384,8 +483,6 @@ static func _plan_idx_not_toward(
 	return e0.idx if d0 >= d1 else e1.idx
 
 
-# ── Phase 3b ─────────────────────────────────────────────────────────────────
-# After _update_faces and _add_bevel_strips, any non-plan face that received
 ## Remove every vertex not referenced by any face and remap face indices.
 static func _compact_vertices(mesh: GoBuildMesh) -> void:
 	var used: Dictionary = {}
