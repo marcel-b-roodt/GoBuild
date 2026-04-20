@@ -106,7 +106,8 @@ static func _collect_ring(
 	var start_a: int = -1
 	var start_b: int = -1
 	for fi: int in seed.face_indices:
-		if not already_cut.has(fi) and mesh.faces[fi].vertex_indices.size() == 4:
+		var fvc: int = mesh.faces[fi].vertex_indices.size()
+		if not already_cut.has(fi) and (fvc == 4 or fvc == 5):
 			if start_a == -1:
 				start_a = fi
 			else:
@@ -174,7 +175,8 @@ static func _walk_half(
 
 	if start_fi == -1 \
 			or already_cut.has(start_fi) \
-			or mesh.faces[start_fi].vertex_indices.size() != 4:
+			or (mesh.faces[start_fi].vertex_indices.size() != 4 \
+			and mesh.faces[start_fi].vertex_indices.size() != 5):
 		return result
 
 	var cur_fi: int = start_fi
@@ -186,15 +188,16 @@ static func _walk_half(
 		if visited.has(cur_fi) or already_cut.has(cur_fi):
 			break
 		var face: GoBuildFace = mesh.faces[cur_fi]
-		if face.vertex_indices.size() != 4:
+		var vc_lc: int = face.vertex_indices.size()
+		if vc_lc != 4 and vc_lc != 5:
 			break
 
 		# Locate cur_va in the face and determine walk direction.
 		var pos_a: int = -1
-		for k: int in 4:
+		for k: int in vc_lc:
 			if face.vertex_indices[k] == cur_va:
-				var next_k: int = (k + 1) % 4
-				var prev_k: int = (k + 3) % 4
+				var next_k: int = (k + 1) % vc_lc
+				var prev_k: int = (k + vc_lc - 1) % vc_lc
 				if face.vertex_indices[next_k] == cur_vb \
 						or face.vertex_indices[prev_k] == cur_vb:
 					pos_a = k
@@ -202,39 +205,52 @@ static func _walk_half(
 		if pos_a == -1:
 			break  # Degenerate — entry edge not found.
 
-		var next_a: int = (pos_a + 1) % 4
+		var next_a: int = (pos_a + 1) % vc_lc
 		var forward: bool = face.vertex_indices[next_a] == cur_vb
 
-		# Compute the far-edge vertices so they are ring-directed:
-		# lerp(opp_va, opp_vb, t) places the far cut at the same proportional
-		# position as lerp(cur_va, cur_vb, t) on the entry edge.
-		# For a CCW quad [p0,p1,p2,p3] with entry p0→p1 (forward):
-		#   far edge is p3→p2 (anti-parallel), so opp_va=p3, opp_vb=p2.
-		# For entry p0←p1 (backward, cur_va=p0, cur_vb=p3):
-		#   far edge (ring-consistent) is p1→p2, so opp_va=p1, opp_vb=p2.
+		# Compute the far-edge vertices.
+		# For a quad (vc=4) the logic is unchanged.
+		# For a 5-gon (vc=5, created by bevel endpoint):
+		#   The "extra" vertex sits at the corner opposite the entry edge.
+		#   We step vc-1 positions from the entry edge vertices to find
+		#   the far edge (skipping the extra vertex on the far side).
 		var opp_va: int
 		var opp_vb: int
-		if forward:
-			opp_va = face.vertex_indices[(pos_a + 3) % 4]
-			opp_vb = face.vertex_indices[(pos_a + 2) % 4]
+		if vc_lc == 4:
+			if forward:
+				opp_va = face.vertex_indices[(pos_a + 3) % 4]
+				opp_vb = face.vertex_indices[(pos_a + 2) % 4]
+			else:
+				opp_va = face.vertex_indices[(pos_a + 1) % 4]
+				opp_vb = face.vertex_indices[(pos_a + 2) % 4]
 		else:
-			opp_va = face.vertex_indices[(pos_a + 1) % 4]
-			opp_vb = face.vertex_indices[(pos_a + 2) % 4]
+			# 5-gon: entry edge is pos_a→next_a (forward) or pos_a←next_a (backward).
+			# Far edge is separated by 2 steps on each side.
+			if forward:
+				# entry: pos_a, pos_a+1; far: pos_a+4, pos_a+3
+				opp_va = face.vertex_indices[(pos_a + 4) % 5]
+				opp_vb = face.vertex_indices[(pos_a + 3) % 5]
+			else:
+				# entry: pos_a, pos_a-1; pos_a+1 is also part of entry.
+				# far: pos_a+2, pos_a+3
+				opp_va = face.vertex_indices[(pos_a + 1) % 5]
+				opp_vb = face.vertex_indices[(pos_a + 2) % 5]
 
 		visited[cur_fi] = true
 		result.append({"face_idx": cur_fi, "va": cur_va, "vb": cur_vb,
 				"opp_va": opp_va, "opp_vb": opp_vb})
 
 		# opp_va/opp_vb become the entry edge for the next face.
-		var opp_ei: int = _find_edge_index(mesh, opp_va, opp_vb)
+		var opp_ei: int = mesh.find_edge(opp_va, opp_vb)
 		if opp_ei == -1:
 			break
 
 		var opp_edge: GoBuildEdge = mesh.edges[opp_ei]
 		var next_fi: int = -1
 		for fi: int in opp_edge.face_indices:
+			var fvc2: int = mesh.faces[fi].vertex_indices.size()
 			if fi != cur_fi and not visited.has(fi) \
-					and mesh.faces[fi].vertex_indices.size() == 4 \
+					and (fvc2 == 4 or fvc2 == 5) \
 					and not already_cut.has(fi):
 				next_fi = fi
 				break
@@ -244,15 +260,6 @@ static func _walk_half(
 		cur_fi = next_fi
 
 	return result
-
-
-## Find the edge index in [param mesh] that connects [param va] and [param vb].
-## Returns -1 if not found.
-static func _find_edge_index(mesh: GoBuildMesh, va: int, vb: int) -> int:
-	for ei: int in mesh.edges.size():
-		if mesh.edges[ei].connects(va, vb):
-			return ei
-	return -1
 
 
 # ---------------------------------------------------------------------------
@@ -316,20 +323,54 @@ static func _cut_ring(
 		#   Quad A: [m_entry, va,  opp_va, m_far]  (reversed A)
 		#   Quad B: [vb, m_entry, m_far,  ovb  ]  (reversed B)
 		var pos_va: int = face.vertex_indices.find(va)
-		var forward: bool = face.vertex_indices[(pos_va + 1) % 4] == vb
+		var vc_cut: int = face.vertex_indices.size()
+		var forward: bool = face.vertex_indices[(pos_va + 1) % vc_cut] == vb
 
 		var qa := GoBuildFace.new()
 		var qb := GoBuildFace.new()
-		if forward:
-			qa.vertex_indices = [va,      m_entry, m_far, ova]
-			qa.uvs = [Vector2(0.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(0.0, 1.0)]
-			qb.vertex_indices = [m_entry, vb,      ovb,   m_far]
-			qb.uvs = [Vector2(t, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(t, 1.0)]
+		if vc_cut == 4:
+			if forward:
+				qa.vertex_indices = [va,      m_entry, m_far, ova]
+				qa.uvs = [Vector2(0.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(0.0, 1.0)]
+				qb.vertex_indices = [m_entry, vb,      ovb,   m_far]
+				qb.uvs = [Vector2(t, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(t, 1.0)]
+			else:
+				qa.vertex_indices = [m_entry, va,  ova,  m_far]
+				qa.uvs = [Vector2(t, 0.0), Vector2(0.0, 0.0), Vector2(0.0, 1.0), Vector2(t, 1.0)]
+				qb.vertex_indices = [vb, m_entry, m_far, ovb]
+				qb.uvs = [Vector2(1.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(1.0, 1.0)]
 		else:
-			qa.vertex_indices = [m_entry, va,  ova,  m_far]
-			qa.uvs = [Vector2(t, 0.0), Vector2(0.0, 0.0), Vector2(0.0, 1.0), Vector2(t, 1.0)]
-			qb.vertex_indices = [vb, m_entry, m_far, ovb]
-			qb.uvs = [Vector2(1.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(1.0, 1.0)]
+			# 5-gon: collect vertices between the far edge and the entry edge
+			# (the "cap" side) to preserve the extra bevel vertex.
+			# Find positions of ova and ovb in the face.
+			# For a 5-gon [v0..v4] with entry v0→v1 (forward), far is v4→v3.
+			# Side A (contains ova=v4):       [v0, m_entry, m_far, v4]
+			# Side B (contains extra vertex): [m_entry, v1, v2, v3, m_far]
+			# Collect vertices "between" far and entry on each side.
+			var pos_ova: int = face.vertex_indices.find(ova)
+			# Walk from pos_ova toward pos_va (step -1 in forward case or +1).
+			var side_a_vis: Array[int] = [va, m_entry, m_far, ova]
+			# Side B: from ovb to vb, including middle vertices.
+			var pos_ovb: int = face.vertex_indices.find(ovb)
+			var pos_vb: int  = face.vertex_indices.find(vb)
+			var side_b_vis: Array[int] = [m_entry]
+			# Walk from vb toward ovb (the "between" vertices).
+			var walk: int = pos_vb
+			var step_dir: int = 1 if forward else -1
+			for _s: int in vc_cut:
+				side_b_vis.append(face.vertex_indices[walk])
+				if walk == pos_ovb:
+					break
+				walk = (walk + step_dir + vc_cut) % vc_cut
+			side_b_vis.append(m_far)
+			qa.vertex_indices = side_a_vis
+			qb.vertex_indices = side_b_vis
+			qa.uvs = []
+			for _u: int in side_a_vis.size():
+				qa.uvs.append(Vector2.ZERO)
+			qb.uvs = []
+			for _u: int in side_b_vis.size():
+				qb.uvs.append(Vector2.ZERO)
 		qa.material_index = face.material_index
 		qa.smooth_group   = face.smooth_group
 		qb.material_index = face.material_index

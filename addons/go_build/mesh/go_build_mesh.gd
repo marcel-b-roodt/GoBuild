@@ -348,11 +348,101 @@ func compute_centroid(vertex_indices: Array[int]) -> Vector3:
 	return sum / vertex_indices.size()
 
 
+## Take a deep copy of the mesh state for undo/redo.
+#
+# ---------------------------------------------------------------------------
+# Topology helpers
+# ---------------------------------------------------------------------------
+
+## Return the edge index of the edge connecting [param va] and [param vb],
+## or -1 if no such edge exists.  Requires an up-to-date [member edges] list.
+func find_edge(va: int, vb: int) -> int:
+	for ei: int in edges.size():
+		if edges[ei].connects(va, vb):
+			return ei
+	return -1
+
+
+## Return the indices of all faces that contain [param vi].
+func faces_of_vertex(vi: int) -> Array[int]:
+	var result: Array[int] = []
+	for fi: int in faces.size():
+		if faces[fi].vertex_indices.has(vi):
+			result.append(fi)
+	return result
+
+
+## Return the indices of all faces that contain both [param va] and [param vb].
+func faces_of_edge(va: int, vb: int) -> Array[int]:
+	var result: Array[int] = []
+	for fi: int in faces.size():
+		var vis: Array[int] = faces[fi].vertex_indices
+		if vis.has(va) and vis.has(vb):
+			result.append(fi)
+	return result
+
+
+## Return the two ring-neighbours of [param vi] in [param face_idx],
+## as [code][prev_vi, next_vi][/code] in the face's winding order.
+## Returns [code][-1, -1][/code] if [param vi] is not in the face.
+func face_neighbours_of(face_idx: int, vi: int) -> Array[int]:
+	var vis: Array[int] = faces[face_idx].vertex_indices
+	var k: int = vis.find(vi)
+	if k == -1:
+		return [-1, -1]
+	var vc: int = vis.size()
+	return [vis[(k - 1 + vc) % vc], vis[(k + 1) % vc]]
+
+
+## Return all distinct ring-neighbours of [param vi] across all faces that
+## contain it, optionally restricted to [param face_indices] when non-empty.
+func vertex_neighbours(vi: int, face_indices: Array[int] = []) -> Array[int]:
+	var result_set: Dictionary = {}
+	var check_set: bool = not face_indices.is_empty()
+	for fi: int in faces.size():
+		if check_set and not face_indices.has(fi):
+			continue
+		var vis: Array[int] = faces[fi].vertex_indices
+		var k: int = vis.find(vi)
+		if k == -1:
+			continue
+		var vc: int = vis.size()
+		result_set[vis[(k - 1 + vc) % vc]] = true
+		result_set[(vis[(k + 1) % vc])]     = true
+	var result: Array[int] = []
+	for nb: int in result_set:
+		result.append(nb)
+	return result
+
+
+## Return all distinct ring-neighbours of [param vi] that appear as a neighbour
+## in EVERY face in [param face_indices].  Useful for finding a "shared edge"
+## vertex at a T-junction.
+func shared_vertex_neighbours(vi: int, face_indices: Array[int]) -> Array[int]:
+	if face_indices.is_empty():
+		return []
+	# Count how many faces each neighbour appears in.
+	var counts: Dictionary = {}
+	for fi: int in face_indices:
+		var vis: Array[int] = faces[fi].vertex_indices
+		var k: int = vis.find(vi)
+		if k == -1:
+			continue
+		var vc: int = vis.size()
+		for delta: int in [-1, 1]:
+			var nb: int = vis[(k + delta + vc) % vc]
+			counts[nb] = counts.get(nb, 0) + 1
+	var required: int = face_indices.size()
+	var result: Array[int] = []
+	for nb: int in counts:
+		if counts[nb] >= required:
+			result.append(nb)
+	return result
+
+
 # ---------------------------------------------------------------------------
 # Undo / Redo snapshots
 # ---------------------------------------------------------------------------
-
-## Take a deep copy of the mesh state for undo/redo.
 ## Store the returned Dictionary and pass it to [method restore_snapshot] to revert.
 func take_snapshot() -> Dictionary:
 	var verts_copy: Array[Vector3] = []

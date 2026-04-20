@@ -195,7 +195,7 @@ static func _update_faces(
 	var np_info: Dictionary = {}
 	for vi: int in global_slid:
 		var faces_arr: Array = []
-		for fi2: int in mesh.faces.size():
+		for fi2: int in mesh.faces_of_vertex(vi):
 			if vertex_plan.has(fi2) and vertex_plan[fi2].has(vi):
 				continue  # plan face — skip
 			var face2: GoBuildFace = mesh.faces[fi2]
@@ -220,40 +220,58 @@ static func _update_faces(
 			np_info[vi] = {"faces": faces_arr, "anchor_idx": -1, "W": -1}
 		else:
 			# Multiple non-plan faces → cap approach.
-			# Find continuation vertex W: the neighbour of vi in the non-plan faces
-			# that appears in the MOST faces (i.e. lies on the shared unselected edge).
-			# We count ALL ring-neighbours of vi (prev and next) across every non-plan
-			# face, then pick the one with the highest count.
-			var nbr_counts: Dictionary = {}
-			for face_info: Dictionary in faces_arr:
-				var fi_np: int = face_info["fi"]
-				var face_np: GoBuildFace = mesh.faces[fi_np]
-				var k_np: int = face_np.vertex_indices.find(vi)
-				var vc_np: int = face_np.vertex_indices.size()
-				for delta: int in [-1, 1]:
-					var nb: int = face_np.vertex_indices[(k_np + delta + vc_np) % vc_np]
-					nbr_counts[nb] = nbr_counts.get(nb, 0) + 1
-			# Filter out any vertex that is also a plan-face vertex (i.e. a bevel
-			# endpoint on the selected edge — we never cap toward the other bevel end).
+			# W = the vertex that is a ring-neighbour of vi in EVERY non-plan face
+			# AND is not itself a plan vertex (not the other bevel endpoint).
+			# This is the shared unselected boundary edge vertex at this T-joint.
+			# Use the new mesh helper for a clean intersection.
 			var plan_verts: Dictionary = {}
 			for pfi: int in vertex_plan:
 				for pvi: int in vertex_plan[pfi]:
 					plan_verts[pvi] = true
+
+			var np_fi_arr: Array[int] = []
+			for face_info: Dictionary in faces_arr:
+				np_fi_arr.append(face_info["fi"])
+
+			var shared_nbrs: Array[int] = mesh.shared_vertex_neighbours(vi, np_fi_arr)
+			# Remove any vertex that is a plan vertex.
+			var candidates: Array[int] = []
+			for nb: int in shared_nbrs:
+				if not plan_verts.has(nb):
+					candidates.append(nb)
+
+			# Among candidates pick the closest one (shortest unselected edge) so the
+			# cap stays proportional to bevel width, not extended to a far corner.
 			var best_w: int  = -1
-			var best_cnt: int = 0
-			for nb: int in nbr_counts:
-				if plan_verts.has(nb):
-					continue
-				if nbr_counts[nb] > best_cnt:
-					best_cnt = nbr_counts[nb]
-					best_w   = nb
-			# Create anchor vertex at [width] along vi → best_w.
+			var best_dist: float = 1e38
+			for nb: int in candidates:
+				var d: float = mesh.vertices[vi].distance_squared_to(mesh.vertices[nb])
+				if d < best_dist:
+					best_dist = d
+					best_w    = nb
+
+			# Fallback: use most-common neighbour if no unanimous shared vertex found.
+			if best_w == -1:
+				var nbr_counts: Dictionary = {}
+				for fi_np2: int in np_fi_arr:
+					for nb2: int in mesh.vertex_neighbours(vi, [fi_np2]):
+						if not plan_verts.has(nb2):
+							nbr_counts[nb2] = nbr_counts.get(nb2, 0) + 1
+				var best_cnt: int = 0
+				for nb: int in nbr_counts:
+					if nbr_counts[nb] > best_cnt:
+						best_cnt = nbr_counts[nb]
+						best_w   = nb
+
+			# Create anchor vertex at [width] along vi → best_w, clamped so the
+			# anchor never overshoots W (cap never longer than the unselected edge).
 			var anchor_idx: int = -1
 			if best_w != -1:
-				var dir: Vector3 = \
-						(mesh.vertices[best_w] - mesh.vertices[vi]).normalized()
+				var to_w: Vector3 = mesh.vertices[best_w] - mesh.vertices[vi]
+				var edge_len: float = to_w.length()
+				var t_clamp: float = minf(width, edge_len) / edge_len
 				anchor_idx = mesh.vertices.size()
-				mesh.vertices.append(mesh.vertices[vi] + width * dir)
+				mesh.vertices.append(mesh.vertices[vi] + to_w * t_clamp)
 			np_info[vi] = {"faces": faces_arr, "anchor_idx": anchor_idx, "W": best_w}
 			# Record the cap polygon for _add_endpoint_caps.
 			if anchor_idx != -1:
