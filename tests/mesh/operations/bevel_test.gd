@@ -503,3 +503,32 @@ func test_bevel_all_inner_ring_edges_of_loop_cut_cube() -> void:
 		# All faces must have at most 5 vertices (quads grown by anchor insert).
 		for fi: int in mesh.faces.size():
 			assert_int(mesh.faces[fi].vertex_indices.size()).is_less_equal(5)
+
+
+func test_bevel_inner_ring_edge_cap_no_duplicate_vertices() -> void:
+	# The cap triangle added at each bevel endpoint must have 3 DISTINCT vertex
+	# indices.  If _sort_entries_ccw chooses the same slid copy for both non-plan
+	# faces, the cap becomes [sA, sA, anchor] — a degenerate zero-area face.
+	# This test catches that regression by verifying no face has duplicate verts.
+	var ring_edges: Array[int] = []
+	var base_mesh := _make_loop_cut_full_cube()
+	for ei: int in base_mesh.edges.size():
+		var e: GoBuildEdge = base_mesh.edges[ei] as GoBuildEdge
+		if e.face_indices.size() != 2:
+			continue
+		var va_pos: Vector3 = base_mesh.vertices[e.vertex_a]
+		var vb_pos: Vector3 = base_mesh.vertices[e.vertex_b]
+		if absf(va_pos.y) < 1e-4 and absf(vb_pos.y) < 1e-4:
+			ring_edges.append(ei)
+	assert_int(ring_edges.size()).is_equal(4)
+	for ei: int in ring_edges:
+		var mesh := _make_loop_cut_full_cube()
+		BevelOperation.apply(mesh, [ei], 0.1)
+		for fi: int in mesh.faces.size():
+			var vis: Array = []
+			for vi: int in mesh.faces[fi].vertex_indices:
+				vis.append(vi)
+			var unique: Dictionary = {}
+			for vi: int in vis:
+				unique[vi] = true
+			assert_int(unique.size()).is_equal(vis.size())

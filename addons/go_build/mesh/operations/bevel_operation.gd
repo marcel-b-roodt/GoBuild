@@ -412,20 +412,21 @@ static func _sort_entries_ccw(
 		return result
 
 	# Secondary fast path: if a slide_nbr matches next_vi, that entry belongs
-	# LAST in CCW order (on the far side of vi from prev_vi), so the other
-	# entry goes first.
-	var last_i: int = -1
-	for i: int in entries.size():
-		if entries[i].slide_nbr == next_vi:
-			last_i = i
-			break
-	if last_i != -1:
-		var result: Array = []
+	# FIRST in CCW order.  It comes from the plan face sharing the vi→next_vi
+	# edge, which is the first plan face encountered after the current non-plan
+	# face in the CCW ring around vi.
+	if next_vi != -1:
+		var next_i: int = -1
 		for i: int in entries.size():
-			if i != last_i:
-				result.append(entries[i])
-		result.append(entries[last_i])
-		return result
+			if entries[i].slide_nbr == next_vi:
+				next_i = i
+				break
+		if next_i != -1:
+			var result: Array = [entries[next_i]]
+			for i: int in entries.size():
+				if i != next_i:
+					result.append(entries[i])
+			return result
 
 	# Angle-based fallback.
 	var origin: Vector3 = mesh.vertices[vi]
