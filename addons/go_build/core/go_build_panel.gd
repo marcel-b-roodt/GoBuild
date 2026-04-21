@@ -28,6 +28,8 @@ const _SUBDIVIDE_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/subdivide_operation.gd")
 const _LOOP_CUT_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/loop_cut_operation.gd")
+const _INSET_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/inset_operation.gd")
 const _PARAM_PREVIEW_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_param_preview.gd")
 
@@ -36,13 +38,20 @@ const _VERSION := "0.1.0"
 ## Default extrude distance in local mesh units.
 const _EXTRUDE_DEFAULT_DISTANCE: float = 0.5
 
+## Default edge extrude width in local mesh units.
+const _EDGE_EXTRUDE_DEFAULT_WIDTH: float = 0.5
+
 ## Default bevel width in local mesh units.
 const _BEVEL_DEFAULT_WIDTH: float = 0.01
+
+## Default inset amount (0–1 blend toward centroid).
+const _INSET_DEFAULT_AMOUNT: float = 0.1
 
 var _status_label: Label
 var _stats_label: Label
 var _mode_buttons: Array[Button] = []
 var _extrude_btn: Button       = null
+var _inset_btn: Button         = null
 var _flip_btn: Button          = null
 var _extrude_edge_btn: Button  = null
 var _bevel_btn: Button         = null
@@ -231,6 +240,13 @@ func _ready() -> void:
 	_extrude_btn.pressed.connect(_on_extrude_pressed)
 	face_grid.add_child(_extrude_btn)
 	_register_op(_extrude_btn, _cond_face_any)
+
+	_inset_btn = _op_button("Inset",
+		"Inset selected face(s) toward their centroid (0 = none, 1 = collapse).\n"
+		+ "Drag to adjust amount. Requires Face mode with ≥1 face selected.")
+	_inset_btn.pressed.connect(_on_inset_pressed)
+	face_grid.add_child(_inset_btn)
+	_register_op(_inset_btn, _cond_face_any)
 
 	_subdivide_btn = _op_button("Subdivide",
 		"Subdivide selected face(s): each N-gon becomes N quads.\n"
@@ -638,9 +654,9 @@ func trigger_extrude_edge() -> void:
 	_on_extrude_edge_pressed()
 
 
-## Extrude the selected boundary edges, creating new quad faces.
-## Requires Edge mode with at least one boundary edge selected.
-## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+## Extrude the selected edges, entering parameter-preview mode so the user
+## can drag to set the extrude distance.
+## Requires Edge mode with at least one edge selected.
 func _on_extrude_edge_pressed() -> void:
 	if _target == null or _plugin == null:
 		return
@@ -654,22 +670,15 @@ func _on_extrude_edge_pressed() -> void:
 	var edges_to_extrude: Array[int] = []
 	edges_to_extrude.assign(sel_edges)
 
-	var new_edge_indices: Array[int] = []
-	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-	_target.apply_operation(
-		"Extrude Edge",
-		func(): new_edge_indices = EdgeExtrudeOperation.apply(
-				_target.go_build_mesh, edges_to_extrude),
-		ur,
-	)
-
-	# Select the newly created boundary edges so the user can immediately drag them.
-	_target.selection.clear()
-	for ei: int in new_edge_indices:
-		_target.selection.select_edge(ei)
-	_target.update_gizmos()
-	_update_ops_buttons()
-	_refresh()
+	var preview := GoBuildParamPreview.new()
+	preview.action_name = "Extrude Edge"
+	preview.param_label = "Distance"
+	preview.param_start = _EDGE_EXTRUDE_DEFAULT_WIDTH
+	preview.param_min   = 0.0
+	preview.param_max   = 100.0
+	preview.apply_fn    = func(p: float) -> void: \
+			EdgeExtrudeOperation.apply(_target.go_build_mesh, edges_to_extrude, p)
+	_plugin.call("begin_param_preview", preview)
 
 
 ## Bevel the selected edge(s) by [constant _BEVEL_DEFAULT_WIDTH].
@@ -738,6 +747,36 @@ func _on_extrude_pressed() -> void:
 	preview.param_max   = 100.0
 	preview.apply_fn    = func(p: float) -> void: \
 			ExtrudeOperation.apply(_target.go_build_mesh, faces_to_extrude, p)
+	_plugin.call("begin_param_preview", preview)
+
+
+## Public entry-point for the right-click context menu.
+func trigger_inset() -> void:
+	_on_inset_pressed()
+
+
+## Inset the selected faces, entering parameter-preview mode.
+## Amount is a blend factor: 0 = no inset, 1 = fully collapsed to centroid.
+## Clamped to [0, 1] so inset can never overshoot the face centroid.
+## Requires Face mode with at least one face selected.
+func _on_inset_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+	var faces_to_inset: Array[int] = []
+	faces_to_inset.assign(sel_faces)
+	var preview := GoBuildParamPreview.new()
+	preview.action_name = "Inset Face"
+	preview.param_label = "Amount"
+	preview.param_start = _INSET_DEFAULT_AMOUNT
+	preview.param_min   = 0.0
+	preview.param_max   = 1.0
+	preview.apply_fn    = func(p: float) -> void: \
+			InsetOperation.apply(_target.go_build_mesh, faces_to_inset, p)
 	_plugin.call("begin_param_preview", preview)
 
 

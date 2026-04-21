@@ -36,7 +36,14 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 ## Returns the new boundary edge indices (one per successfully extruded source
 ## edge) so callers can update the selection.
 ## [method GoBuildMesh.rebuild_edges] is called automatically on completion.
-static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> Array[int]:
+## [param width] offsets the new edge vertices by this distance along the
+## average outward normal of the adjacent face(s).  0.0 creates a zero-area
+## face (caller moves the vertices later, e.g. via Shift+drag).
+static func apply(
+		mesh: GoBuildMesh,
+		edge_indices: Array[int],
+		width: float = 0.0,
+) -> Array[int]:
 	if mesh == null or edge_indices.is_empty():
 		return []
 
@@ -50,6 +57,19 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> Array[int]:
 	if valid_indices.is_empty():
 		return []
 
+	# Precompute per-edge extrude offset BEFORE altering topology.
+	# Direction = average normal of adjacent faces, then scaled by width.
+	var edge_offsets: Dictionary = {}  # ei -> Vector3
+	if width != 0.0:
+		for ei: int in valid_indices:
+			var edge: GoBuildEdge = mesh.edges[ei]
+			var avg_normal := Vector3.ZERO
+			for fi: int in edge.face_indices:
+				avg_normal += mesh.compute_face_normal(mesh.faces[fi])
+			if avg_normal.length_squared() > 1e-8:
+				avg_normal = avg_normal.normalized()
+			edge_offsets[ei] = avg_normal * width
+
 	# Track the vertex index range before any additions.
 	# After rebuild_edges the returned edge indices are found by matching
 	# the na/nb vertex index pairs, which are stored per-extrusion below.
@@ -57,7 +77,8 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> Array[int]:
 
 	for ei: int in valid_indices:
 		var edge: GoBuildEdge = mesh.edges[ei]
-		_extrude_single_edge(mesh, edge, new_vert_pairs)
+		var offset: Vector3 = edge_offsets.get(ei, Vector3.ZERO)
+		_extrude_single_edge(mesh, edge, new_vert_pairs, offset)
 
 	mesh.rebuild_edges()
 
@@ -83,19 +104,21 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> Array[int]:
 ##      matching the side-face winding of [ExtrudeOperation].
 ##   3. Append [code][na, nb][/code] to [param new_vert_pairs] for post-
 ##      rebuild index lookup.
+##   4. Offset [code]na[/code] and [code]nb[/code] by [param offset] if non-zero.
 static func _extrude_single_edge(
 		mesh: GoBuildMesh,
 		edge: GoBuildEdge,
 		new_vert_pairs: Array,
+		offset: Vector3 = Vector3.ZERO,
 ) -> void:
 	var va: int = edge.vertex_a
 	var vb: int = edge.vertex_b
 
 	# ── 1. Duplicate the two endpoints ─────────────────────────────────────
 	var na: int = mesh.vertices.size()
-	mesh.vertices.append(mesh.vertices[va])
+	mesh.vertices.append(mesh.vertices[va] + offset)
 	var nb: int = mesh.vertices.size()
-	mesh.vertices.append(mesh.vertices[vb])
+	mesh.vertices.append(mesh.vertices[vb] + offset)
 
 	# ── 2. Add the new quad face ────────────────────────────────────────────
 	# Winding [va, vb, nb, na] is CCW from outside — identical to the side-face

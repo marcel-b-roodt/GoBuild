@@ -1037,6 +1037,7 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 			if not sel.get_selected_faces().is_empty():
 				popup.add_separator()
 				popup.add_item("Extrude", 30)
+				popup.add_item("Inset", 31)
 				popup.add_item("Subdivide", 33)
 				popup.add_separator()
 				popup.add_item("Flip Normals", 32)
@@ -1095,6 +1096,9 @@ func _on_context_menu_pressed(
 		30:  # Extrude face
 			if _panel != null:
 				_panel.trigger_extrude()
+		31:  # Inset face
+			if _panel != null:
+				_panel.trigger_inset()
 		32:  # Flip Normals
 			if _panel != null:
 				_panel.trigger_flip_normals()

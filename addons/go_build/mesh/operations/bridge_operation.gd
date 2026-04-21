@@ -119,10 +119,10 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> void:
 		var cross1: float = a0.distance_squared_to(b1) + a1.distance_squared_to(b0)
 		# Pairing 2: [a0,b1,b0,a1] (reverse b) — cross-diagonals are a0↔b0 and a1↔b1.
 		var cross2: float = a0.distance_squared_to(b0) + a1.distance_squared_to(b1)
-		# The non-crossing quad has the LARGER sum — shorter diagonals mean they
-		# cross.  Pick the pairing whose "bridge" edges are shorter (cross2 < cross1
-		# means b is better reversed for a non-crossing quad).
-		if cross2 < cross1:
+		# The non-crossing quad has larger cross-diagonal lengths (the diagonals
+		# are longer than the sides in a proper bridged quad).  Reverse b only
+		# when pairing 1 is the crossing one (its diagonals are shorter).
+		if cross1 < cross2:
 			loop_b.reverse()
 
 	# ── 4. Resample to the same length (longer loop wins) ──────────────────
