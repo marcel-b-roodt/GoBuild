@@ -196,7 +196,7 @@ func _ready() -> void:
 		+ "Requires Edge mode with ≥1 boundary edge selected.")
 	_extrude_edge_btn.pressed.connect(_on_extrude_edge_pressed)
 	edge_grid.add_child(_extrude_edge_btn)
-	_register_op(_extrude_edge_btn, _cond_edge_boundary)
+	_register_op(_extrude_edge_btn, _cond_edge_any)
 
 	_bevel_btn = _op_button("Bevel",
 		"Bevel selected edge(s) at 0.1 units width.\n"
@@ -650,17 +650,9 @@ func _on_extrude_edge_pressed() -> void:
 	if sel_edges.is_empty():
 		return
 
-	# Filter to boundary edges only before passing to the operation.
-	var boundary_edges: Array[int] = []
-	for ei: int in sel_edges:
-		if _target.go_build_mesh.edges[ei].is_boundary():
-			boundary_edges.append(ei)
-	if boundary_edges.is_empty():
-		return
-
 	# Capture to a local so the Callable closure captures the right set.
 	var edges_to_extrude: Array[int] = []
-	edges_to_extrude.assign(boundary_edges)
+	edges_to_extrude.assign(sel_edges)
 
 	var new_edge_indices: Array[int] = []
 	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
