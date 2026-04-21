@@ -59,3 +59,19 @@ jobs:
           draft: true
           files: ${{ steps.package.outputs.zip_name }}
 
+      - name: Notify internal socials reminder (optional)
+        if: ${{ secrets.DISCORD_WEBHOOK_REMINDER != '' }}
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_REMINDER }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          RELEASES_URL="https://github.com/${{ github.repository }}/releases"
+          jq -n \
+            --arg content "GoBuild ${TAG} draft release is ready.\n\nSocial checklist:\n1) Review and publish the GitHub draft release\n2) Post Patreon update\n3) Post X/Reddit/Discord announcements\n4) Mark queue status as posted\n\n${RELEASES_URL}" \
+            '{content:$content}' > payload.json
+          curl -fsSL \
+            -H "Content-Type: application/json" \
+            -d @payload.json \
+            "$WEBHOOK_URL"
+

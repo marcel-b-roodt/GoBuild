@@ -1,0 +1,35 @@
+name: Discord Release Notification
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+jobs:
+  notify-discord:
+    name: Post release to Discord (optional)
+    runs-on: ubuntu-latest
+    if: ${{ secrets.DISCORD_WEBHOOK_RELEASE != '' }}
+
+    steps:
+      - name: Build Discord payload
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_RELEASE }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          SUMMARY=$(printf "%s" "$RELEASE_BODY" | sed 's/\r//g' | sed '/^\s*$/d' | head -n 8)
+
+          CONTENT="GoBuild ${TAG_NAME} is live.\n\n${RELEASE_NAME}\n${RELEASE_URL}\n\nHighlights:\n${SUMMARY}\n\nTry the new version from GitHub and share feedback."
+
+          jq -n --arg content "$CONTENT" '{content:$content}' > payload.json
+
+          curl -fsSL \
+            -H "Content-Type: application/json" \
+            -d @payload.json \
+            "$WEBHOOK_URL"
