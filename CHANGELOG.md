@@ -8,6 +8,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [0.4.0] — 2026-04-21
+
 ### Added
 
 **UV Editing & Materials (Stage 4, started)**
