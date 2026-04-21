@@ -157,7 +157,7 @@ Right-clicking on a selection opens a `PopupMenu` at the cursor with context-sen
 | **Object** | Select All, Deselect All, Reset Transform, Enter Edit Mode |
 | **Vertex** | Merge (submenu), Delete, Duplicate, Select Loop, Select All |
 | **Edge** | Bevel, Loop Cut, Bridge, Extrude Edge, Delete, Select Loop, Select All |
-| **Face** | Extrude, Inset, Flip Normals, Delete, Subdivide, Assign Material, Select All |
+| **Face** | Extrude, Inset, Flip Normals, Delete, Subdivide, Auto UV (Planar), Assign Material, Select All |
 
 ### Implementation
 

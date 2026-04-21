@@ -81,7 +81,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 
 | Feature | Status | Notes |
 |---|---|---|
-| Auto UV — Planar | 📋 Planned | Per-face dominant axis |
+| Auto UV — Planar | ✅ Complete | `PlanarProjection.apply(mesh, face_indices, units_per_tile)`; dominant-axis per-face projection; defaults to 1 unit per texture repeat so checker or metre textures tile with mesh size; panel button in Face section + face context menu; 5 unit tests |
 | Auto UV — Box | 📋 Planned | Six-axis projection |
 | Auto UV — Cylindrical | 📋 Planned | |
 | Auto UV — Spherical | 📋 Planned | |
@@ -89,6 +89,8 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Lightmap UV (UV2) generation | 📋 Planned | Non-overlapping second channel |
 | Per-face material assignment | 📋 Planned | Right-click → Assign Material |
 | Material palette panel | 📋 Planned | All slots on active mesh |
+| Prototype blockout materials | 📋 Planned | Unit checker plus colour-coded defaults for fast greyboxing |
+| GoBuild material palette resource | 📋 Planned | Swap-able palette asset supplying reusable material slots |
 
 ---
 

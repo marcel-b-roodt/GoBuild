@@ -30,6 +30,8 @@ const _LOOP_CUT_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/loop_cut_operation.gd")
 const _INSET_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/inset_operation.gd")
+const _PLANAR_UV_SCRIPT := \
+		preload("res://addons/go_build/uv/planar_projection.gd")
 const _PARAM_PREVIEW_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_param_preview.gd")
 
@@ -47,6 +49,9 @@ const _BEVEL_DEFAULT_WIDTH: float = 0.01
 ## Default inset amount (0–1 blend toward centroid).
 const _INSET_DEFAULT_AMOUNT: float = 0.1
 
+## Default size of one tiled UV repeat in mesh units.
+const _PLANAR_UV_UNITS_PER_TILE: float = 1.0
+
 var _status_label: Label
 var _stats_label: Label
 var _mode_buttons: Array[Button] = []
@@ -57,11 +62,13 @@ var _extrude_edge_btn: Button  = null
 var _bevel_btn: Button         = null
 var _bridge_btn: Button        = null
 var _subdivide_btn: Button     = null
+var _planar_uv_btn: Button     = null
 var _loop_cut_btn: Button      = null
 var _delete_btn: Button        = null
 var _merge_btn: Button         = null
 var _weld_btn: Button          = null
 var _cull_check: CheckBox      = null
+var _auto_uv_check: CheckBox   = null
 
 ## Registry of all operation buttons and their enable-condition callables.
 ## Populated by [method _register_op] during [method _ready].
@@ -255,6 +262,15 @@ func _ready() -> void:
 	face_grid.add_child(_subdivide_btn)
 	_register_op(_subdivide_btn, _cond_face_any)
 
+	_planar_uv_btn = _op_button("Auto UV",
+		"Project selected face(s) onto their dominant axis using %.1f unit tiles.\n"
+		% _PLANAR_UV_UNITS_PER_TILE
+		+ "Useful for checker or metre textures during blockout.\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_planar_uv_btn.pressed.connect(_on_planar_uv_pressed)
+	face_grid.add_child(_planar_uv_btn)
+	_register_op(_planar_uv_btn, _cond_face_any)
+
 	_flip_btn = _op_button("Flip Normals",
 		"Reverse the outward normal of selected face(s) by flipping winding order.\n"
 		+ "Requires Face mode with ≥1 face selected.")
@@ -326,6 +342,18 @@ func _ready() -> void:
 	_cull_check.toggled.connect(_on_cull_check_toggled)
 	add_child(_cull_check)
 
+	_auto_uv_check = CheckBox.new()
+	_auto_uv_check.text = "Auto UV"
+	_auto_uv_check.button_pressed = true
+	_auto_uv_check.add_theme_font_size_override("font_size", 11)
+	_auto_uv_check.tooltip_text = (
+		"Automatically apply planar UV projection after every operation.\n"
+		+ "Keeps UVs world-aligned at 1 unit per tile (useful for blockout texturing).\n"
+		+ "Disable to preserve hand-edited UVs."
+	)
+	_auto_uv_check.toggled.connect(_on_auto_uv_check_toggled)
+	add_child(_auto_uv_check)
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -356,6 +384,8 @@ func set_target(target: GoBuildMeshInstance) -> void:
 		# Apply the current checkbox state so the new node matches immediately.
 		if _cull_check != null:
 			_target.set_edit_cull_override(_cull_check.button_pressed)
+		if _auto_uv_check != null:
+			_auto_uv_check.button_pressed = _target.auto_uv
 	else:
 		_sync_mode_buttons(SelectionManager.Mode.OBJECT)
 
@@ -419,6 +449,12 @@ func trigger_bevel() -> void:
 ## Equivalent to pressing the Subdivide panel button.
 func trigger_subdivide() -> void:
 	_on_subdivide_pressed()
+
+
+## Called by external code (e.g. the face context menu)
+## to project planar UVs onto the current face selection.
+func trigger_planar_uv() -> void:
+	_on_planar_uv_pressed()
 
 
 # ---------------------------------------------------------------------------
@@ -797,6 +833,29 @@ func _on_subdivide_pressed() -> void:
 			func(): SubdivideOperation.apply(_target.go_build_mesh, faces_to_subdivide))
 
 
+## Reproject the currently selected faces with dominant-axis planar UVs.
+## Uses unit-based tiling so a 2-unit span maps to 2 texture repeats.
+func _on_planar_uv_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+	var faces_to_project: Array[int] = []
+	faces_to_project.assign(sel_faces)
+	_run_op(
+		"Auto UV Planar",
+		func(): PlanarProjection.apply(
+			_target.go_build_mesh,
+			faces_to_project,
+			_PLANAR_UV_UNITS_PER_TILE,
+		),
+		false,
+	)
+
+
 ## Flip the outward normals of the currently selected faces.
 ## Requires Face mode and at least one selected face.
 ## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
@@ -875,6 +934,12 @@ func _on_delete_pressed() -> void:
 func _on_cull_check_toggled(enabled: bool) -> void:
 	if _target != null:
 		_target.set_edit_cull_override(enabled)
+
+
+## Called when the Auto UV checkbox is toggled.
+func _on_auto_uv_check_toggled(enabled: bool) -> void:
+	if _target != null:
+		_target.auto_uv = enabled
 
 
 ## Merge selected vertices to their centroid.

@@ -74,6 +74,10 @@ var _inset_centroids: Dictionary = {}
 ## [method GoBuildMeshInstance.bake].  Set by [method begin_drag]; cleared by
 ## [method reset_drag_state] so the commit/cancel full-bake is never skipped.
 var _drag_vertex_update_mode: bool = false
+## When true, live drag updates are rendered via [method GoBuildMeshInstance.bake_preview]
+## instead of [method GoBuildMeshInstance.bake] so mesh resource assignment is
+## avoided while the drag is in progress.
+var _drag_preview_mode: bool = false
 
 # ── Deferred-bake state ─────────────────────────────────────────────────────
 var _bake_pending_node: GoBuildMeshInstance = null
@@ -147,6 +151,9 @@ func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
 	_drag_restore = node.go_build_mesh.take_snapshot()
 	# Engage the fast vertex-position-only bake path for the duration of this drag.
 	_drag_vertex_update_mode = true
+	_drag_preview_mode = node.auto_uv
+	if _drag_preview_mode:
+		node.begin_preview()
 	return true
 
 
@@ -203,10 +210,16 @@ func commit_drag(
 	_gizmo_redraw_scheduled    = false
 
 	if cancel:
+		if _drag_preview_mode:
+			node.end_preview()
 		node.restore_and_bake(_drag_restore)
 		node.update_gizmos()
 	elif _drag_initial_t != INF:
 		# Bake final dragged state before snapshooting so normals are correct.
+		if node.auto_uv:
+			node._apply_auto_uv()
+		if _drag_preview_mode:
+			node.end_preview()
 		node.bake()
 		var snapshot_after: Dictionary = node.go_build_mesh.take_snapshot()
 		var action_name: String = _drag_action_name_override \
@@ -230,6 +243,7 @@ func reset_drag_state() -> void:
 	_drag_restore    = {}
 	_drag_action_name_override = ""
 	_drag_vertex_update_mode = false
+	_drag_preview_mode = false
 	_inset_mode = false
 	_inset_centroids.clear()
 	_bake_pending_node         = null
@@ -297,7 +311,11 @@ func _schedule_bake(node: GoBuildMeshInstance) -> void:
 func _flush_pending_bake() -> void:
 	_bake_scheduled = false
 	if _bake_pending_node != null and is_instance_valid(_bake_pending_node):
-		if _drag_vertex_update_mode:
+		if _bake_pending_node.auto_uv:
+			_bake_pending_node._apply_auto_uv()
+		if _drag_preview_mode:
+			_bake_pending_node.bake_preview()
+		elif _drag_vertex_update_mode:
 			_bake_pending_node.bake_vertex_positions()
 		else:
 			_bake_pending_node.bake()

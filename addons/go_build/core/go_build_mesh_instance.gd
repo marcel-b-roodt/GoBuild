@@ -18,12 +18,19 @@ signal mesh_changed
 # reaching this file before selection_manager.gd.  The explicit preload forces
 # SelectionManager to be registered before this script is compiled.
 const _SEL_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.gd")
+const _PLANAR_UV_SCRIPT := preload("res://addons/go_build/uv/planar_projection.gd")
 
 ## The editable mesh resource. Assigning a new resource immediately bakes it.
 @export var go_build_mesh: GoBuildMesh:
 	set(value):
 		go_build_mesh = value
+		if auto_uv and go_build_mesh != null:
+			_apply_auto_uv()
 		bake()
+
+## When [code]true[/code], planar UV projection is applied automatically after
+## every modelling operation.  Can be toggled in the GoBuild panel.
+@export var auto_uv: bool = true
 
 ## Per-instance selection state: which mode is active and which elements are
 ## selected. The gizmo and panel both hold a reference to this object.
@@ -148,8 +155,22 @@ func apply_operation(
 ## Execute [param operation] and rebake. Called by the undo/redo system.
 func _do_operation(operation: Callable) -> void:
 	operation.call()
+	if auto_uv:
+		_apply_auto_uv()
 	bake()
 	update_gizmos()
+
+
+## Apply planar UV projection to every face of [member go_build_mesh].
+## Called automatically after operations when [member auto_uv] is enabled.
+func _apply_auto_uv() -> void:
+	if go_build_mesh == null:
+		return
+	var all_faces: Array[int] = []
+	all_faces.resize(go_build_mesh.faces.size())
+	for i: int in all_faces.size():
+		all_faces[i] = i
+	PlanarProjection.apply(go_build_mesh, all_faces, 1.0)
 
 
 ## Restore the mesh from [param snapshot] and rebake.

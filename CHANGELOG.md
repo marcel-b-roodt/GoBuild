@@ -8,6 +8,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+**UV Editing & Materials (Stage 4, started)**
+- Auto UV planar projection — `PlanarProjection.apply(mesh, face_indices, units_per_tile)` projects each selected face onto the plane implied by its dominant normal axis; defaults to 1 unit per texture repeat so checker or metre textures tile according to mesh size; exposed via the Face section of GoBuildPanel and the face right-click context menu; now supports default auto-application after mesh edits (including drag-based editing), live UV updates during deferred preview, and an `Auto UV` panel toggle; 5 unit tests covering dominant-axis projection, tiling span, selection scoping, and no-op guards
+
 ---
 
 ## [0.2.0] — 2026-04-15

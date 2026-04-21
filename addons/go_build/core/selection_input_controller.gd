@@ -340,6 +340,8 @@ func _flush_preview_apply() -> void:
 		return
 	node.go_build_mesh.restore_snapshot(_param_preview.snapshot)
 	_param_preview.apply_fn.call(_preview_apply_target)
+	if node.auto_uv:
+		node._apply_auto_uv()
 	node.bake_preview()
 	_editor_plugin.update_overlays()
 
@@ -1039,6 +1041,7 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 				popup.add_item("Extrude", 30)
 				popup.add_item("Inset", 31)
 				popup.add_item("Subdivide", 33)
+				popup.add_item("Auto UV (Planar)", 34)
 				popup.add_separator()
 				popup.add_item("Flip Normals", 32)
 				popup.add_item("Delete", 10)
@@ -1105,6 +1108,9 @@ func _on_context_menu_pressed(
 		33:  # Subdivide
 			if _panel != null:
 				_panel.trigger_subdivide()
+		34:  # Auto UV (planar)
+			if _panel != null:
+				_panel.trigger_planar_uv()
 
 
 # ---------------------------------------------------------------------------
@@ -1200,6 +1206,8 @@ func _commit_param_preview(edited_node: GoBuildMeshInstance) -> void:
 	# the last deferred flush hasn't fired yet (or was throttled).
 	edited_node.go_build_mesh.restore_snapshot(before)
 	apply_fn.call(final_target)
+	if edited_node.auto_uv:
+		edited_node._apply_auto_uv()
 	edited_node.end_preview()
 	edited_node.bake()
 	# Capture the post-operation snapshot to store as the redo state.

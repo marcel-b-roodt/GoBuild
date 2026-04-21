@@ -14,7 +14,7 @@ tests/
       bevel_test.gd             ← Bevel edge operation tests
       weld_test.gd              ← Weld/merge vertex tests
   uv/
-    planar_projection_test.gd   ← Planar UV projection tests
+    planar_projection_test.gd   ← Planar UV projection + unit tiling tests
     box_projection_test.gd      ← Box UV projection tests
   export/
     obj_export_test.gd          ← OBJ export writer tests
