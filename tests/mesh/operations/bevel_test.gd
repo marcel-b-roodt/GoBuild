@@ -532,3 +532,103 @@ func test_bevel_inner_ring_edge_cap_no_duplicate_vertices() -> void:
 			for vi: int in vis:
 				unique[vi] = true
 			assert_int(unique.size()).is_equal(vis.size())
+
+
+func test_bevel_strip_edges_parallel_to_original_edge() -> void:
+	# The bevel strip edges (A'B' and A''B'') must be parallel to the original
+	# edge AB.  On non-square faces (e.g., the 0.5-unit-tall halves of a
+	# loop-cut cube) the old "slide along neighbour" approach could produce
+	# non-parallel edges.  The perpendicular-slide fix guarantees parallelism.
+	var mesh := _make_loop_cut_full_cube()
+	var target_ei: int = -1
+	for ei: int in mesh.edges.size():
+		var e: GoBuildEdge = mesh.edges[ei] as GoBuildEdge
+		if e.face_indices.size() != 2:
+			continue
+		var va_pos: Vector3 = mesh.vertices[e.vertex_a]
+		var vb_pos: Vector3 = mesh.vertices[e.vertex_b]
+		if absf(va_pos.y) < 1e-4 and absf(vb_pos.y) < 1e-4:
+			target_ei = ei
+			break
+	assert_int(target_ei).is_not_equal(-1)
+	var orig_e: GoBuildEdge = mesh.edges[target_ei] as GoBuildEdge
+	var edge_a: Vector3 = mesh.vertices[orig_e.vertex_a]
+	var edge_b: Vector3 = mesh.vertices[orig_e.vertex_b]
+	var orig_dir: Vector3 = (edge_b - edge_a).normalized()
+	BevelOperation.apply(mesh, [target_ei], 0.1)
+	# The strip face is the last appended face.  Find the face whose 4 vertices
+	# are all new (not in the original 12 vertices of the loop-cut cube).
+	# On a ring-edge bevel the strip is among the last appended faces.
+	# Instead check ALL non-trivial faces: for every quad whose vertices are
+	# not all at Y=0, verify its horizontal edges are parallel to orig_dir.
+	for fi: int in mesh.faces.size():
+		var face: GoBuildFace = mesh.faces[fi] as GoBuildFace
+		if face.vertex_indices.size() != 4:
+			continue
+		# Check the two edges of the quad that connect opposite corners.
+		# The strip quad [A', B', B'', A''] has edge A'-B' parallel to orig_dir.
+		var vis: Array = face.vertex_indices
+		var e0: Vector3 = (mesh.vertices[vis[1]] - mesh.vertices[vis[0]]).normalized()
+		var e1: Vector3 = (mesh.vertices[vis[2]] - mesh.vertices[vis[1]]).normalized()
+		# One of these should be parallel to orig_dir.
+		var cross0: float = e0.cross(orig_dir).length()
+		var cross1: float = e1.cross(orig_dir).length()
+		if cross0 < 0.01 or cross1 < 0.01:
+			# This face has an edge parallel to orig_dir; verify the opposite edge too.
+			if cross0 < 0.01:
+				var opp: Vector3 = (mesh.vertices[vis[2]] - mesh.vertices[vis[3]]).normalized()
+				assert_float(opp.cross(orig_dir).length()).is_less(0.01)
+			else:
+				var opp: Vector3 = (mesh.vertices[vis[3]] - mesh.vertices[vis[0]]).normalized()
+				assert_float(opp.cross(orig_dir).length()).is_less(0.01)
+
+
+func test_bevel_inner_ring_edge_max_width_no_inverted_strip() -> void:
+	# At maximum bevel width the plan faces can collapse to zero-area (slid
+	# vertex lands on the face corner).  This makes the post-update face normals
+	# zero, which used to cause the strip face winding check to be skipped and
+	# the strip to be randomly inverted.  The fix precomputes hint normals
+	# before _update_faces so the winding check always has a valid reference.
+	var mesh := _make_loop_cut_full_cube()
+	var target_ei: int = -1
+	for ei: int in mesh.edges.size():
+		var e: GoBuildEdge = mesh.edges[ei] as GoBuildEdge
+		if e.face_indices.size() != 2:
+			continue
+		var va_pos: Vector3 = mesh.vertices[e.vertex_a]
+		var vb_pos: Vector3 = mesh.vertices[e.vertex_b]
+		if absf(va_pos.y) < 1e-4 and absf(vb_pos.y) < 1e-4:
+			target_ei = ei
+			break
+	assert_int(target_ei).is_not_equal(-1)
+	# Width = 0.5 is the max for the 0.5-unit-tall half-faces.
+	BevelOperation.apply(mesh, [target_ei], 0.5)
+	# All non-degenerate face normals must point outward (away from origin).
+	# For a unit cube centered at origin the dot product of each face normal
+	# with the face centroid direction must be non-negative.
+	# Note: at maximum bevel width the two plan faces collapse to zero-area
+	# (slid vertices land exactly on the face corners).  compute_face_normal
+	# returns Vector3.UP for those — skip them by computing the raw Newell sum.
+	for fi: int in mesh.faces.size():
+		var face: GoBuildFace = mesh.faces[fi] as GoBuildFace
+		var face_vis: Array = face.vertex_indices
+		var fvc: int = face_vis.size()
+		if fvc < 3:
+			continue
+		# Raw Newell sum — does NOT fall back to Vector3.UP.
+		var n_raw := Vector3.ZERO
+		for idx: int in fvc:
+			var cur: Vector3 = mesh.vertices[face_vis[idx]]
+			var nxt: Vector3 = mesh.vertices[face_vis[(idx + 1) % fvc]]
+			n_raw.x += (cur.y - nxt.y) * (cur.z + nxt.z)
+			n_raw.y += (cur.z - nxt.z) * (cur.x + nxt.x)
+			n_raw.z += (cur.x - nxt.x) * (cur.y + nxt.y)
+		if n_raw.length_squared() < 1e-8:
+			continue  # truly zero-area face; plan face collapsed at max width
+		var centroid: Vector3 = Vector3.ZERO
+		for vi: int in face_vis:
+			centroid += mesh.vertices[vi]
+		centroid /= fvc
+		if centroid.length_squared() < 1e-6:
+			continue
+		assert_float(n_raw.normalized().dot(centroid.normalized())).is_greater(-0.01)

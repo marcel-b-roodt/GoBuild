@@ -56,8 +56,21 @@ static func apply(
 	var vertex_plan: Dictionary = _build_vertex_plan(mesh, valid, width)
 
 	var caps_needed: Array[Dictionary] = []
+
+	# Precompute original face normals per edge BEFORE _update_faces modifies
+	# the face rings.  At maximum bevel width the plan faces can collapse to
+	# zero-area (slid vertex lands exactly on a corner), making their
+	# post-update normals unreliable for the strip winding check.
+	var edge_hint_normals: Dictionary = {}  # ei → Vector3
+	for ei: int in valid:
+		var edge: GoBuildEdge = mesh.edges[ei]
+		var hint: Vector3 = Vector3.ZERO
+		for hint_fi: int in edge.face_indices:
+			hint += mesh.compute_face_normal(mesh.faces[hint_fi])
+		edge_hint_normals[ei] = hint
+
 	_update_faces(mesh, vertex_plan, width, caps_needed)
-	_add_bevel_strips(mesh, valid, vertex_plan)
+	_add_bevel_strips(mesh, valid, vertex_plan, edge_hint_normals)
 	_add_endpoint_caps(mesh, caps_needed)
 	_compact_vertices(mesh)
 	mesh.rebuild_edges()
@@ -116,16 +129,37 @@ static func _build_vertex_plan(
 				raw_offsets[fi] = {}
 				raw_nbrs[fi]    = {}
 
+			# Perpendicular-to-edge direction within the face plane.
+			# Both endpoints share the same perp base so A'B' is always parallel
+			# to AB regardless of the adjacent edge lengths or angles.
+			var face_normal: Vector3 = mesh.compute_face_normal(face)
+			var edge_dir: Vector3 = (mesh.vertices[vb] - mesh.vertices[va]).normalized()
+			var perp_base: Vector3 = face_normal.cross(edge_dir)
+			var has_perp: bool = perp_base.length_squared() > 1e-8
+			if has_perp:
+				perp_base = perp_base.normalized()
+
 			for pair in [[va, nbr_a], [vb, nbr_b]]:
 				var vi: int    = pair[0]
 				var slide: int = pair[1]
 				var to_slide: Vector3 = mesh.vertices[slide] - mesh.vertices[vi]
-				var edge_len: float = to_slide.length()
-				if edge_len < 1e-8:
-					continue
-				# Clamp: never slide past the neighbour vertex.
-				var clamped_width: float = minf(width, edge_len)
-				var offset: Vector3 = to_slide / edge_len * clamped_width
+				var offset: Vector3
+				if has_perp:
+					# Orient perp toward the slide neighbour (into the face).
+					var perp: Vector3 = perp_base if to_slide.dot(perp_base) >= 0.0 \
+							else -perp_base
+					var perp_dist: float = to_slide.dot(perp)
+					if perp_dist < 1e-8:
+						continue
+					var clamped_width: float = minf(width, perp_dist)
+					offset = perp * clamped_width
+				else:
+					# Degenerate face fallback: slide along neighbour direction.
+					var edge_len: float = to_slide.length()
+					if edge_len < 1e-8:
+						continue
+					var clamped_width: float = minf(width, edge_len)
+					offset = to_slide / edge_len * clamped_width
 
 				if not raw_offsets[fi].has(vi):
 					raw_offsets[fi][vi] = []
@@ -279,15 +313,22 @@ static func _update_faces(
 				mesh.vertices.append(mesh.vertices[vi] + to_w * t_clamp)
 			np_info[vi] = {"faces": faces_arr, "anchor_idx": anchor_idx, "W": best_w}
 			# Record the cap polygon for _add_endpoint_caps.
+			# The hint normal is computed NOW — before Phase 2 modifies any face
+			# rings — so it remains valid even when plan faces collapse to
+			# zero-area at maximum bevel width.
 			if anchor_idx != -1:
 				var chosen_verts: Array[int] = []
 				for face_info: Dictionary in faces_arr:
 					chosen_verts.append(face_info["chosen_idx"])
+				var cap_hint: Vector3 = Vector3.ZERO
+				for face_info: Dictionary in faces_arr:
+					cap_hint += mesh.compute_face_normal(mesh.faces[face_info["fi"]])
 				caps_needed.append({
 					"vertices": chosen_verts,
 					"anchor":   anchor_idx,
 					"mat":      mesh.faces[faces_arr[0]["fi"]].material_index,
 					"smooth":   mesh.faces[faces_arr[0]["fi"]].smooth_group,
+					"hint":     cap_hint,
 				})
 
 	# Build fast-lookup tables derived from np_info.
@@ -448,11 +489,13 @@ static func _sort_entries_ccw(
 # ── Phase 3 ───────────────────────────────────────────────────────────────────
 # Append one new quad face per selected interior edge.
 # The four corners come from vertex_plan: slid copy of va and vb in each of
-# the two adjacent faces.  Winding is validated against the adjacent face normals.
+# the two adjacent faces.  Winding is validated against the precomputed hint
+# normals (computed from the original, unmodified face rings in apply()).
 static func _add_bevel_strips(
 		mesh: GoBuildMesh,
 		valid: Array[int],
 		vertex_plan: Dictionary,
+		edge_hint_normals: Dictionary,
 ) -> void:
 	for ei: int in valid:
 		var edge: GoBuildEdge = mesh.edges[ei]
@@ -483,9 +526,7 @@ static func _add_bevel_strips(
 		strip.material_index = mesh.faces[fi0].material_index
 		strip.smooth_group   = mesh.faces[fi0].smooth_group
 
-		var hint: Vector3 = \
-				mesh.compute_face_normal(mesh.faces[fi0]) + \
-				mesh.compute_face_normal(mesh.faces[fi1])
+		var hint: Vector3 = edge_hint_normals.get(ei, Vector3.ZERO)
 		if hint.length_squared() > 1e-8 \
 				and mesh.compute_face_normal(strip).dot(hint) < 0.0:
 			strip.vertex_indices = [na0, na1, nb1, nb0]
@@ -507,11 +548,13 @@ static func _add_endpoint_caps(
 		for v: int in verts:
 			vis.append(v)
 		vis.append(anchor)
-		# Validate winding: average outward normal from faces containing verts[0].
-		var outward: Vector3 = Vector3.ZERO
-		for existing: GoBuildFace in mesh.faces:
-			if verts[0] in existing.vertex_indices:
-				outward += mesh.compute_face_normal(existing)
+		# Use the precomputed hint (from original face rings before Phase 2
+		# modified them).  Fall back to scanning existing faces only if needed.
+		var outward: Vector3 = cap.get("hint", Vector3.ZERO)
+		if outward.length_squared() < 1e-8:
+			for existing: GoBuildFace in mesh.faces:
+				if verts[0] in existing.vertex_indices:
+					outward += mesh.compute_face_normal(existing)
 		var cap_face := _FACE_SCRIPT.new()
 		cap_face.vertex_indices.assign(vis)
 		var cap_normal: Vector3 = mesh.compute_face_normal(cap_face)
