@@ -59,20 +59,14 @@ jobs:
           draft: true
           files: ${{ steps.package.outputs.zip_name }}
 
-      - name: Notify internal socials reminder (optional)
+      - name: Build reminder message content
         env:
-          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_REMINDER }}
           TAG: ${{ github.ref_name }}
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if [ -z "${WEBHOOK_URL:-}" ]; then
-            echo "::notice::DISCORD_WEBHOOK_REMINDER not set; skipping reminder post."
-            exit 0
-          fi
-
           RELEASES_URL="https://github.com/${{ github.repository }}/releases"
-
-          CONTENT=$(cat <<EOF
+          {
+            echo "CONTENT<<EOF"
+            cat <<EOF
 @here
 
 GoBuild ${TAG} draft release is ready.
@@ -85,7 +79,22 @@ Social checklist:
 
 ${RELEASES_URL}
 EOF
-)
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Notify internal socials reminder (optional)
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_REMINDER }}
+        run: |
+          if [ -z "${WEBHOOK_URL:-}" ]; then
+            echo "::notice::DISCORD_WEBHOOK_REMINDER not set; skipping reminder post."
+            exit 0
+          fi
+
+          if [ -z "${CONTENT:-}" ]; then
+            echo "::warning::Reminder content was empty; skipping Discord post."
+            exit 0
+          fi
 
           jq -n --arg content "$CONTENT" '{content:$content}' > payload.json
 

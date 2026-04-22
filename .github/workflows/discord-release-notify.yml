@@ -14,25 +14,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Build Discord payload
+      - name: Build release message content
         env:
-          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_RELEASE }}
           RELEASE_NAME: ${{ github.event.release.name }}
           TAG_NAME: ${{ github.event.release.tag_name }}
           RELEASE_URL: ${{ github.event.release.html_url }}
           RELEASE_BODY: ${{ github.event.release.body }}
         run: |
-          if [ -z "${WEBHOOK_URL:-}" ]; then
-            echo "::notice::DISCORD_WEBHOOK_RELEASE not set; skipping Discord post."
-            exit 0
-          fi
-
           SUMMARY=$(printf "%s" "$RELEASE_BODY" | sed 's/\r//g' | sed '/^\s*$/d' | head -n 8)
           if [ -z "$SUMMARY" ]; then
             SUMMARY="(No highlights were included in the release body.)"
           fi
 
-          CONTENT=$(cat <<EOF
+          {
+            echo "CONTENT<<EOF"
+            cat <<EOF
 @here
 
 GoBuild ${TAG_NAME} is live.
@@ -45,7 +41,22 @@ ${SUMMARY}
 
 Try the new version from GitHub and share feedback.
 EOF
-)
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Post release message to Discord (optional)
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_RELEASE }}
+        run: |
+          if [ -z "${WEBHOOK_URL:-}" ]; then
+            echo "::notice::DISCORD_WEBHOOK_RELEASE not set; skipping Discord post."
+            exit 0
+          fi
+
+          if [ -z "${CONTENT:-}" ]; then
+            echo "::warning::Release message content was empty; skipping Discord post."
+            exit 0
+          fi
 
           jq -n --arg content "$CONTENT" '{content:$content}' > payload.json
 
