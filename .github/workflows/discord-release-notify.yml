@@ -12,7 +12,6 @@ jobs:
   notify-discord:
     name: Post release to Discord (optional)
     runs-on: ubuntu-latest
-    if: ${{ secrets.DISCORD_WEBHOOK_RELEASE != '' }}
 
     steps:
       - name: Build Discord payload
@@ -23,6 +22,11 @@ jobs:
           RELEASE_URL: ${{ github.event.release.html_url }}
           RELEASE_BODY: ${{ github.event.release.body }}
         run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_RELEASE not set; skipping Discord post."
+            exit 0
+          fi
+
           SUMMARY=$(printf "%s" "$RELEASE_BODY" | sed 's/\r//g' | sed '/^\s*$/d' | head -n 8)
 
           CONTENT="GoBuild ${TAG_NAME} is live.\n\n${RELEASE_NAME}\n${RELEASE_URL}\n\nHighlights:\n${SUMMARY}\n\nTry the new version from GitHub and share feedback."
