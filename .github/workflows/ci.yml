@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: GDScript Lint
@@ -47,3 +50,13 @@ jobs:
             res://tests
           timeout: 15
           report-name: test-report.xml
+          publish-report: false
+          upload-report: false
+
+      - name: Upload GdUnit4 XML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gdunit-results
+          path: reports/**/results.xml
+          if-no-files-found: error

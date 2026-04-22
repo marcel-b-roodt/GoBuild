@@ -1,0 +1,26 @@
+name: Test Report
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+jobs:
+  report:
+    name: Publish Test Report
+    if: ${{ github.event.workflow_run.conclusion != 'cancelled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GdUnit4 JUnit report
+        uses: dorny/test-reporter@v3
+        with:
+          artifact: gdunit-results
+          name: GdUnit4 Tests
+          path: '*.xml'
+          reporter: java-junit
+          fail-on-error: true
