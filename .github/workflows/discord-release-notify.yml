@@ -4,6 +4,33 @@ on:
   release:
     types:
       - published
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview Discord payload only (do not post)"
+        required: true
+        default: true
+        type: boolean
+      tag_name:
+        description: "Tag to render in preview/manual run (e.g. v0.4.2)"
+        required: false
+        default: "v0.0.0-preview"
+        type: string
+      release_name:
+        description: "Release title for preview/manual run"
+        required: false
+        default: "GoBuild preview release"
+        type: string
+      release_url:
+        description: "Release URL for preview/manual run"
+        required: false
+        default: "https://github.com/marcel-b-roodt/GoBuild/releases"
+        type: string
+      release_body:
+        description: "Release body text for preview/manual run"
+        required: false
+        default: "Preview release notes"
+        type: string
 
 permissions:
   contents: read
@@ -16,10 +43,10 @@ jobs:
     steps:
       - name: Build release message content
         env:
-          RELEASE_NAME: ${{ github.event.release.name }}
-          TAG_NAME: ${{ github.event.release.tag_name }}
-          RELEASE_URL: ${{ github.event.release.html_url }}
-          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.release_name || github.event.release.name }}
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.release_url || github.event.release.html_url }}
+          RELEASE_BODY: ${{ github.event_name == 'workflow_dispatch' && inputs.release_body || github.event.release.body }}
         run: |
           SUMMARY=$(printf "%s" "$RELEASE_BODY" | sed 's/\r//g' | sed '/^\s*$/d' | head -n 8)
           if [ -z "$SUMMARY" ]; then
@@ -29,22 +56,30 @@ jobs:
           {
             echo "CONTENT<<EOF"
             cat <<EOF
-@here
+            @here
 
-GoBuild ${TAG_NAME} is live.
+            GoBuild ${TAG_NAME} is live.
 
-${RELEASE_NAME}
-${RELEASE_URL}
+            ${RELEASE_NAME}
+            ${RELEASE_URL}
 
-Highlights:
-${SUMMARY}
+            Highlights:
+            ${SUMMARY}
 
-Try the new version from GitHub and share feedback.
-EOF
+            Try the new version from GitHub and share feedback.
+            EOF
             echo "EOF"
           } >> "$GITHUB_ENV"
 
+      - name: Preview release payload (manual run)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          jq -n --arg content "$CONTENT" '{content:$content}' > payload.json
+          echo "Preview payload.json (manual run):"
+          jq . payload.json
+
       - name: Post release message to Discord (optional)
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_RELEASE }}
         run: |

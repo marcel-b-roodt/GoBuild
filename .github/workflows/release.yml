@@ -4,6 +4,18 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview Discord payload only (no release publish, no webhook post)"
+        required: true
+        default: true
+        type: boolean
+      tag_name:
+        description: "Tag used for preview/manual run (e.g. v0.4.2)"
+        required: false
+        default: "v0.0.0-preview"
+        type: string
 
 permissions:
   contents: write
@@ -15,15 +27,26 @@ jobs:
 
     steps:
       - name: Checkout
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
         uses: actions/checkout@v4
 
 
       - name: Extract version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          TAG_NAME="$GITHUB_REF_NAME"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME='${{ inputs.tag_name }}'
+          fi
+          if [ -z "$TAG_NAME" ]; then
+            TAG_NAME="v0.0.0-preview"
+          fi
+          echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Extract changelog section
         id: changelog
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           # Pull out the block between ## [VERSION] and the next ## heading
@@ -33,6 +56,7 @@ jobs:
           echo "Generated release notes for v$VERSION"
 
       - name: Build plugin zip
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           ZIP_NAME="GoBuild-v${VERSION}.zip"
@@ -51,38 +75,47 @@ jobs:
         id: package
 
       - name: Create draft GitHub Release
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: "GoBuild ${{ github.ref_name }}"
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "GoBuild ${{ steps.version.outputs.tag }}"
           body_path: release_notes.md
           draft: true
           files: ${{ steps.package.outputs.zip_name }}
 
       - name: Build reminder message content
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           RELEASES_URL="https://github.com/${{ github.repository }}/releases"
           {
             echo "CONTENT<<EOF"
             cat <<EOF
-@here
+            @here
 
-GoBuild ${TAG} draft release is ready.
+            GoBuild ${TAG} draft release is ready.
 
-Social checklist:
-1) Review and publish the GitHub draft release
-2) Post Patreon update
-3) Post X/Reddit/Discord announcements
-4) Mark queue status as posted
+            Social checklist:
+            1) Review and publish the GitHub draft release
+            2) Post Patreon update
+            3) Post X/Reddit/Discord announcements
+            4) Mark queue status as posted
 
-${RELEASES_URL}
-EOF
+            ${RELEASES_URL}
+            EOF
             echo "EOF"
           } >> "$GITHUB_ENV"
 
+      - name: Preview reminder payload (manual run)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          jq -n --arg content "$CONTENT" '{content:$content}' > payload.json
+          echo "Preview payload.json (manual run):"
+          jq . payload.json
+
       - name: Notify internal socials reminder (optional)
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_REMINDER }}
         run: |
