@@ -141,6 +141,41 @@ func test_set_target_stats_label_is_not_empty() -> void:
 	assert_str(panel._stats_label.text).is_not_empty()
 
 
+func test_set_target_syncs_auto_uv_checkbox_from_node() -> void:
+	var panel := _make_panel()
+	var node  := _make_node_with_quad()
+	node.auto_uv = false
+	panel.set_target(node)
+	assert_bool(panel._auto_uv_check.button_pressed).is_false()
+
+
+func test_auto_uv_checkbox_toggle_updates_target_flag() -> void:
+	var panel := _make_panel()
+	var node  := _make_node_with_quad()
+	panel.set_target(node)
+	panel._on_auto_uv_check_toggled(false)
+	assert_bool(node.auto_uv).is_false()
+	panel._on_auto_uv_check_toggled(true)
+	assert_bool(node.auto_uv).is_true()
+
+
+func test_planar_uv_button_disabled_without_face_selection() -> void:
+	var panel := _make_panel()
+	var node  := _make_node_with_quad()
+	panel.set_target(node)
+	node.selection.set_mode(SelectionManager.Mode.FACE)
+	assert_bool(panel._planar_uv_btn.disabled).is_true()
+
+
+func test_planar_uv_button_enabled_with_face_selection() -> void:
+	var panel := _make_panel()
+	var node  := _make_node_with_quad()
+	panel.set_target(node)
+	node.selection.set_mode(SelectionManager.Mode.FACE)
+	node.selection.select_face(0)
+	assert_bool(panel._planar_uv_btn.disabled).is_false()
+
+
 # ---------------------------------------------------------------------------
 # set_target(null) — placeholder text
 # ---------------------------------------------------------------------------

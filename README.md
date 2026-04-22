@@ -16,9 +16,9 @@ Designed for level blockout, architecture, and game-ready props. No external too
 
 ## Status
 
-🔧 **Active development — Stage 4 (UV Editing & Materials).**
+🔧 **Active development — Stage 2 (Element Selection & Transform).**
 
-Completed: Primitive shapes, sub-element selection, transform handles, and foundational mesh operations. Currently implementing UV editing (auto-planar projection) and materials support. See [GUIDE.md](GUIDE.md) for what you can do right now, and [docs/roadmap.md](docs/roadmap.md) for the development plan.
+Primitive shapes, sub-element selection, move handles, rotate handles, and box select are working. See [GUIDE.md](GUIDE.md) for what you can do right now.
 
 ## Installation
 
@@ -48,7 +48,7 @@ Bug reports, feature requests, and pull requests are welcome. Please open an iss
 
 ## Support the project
 
-GoBuild is free and open-source. If it saves you time, consider supporting development on [Patreon](https://patreon.com/gobuild) *(coming soon)*.
+GoBuild is free and open-source. If it saves you time, consider supporting development on [Patreon](https://patreon.com/gobuild_godot) or [Ko-fi](https://ko-fi.com/marcelroodt).
 
 ## License
 
