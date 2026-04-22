@@ -21,6 +21,6 @@ jobs:
         with:
           artifact: gdunit-results
           name: GdUnit4 Tests
-          path: '*.xml'
+          path: '**/results.xml'
           reporter: java-junit
           fail-on-error: true

@@ -35,7 +35,7 @@ const _PLANAR_UV_SCRIPT := \
 const _PARAM_PREVIEW_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_param_preview.gd")
 
-const _VERSION := "0.1.0"
+const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
 ## Default extrude distance in local mesh units.
 const _EXTRUDE_DEFAULT_DISTANCE: float = 0.5
@@ -100,7 +100,7 @@ func _ready() -> void:
 
 	# ── Header ──────────────────────────────────────────────────────────
 	var header := Label.new()
-	header.text = "GoBuild  v" + _VERSION
+	header.text = "GoBuild  v" + _get_plugin_version()
 	header.add_theme_font_size_override("font_size", 13)
 	add_child(header)
 
@@ -940,6 +940,17 @@ func _on_cull_check_toggled(enabled: bool) -> void:
 func _on_auto_uv_check_toggled(enabled: bool) -> void:
 	if _target != null:
 		_target.auto_uv = enabled
+
+
+## Return the plugin version from plugin.cfg so panel text stays in sync.
+## Falls back to "unknown" if the config cannot be loaded.
+func _get_plugin_version() -> String:
+	var cfg := ConfigFile.new()
+	var err: Error = cfg.load(_PLUGIN_CFG_PATH)
+	if err != OK:
+		return "unknown"
+	var version: Variant = cfg.get_value("plugin", "version", "unknown")
+	return str(version)
 
 
 ## Merge selected vertices to their centroid.

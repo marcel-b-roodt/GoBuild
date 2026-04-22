@@ -149,6 +149,7 @@ Making everything feel finished.
 | Keyboard shortcut map | Full configurable shortcut system; Blender-compatible defaults |
 | Contextual tooltips | Operation hints displayed in the viewport status bar |
 | Quick-action menu | Right-click context menu for common operations on selection |
+| Bug report recorder | Toggleable capture mode in the side panel that records the next mesh operation(s) on a selected GoBuild mesh and exports a replayable bug-report file |
 | Preferences panel | Plugin preferences: snap defaults, display settings, shortcut overrides |
 | In-editor documentation | `?` panel linking to online docs |
 | Theme support | Respects Godot editor dark/light theme |

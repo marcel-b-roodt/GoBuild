@@ -22,8 +22,8 @@ jobs:
           RELEASE_URL: ${{ github.event.release.html_url }}
           RELEASE_BODY: ${{ github.event.release.body }}
         run: |
-          if [ -z "$WEBHOOK_URL" ]; then
-            echo "DISCORD_WEBHOOK_RELEASE not set; skipping Discord post."
+          if [ -z "${WEBHOOK_URL:-}" ]; then
+            echo "::notice::DISCORD_WEBHOOK_RELEASE not set; skipping Discord post."
             exit 0
           fi
 

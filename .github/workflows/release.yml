@@ -65,8 +65,8 @@ jobs:
           TAG: ${{ github.ref_name }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if [ -z "$WEBHOOK_URL" ]; then
-            echo "DISCORD_WEBHOOK_REMINDER not set; skipping reminder post."
+          if [ -z "${WEBHOOK_URL:-}" ]; then
+            echo "::notice::DISCORD_WEBHOOK_REMINDER not set; skipping reminder post."
             exit 0
           fi
           RELEASES_URL="https://github.com/${{ github.repository }}/releases"

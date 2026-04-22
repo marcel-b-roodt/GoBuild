@@ -139,6 +139,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Keyboard shortcut map | 📋 Planned | Configurable; Blender-compatible defaults |
 | Contextual tooltips | 📋 Planned | Status bar hints |
 | Right-click context menu | 📋 Planned | Quick-actions for selection |
+| Bug report recorder | 📋 Planned | Side-panel toggle captures the next operation(s) on a selected mesh and writes a replayable submission file (shape, selection context, operation deltas) |
 | Preferences panel | 📋 Planned | Snap, display, shortcut overrides |
 | In-editor documentation panel | 📋 Planned | Links to online docs |
 | Theme support | 📋 Planned | Respects dark/light editor theme |
