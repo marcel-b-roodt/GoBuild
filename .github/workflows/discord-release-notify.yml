@@ -28,12 +28,28 @@ jobs:
           fi
 
           SUMMARY=$(printf "%s" "$RELEASE_BODY" | sed 's/\r//g' | sed '/^\s*$/d' | head -n 8)
+          if [ -z "$SUMMARY" ]; then
+            SUMMARY="(No highlights were included in the release body.)"
+          fi
 
-          CONTENT="GoBuild ${TAG_NAME} is live.\n\n${RELEASE_NAME}\n${RELEASE_URL}\n\nHighlights:\n${SUMMARY}\n\nTry the new version from GitHub and share feedback."
+          CONTENT=$(cat <<EOF
+@here
+
+GoBuild ${TAG_NAME} is live.
+
+${RELEASE_NAME}
+${RELEASE_URL}
+
+Highlights:
+${SUMMARY}
+
+Try the new version from GitHub and share feedback.
+EOF
+)
 
           jq -n --arg content "$CONTENT" '{content:$content}' > payload.json
 
-          curl -fsSL \
+          curl -sS \
             -H "Content-Type: application/json" \
             -d @payload.json \
-            "$WEBHOOK_URL"
+            "$WEBHOOK_URL" || echo "::warning::Discord reminder webhook returned a non-2xx response; continuing."
