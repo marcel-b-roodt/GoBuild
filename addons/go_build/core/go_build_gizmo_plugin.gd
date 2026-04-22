@@ -438,6 +438,30 @@ func commit_drag(node: GoBuildMeshInstance, handle_id: int, cancel: bool) -> voi
 	_drag_handler.commit_drag(node, handle_id, cancel, _editor_plugin.get_undo_redo())
 
 
+## Compatibility passthrough for tests and legacy callers.
+## The implementation now lives in [GoBuildDragHandler].
+func _get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]:
+	return _drag_handler._get_affected_vertex_indices(node)
+
+
+## Compatibility passthrough for tests and legacy callers.
+## The implementation now lives in [GoBuildDragHandler].
+func _get_local_axis(axis_idx: int) -> Vector3:
+	return GoBuildDragHandler._get_local_axis(axis_idx)
+
+
+## Compatibility passthrough for tests and legacy callers.
+## The implementation now lives in [GoBuildDragHandler].
+static func _ray_plane_intersect(
+		ray_origin: Vector3,
+		ray_dir: Vector3,
+		plane_origin: Vector3,
+		plane_normal: Vector3,
+) -> Vector3:
+	return GoBuildDragHandler._ray_plane_intersect(
+		ray_origin, ray_dir, plane_origin, plane_normal)
+
+
 ## See [method GoBuildDragHandler.begin_inset_drag].
 func begin_inset_drag(
 		node: GoBuildMeshInstance,

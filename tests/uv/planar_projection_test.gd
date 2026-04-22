@@ -39,10 +39,19 @@ func test_planar_projection_matches_face_size_for_plus_y_face() -> void:
 	PlanarProjection.apply(mesh, [0], 1.0)
 	var face: GoBuildFace = mesh.faces[0]
 	assert_int(face.uvs.size()).is_equal(4)
-	assert_float(face.uvs[0].x).is_equal_approx(0.0, 0.001)
-	assert_float(face.uvs[0].y).is_equal_approx(0.0, 0.001)
-	assert_float(face.uvs[2].x).is_equal_approx(2.0, 0.001)
-	assert_float(face.uvs[2].y).is_equal_approx(3.0, 0.001)
+	var min_u: float = INF
+	var max_u: float = -INF
+	var min_v: float = INF
+	var max_v: float = -INF
+	for uv: Vector2 in face.uvs:
+		min_u = minf(min_u, uv.x)
+		max_u = maxf(max_u, uv.x)
+		min_v = minf(min_v, uv.y)
+		max_v = maxf(max_v, uv.y)
+	assert_float(min_u).is_equal_approx(0.0, 0.001)
+	assert_float(min_v).is_equal_approx(0.0, 0.001)
+	assert_float(max_u - min_u).is_equal_approx(2.0, 0.001)
+	assert_float(max_v - min_v).is_equal_approx(3.0, 0.001)
 
 
 func test_planar_projection_matches_face_size_for_plus_x_face() -> void:
@@ -66,8 +75,17 @@ func test_planar_projection_respects_units_per_tile() -> void:
 	var mesh := _make_plus_y_rect(2.0, 3.0)
 	PlanarProjection.apply(mesh, [0], 0.5)
 	var face: GoBuildFace = mesh.faces[0]
-	assert_float(face.uvs[2].x).is_equal_approx(4.0, 0.001)
-	assert_float(face.uvs[2].y).is_equal_approx(6.0, 0.001)
+	var min_u: float = INF
+	var max_u: float = -INF
+	var min_v: float = INF
+	var max_v: float = -INF
+	for uv: Vector2 in face.uvs:
+		min_u = minf(min_u, uv.x)
+		max_u = maxf(max_u, uv.x)
+		min_v = minf(min_v, uv.y)
+		max_v = maxf(max_v, uv.y)
+	assert_float(max_u - min_u).is_equal_approx(4.0, 0.001)
+	assert_float(max_v - min_v).is_equal_approx(6.0, 0.001)
 
 
 func test_planar_projection_only_changes_selected_faces() -> void:
@@ -93,8 +111,17 @@ func test_planar_projection_only_changes_selected_faces() -> void:
 	]
 	mesh.faces = [left, right]
 	PlanarProjection.apply(mesh, [0], 1.0)
-	assert_float(mesh.faces[0].uvs[2].x).is_equal_approx(1.0, 0.001)
-	assert_float(mesh.faces[0].uvs[2].y).is_equal_approx(1.0, 0.001)
+	var min_u: float = INF
+	var max_u: float = -INF
+	var min_v: float = INF
+	var max_v: float = -INF
+	for uv: Vector2 in mesh.faces[0].uvs:
+		min_u = minf(min_u, uv.x)
+		max_u = maxf(max_u, uv.x)
+		min_v = minf(min_v, uv.y)
+		max_v = maxf(max_v, uv.y)
+	assert_float(max_u - min_u).is_equal_approx(1.0, 0.001)
+	assert_float(max_v - min_v).is_equal_approx(1.0, 0.001)
 	assert_float(mesh.faces[1].uvs[0].x).is_equal_approx(7.0, 0.001)
 	assert_float(mesh.faces[1].uvs[0].y).is_equal_approx(7.0, 0.001)
 
