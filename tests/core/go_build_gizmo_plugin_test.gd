@@ -167,7 +167,7 @@ func test_handle_name_rotate_z() -> void:
 func test_ray_plane_hit_perpendicular() -> void:
 	# Ray from (0,5,0) pointing straight down, plane at Y=0 normal (0,1,0).
 	# Expected hit: (0,0,0), t = 5.
-	var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+	var hit: Vector3 = GoBuildDragHandler._ray_plane_intersect(
 		Vector3(0.0, 5.0, 0.0), Vector3(0.0, -1.0, 0.0),
 		Vector3.ZERO, Vector3.UP
 	)
@@ -177,7 +177,7 @@ func test_ray_plane_hit_perpendicular() -> void:
 func test_ray_plane_hit_offset_origin() -> void:
 	# Ray from (3,5,0) pointing straight down, plane at Y=0.
 	# Expected hit: (3,0,0).
-	var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+	var hit: Vector3 = GoBuildDragHandler._ray_plane_intersect(
 		Vector3(3.0, 5.0, 0.0), Vector3(0.0, -1.0, 0.0),
 		Vector3.ZERO, Vector3.UP
 	)
@@ -186,7 +186,7 @@ func test_ray_plane_hit_offset_origin() -> void:
 
 func test_ray_plane_parallel_returns_inf() -> void:
 	# Ray travelling along +X is parallel to XZ plane (normal = UP).
-	var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+	var hit: Vector3 = GoBuildDragHandler._ray_plane_intersect(
 		Vector3(0.0, 1.0, 0.0), Vector3(1.0, 0.0, 0.0),
 		Vector3.ZERO, Vector3.UP
 	)
@@ -196,7 +196,7 @@ func test_ray_plane_parallel_returns_inf() -> void:
 func test_ray_plane_behind_camera_returns_inf() -> void:
 	# Ray from (0,-5,0) pointing further down (-Y); plane at Y=0 is above.
 	# The intersection would be at t < 0 (behind origin).
-	var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+	var hit: Vector3 = GoBuildDragHandler._ray_plane_intersect(
 		Vector3(0.0, -5.0, 0.0), Vector3(0.0, -1.0, 0.0),
 		Vector3.ZERO, Vector3.UP
 	)
@@ -208,7 +208,7 @@ func test_ray_plane_diagonal_hit() -> void:
 	# dir = (1,-1,0).normalized() = (0.707, -0.707, 0)
 	# Plane: Y=0, normal=UP.  t = 4 / 0.707 ≈ 5.657; hit_x = 4.
 	var dir := Vector3(1.0, -1.0, 0.0).normalized()
-	var hit: Vector3 = GoBuildGizmoPlugin._ray_plane_intersect(
+	var hit: Vector3 = GoBuildDragHandler._ray_plane_intersect(
 		Vector3(0.0, 4.0, 0.0), dir, Vector3.ZERO, Vector3.UP
 	)
 	assert_float(hit.x).is_equal_approx(4.0, 0.01)
@@ -403,6 +403,6 @@ func test_snap_step_non_editor_returns_one() -> void:
 	if Engine.is_editor_hint():
 		pass  # Can't test this path from inside the editor.
 	else:
-		assert_float(GoBuildGizmoPlugin._get_snap_step()).is_equal(1.0)
+		assert_float(GoBuildDragHandler._get_snap_step()).is_equal(1.0)
 
 
