@@ -441,13 +441,13 @@ func commit_drag(node: GoBuildMeshInstance, handle_id: int, cancel: bool) -> voi
 ## Compatibility passthrough for tests and legacy callers.
 ## The implementation now lives in [GoBuildDragHandler].
 func _get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]:
-	return _drag_handler._get_affected_vertex_indices(node)
+	return GoBuildTransformHelpers.get_affected_vertex_indices(node)
 
 
 ## Compatibility passthrough for tests and legacy callers.
 ## The implementation now lives in [GoBuildDragHandler].
 func _get_local_axis(axis_idx: int) -> Vector3:
-	return GoBuildDragHandler._get_local_axis(axis_idx)
+	return GoBuildTransformHelpers.get_local_axis(axis_idx)
 
 
 ## Compatibility passthrough for tests and legacy callers.
@@ -458,19 +458,14 @@ static func _ray_plane_intersect(
 		plane_origin: Vector3,
 		plane_normal: Vector3,
 ) -> Vector3:
-	return GoBuildDragHandler._ray_plane_intersect(
+	return GoBuildTransformHelpers.ray_plane_intersect(
 		ray_origin, ray_dir, plane_origin, plane_normal)
 
 
 ## Compatibility passthrough for tests and legacy callers.
-## Mirrors [method GoBuildDragHandler._get_snap_step] default behavior.
+## Mirrors [method GoBuildTransformHelpers.get_snap_step] default behavior.
 static func _get_snap_step() -> float:
-	if not Engine.is_editor_hint():
-		return 1.0
-	var es: EditorSettings = EditorInterface.get_editor_settings()
-	if es.has_setting("editors/3d/grid_step"):
-		return maxf(float(es.get_setting("editors/3d/grid_step")), 0.001)
-	return 1.0
+	return GoBuildTransformHelpers.get_snap_step()
 
 
 ## See [method GoBuildDragHandler.begin_inset_drag].

@@ -786,7 +786,7 @@ func _find_rotate_handle(
 
 	for i: int in 3:
 		var world_normal: Vector3 = (gt.basis * local_normals[i]).normalized()
-		var hit: Vector3 = GoBuildDragHandler._ray_plane_intersect(
+		var hit: Vector3 = GoBuildTransformHelpers.ray_plane_intersect(
 				ray_origin, ray_dir, world_centroid, world_normal)
 		if hit == Vector3.INF:
 			continue
