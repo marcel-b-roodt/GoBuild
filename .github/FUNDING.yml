@@ -1,5 +1,5 @@
-# These are supported funding model platforms
+# This file enables the sponsorship button on the repository
 
-github: marcel-b-roodt
+github: [marcel-b-roodt]
 patreon: gobuild_godot
 ko_fi: marcelroodt
