@@ -2,13 +2,20 @@
 # verify.sh — GoBuild pre-commit verification script
 #
 # Checks all GDScript files for syntax errors (gdparse) and style issues (gdlint).
+# Optional: run the full headless test suite for CI-parity smoke testing.
 # Run manually before committing:   ./verify.sh
 # Or wire it up once:               git config core.hooksPath .githooks
+# Full parity check:                ./verify.sh --with-tests
 #
 # Requires gdtoolkit:  pip install gdtoolkit
 #                      (or: pip install --break-system-packages gdtoolkit on Arch)
 
 set -euo pipefail
+
+RUN_TESTS=0
+if [[ "${1:-}" == "--with-tests" ]]; then
+  RUN_TESTS=1
+fi
 
 # Resolve script location so this works from any working directory.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,4 +77,10 @@ fi
 echo ""
 echo "────────────────────────────────────────"
 echo "✓ Verification passed — safe to commit."
+
+if [[ "$RUN_TESTS" -eq 1 ]]; then
+  echo ""
+  echo "→ CI-parity smoke test (headless GdUnit4)..."
+  ./scripts/run_tests/run_tests.sh
+fi
 

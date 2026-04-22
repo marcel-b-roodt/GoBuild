@@ -245,32 +245,32 @@ func test_translate_does_not_move_unselected_vertices() -> void:
 
 func test_translate_zero_delta_is_noop() -> void:
 	var m := _make_xy_quad()
-	var before := m.vertices[0]
+	var prior_vertex := m.vertices[0]
 	var indices: Array[int] = [0, 1, 2, 3]
 	m.translate_vertices(indices, Vector3.ZERO)
-	assert_vector(m.vertices[0]).is_equal(before)
+	assert_vector(m.vertices[0]).is_equal(prior_vertex)
 
 
 func test_translate_all_vertices() -> void:
 	var m := _make_xy_quad()
-	var before: Array[Vector3] = []
-	before.assign(m.vertices)
+	var prior_vertices: Array[Vector3] = []
+	prior_vertices.assign(m.vertices)
 	var indices: Array[int] = [0, 1, 2, 3]
 	m.translate_vertices(indices, Vector3(5, 0, 0))
 	# Each vertex must have shifted by +5 on X; Y and Z unchanged.
 	for i in m.vertices.size():
-		assert_float(m.vertices[i].x).is_equal_approx(before[i].x + 5.0, 0.001)
-		assert_float(m.vertices[i].y).is_equal_approx(before[i].y, 0.001)
-		assert_float(m.vertices[i].z).is_equal_approx(before[i].z, 0.001)
+		assert_float(m.vertices[i].x).is_equal_approx(prior_vertices[i].x + 5.0, 0.001)
+		assert_float(m.vertices[i].y).is_equal_approx(prior_vertices[i].y, 0.001)
+		assert_float(m.vertices[i].z).is_equal_approx(prior_vertices[i].z, 0.001)
 
 
 func test_translate_empty_indices_is_safe() -> void:
 	var m := _make_xy_quad()
-	var before := m.vertices.duplicate()
+	var prior_vertices := m.vertices.duplicate()
 	var indices: Array[int] = []
 	m.translate_vertices(indices, Vector3(1, 1, 1))
 	for i in m.vertices.size():
-		assert_vector(m.vertices[i]).is_equal(before[i])
+		assert_vector(m.vertices[i]).is_equal(prior_vertices[i])
 
 
 # ---------------------------------------------------------------------------

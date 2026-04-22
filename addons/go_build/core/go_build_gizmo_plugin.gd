@@ -462,6 +462,17 @@ static func _ray_plane_intersect(
 		ray_origin, ray_dir, plane_origin, plane_normal)
 
 
+## Compatibility passthrough for tests and legacy callers.
+## Mirrors [method GoBuildDragHandler._get_snap_step] default behavior.
+static func _get_snap_step() -> float:
+	if not Engine.is_editor_hint():
+		return 1.0
+	var es: EditorSettings = EditorInterface.get_editor_settings()
+	if es.has_setting("editors/3d/grid_step"):
+		return maxf(float(es.get_setting("editors/3d/grid_step")), 0.001)
+	return 1.0
+
+
 ## See [method GoBuildDragHandler.begin_inset_drag].
 func begin_inset_drag(
 		node: GoBuildMeshInstance,
