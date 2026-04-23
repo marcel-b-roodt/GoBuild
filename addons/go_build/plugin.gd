@@ -23,6 +23,8 @@ const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_help
 const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_panel.gd")
 const _CONTROLLER_SCRIPT    := preload(
 		"res://addons/go_build/core/selection_input_controller.gd")
+const _TOOL_PINNER_SCRIPT   := preload(
+		"res://addons/go_build/core/node3d_editor_tool_pinner.gd")
 const _ICON                 := preload("res://icon.svg")
 
 ## EditorSettings keys for the four mode-switch shortcuts.
@@ -57,9 +59,8 @@ var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
 var _scale_snap_btn: OptionButton                = null
-## Cached reference to the Select-mode button (Q) in the [code]Node3DEditor[/code] toolbar.
-## Populated lazily on first call to [method _get_node3d_select_button].
-var _node3d_select_button: Button                = null
+## Keeps the native Physical/V tool mode pinned whenever in a sub-element mode.
+var _tool_pinner: Node3DEditorToolPinner         = null
 
 # Mode-switch shortcuts (initialised in _enter_tree via EditorSettings).
 var _shortcut_object: Shortcut
@@ -93,6 +94,7 @@ func _enter_tree() -> void:
 	_input_controller.setup(_gizmo_plugin, _panel, self)
 
 	_build_toolbar()
+	_tool_pinner = Node3DEditorToolPinner.new()
 	set_process(true)
 
 
@@ -168,37 +170,15 @@ func _exit_tree() -> void:
 
 	_input_controller = null
 	set_process(false)
-	_node3d_select_button = null  # invalidate cache on unload
+	if _tool_pinner != null:
+		_tool_pinner.invalidate()
+		_tool_pinner = null
 
 
 ## Per-frame poll (belt-and-suspenders alongside the per-draw-frame check).
 func _process(_delta: float) -> void:
-	_pin_native_tool_mode()
-
-
-## Shared implementation: press the V button if we are in a sub-element mode
-## and the button is not already pressed.  Called both from [method _process]
-## and from [method _forward_3d_draw_over_viewport].
-func _pin_native_tool_mode() -> void:
-	if _edited_node == null:
-		return
-	if _edited_node.selection.mode == SelectionManager.Mode.OBJECT:
-		return
-	var btn := _node3d_select_button
-	if btn == null or not is_instance_valid(btn):
-		_node3d_select_button = null
-		_suppress_native_gizmo()
-		return
-	if not btn.button_pressed:
-		GoBuildDebug.log("[GoBuild] PLUGIN._pin_native_tool_mode  re-pressing V button")
-		# set_pressed_no_signal updates the ButtonGroup visual (unpress W/E/R)
-		# without emitting pressed — avoids re-entrancy.
-		# emit_signal then fires Node3DEditor._menu_item_pressed(MENU_TOOL_LIST_SELECT)
-		# via the C++ signal connection, actually changing tool_mode.
-		# button_pressed = true alone does NOT emit pressed and therefore
-		# never reaches _menu_item_pressed — the tool_mode stays unchanged.
-		btn.set_pressed_no_signal(true)
-		btn.emit_signal("pressed")
+	if _edited_node != null and _tool_pinner != null:
+		_tool_pinner.pin_if_active(_edited_node.selection.mode)
 
 
 func _notification(what: int) -> void:
@@ -316,11 +296,9 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 
 ## Draw the box-select rect and the mode / modifier hint label.
 func _forward_3d_draw_over_viewport(overlay: Control) -> void:
-	# Pin native tool to Physical/List-select (no gizmo) on every draw frame
-	# while in any sub-element edit mode.  This is a belt-and-suspenders
-	# complement to the _process poll and fires unconditionally every viewport
-	# render frame, providing the tightest possible re-press window.
-	_pin_native_tool_mode()
+	# Belt-and-suspenders: also pin on every viewport render frame.
+	if _edited_node != null and _tool_pinner != null:
+		_tool_pinner.pin_if_active(_edited_node.selection.mode)
 	if _input_controller != null:
 		_input_controller.draw_overlay(overlay)
 	if _input_controller != null and _input_controller.has_active_param_preview():
@@ -718,110 +696,11 @@ func _disconnect_node_signals() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Native gizmo suppression
+# Native gizmo suppression — delegates to Node3DEditorToolPinner
 # ---------------------------------------------------------------------------
 
-## Press the [code]Node3DEditor[/code] Physical/Pan mode (V) button directly,
-## which sets the built-in editor tool to TOOL_MODE_LIST_SELECT — the only
-## native tool mode that draws [b]no[/b] transform gizmo at the object origin.
-## Called whenever we enter a sub-element edit mode (Vertex / Edge / Face).
-##
-## GoBuild's own W/E/R transform modes are a separate internal state and are
-## unaffected: [method _handle_action_key] consumes W/E/R before the native
-## editor sees them, so the native tool mode stays at V regardless.
-##
-## [b]Why the two-step press[/b]: [member BaseButton.button_pressed] (= [code]set_pressed()[/code])
-## only updates the [ButtonGroup] visual.  It does [b]not[/b] emit the [code]pressed[/code]
-## signal.  [code]Node3DEditor._menu_item_pressed[/code] is wired to [code]pressed[/code],
-## so calling [code]button_pressed = true[/code] alone [i]never changes the C++ tool_mode[/i].
-## [code]set_pressed_no_signal(true)[/code] + [code]emit_signal("pressed")[/code] is the
-## correct pair: visual update + C++ handler trigger.
+## Delegates to [member _tool_pinner] to press the Physical/V button once.
+## Called deferred from mode-change handlers and [method _set_transform_mode].
 func _suppress_native_gizmo() -> void:
-	var btn := _get_node3d_select_button()
-	if btn == null:
-		return
-	if not btn.button_pressed:
-		btn.set_pressed_no_signal(true)
-	btn.emit_signal("pressed")
-
-
-## Returns the Physical/Pan mode (V) button from the built-in [code]Node3DEditor[/code]
-## toolbar.  Uses two strategies in order:
-## [b]Strategy 1[/b] — find by [constant KEY_V] shortcut (direct, works when the
-## button shortcut has an explicit [InputEventKey] with [code]keycode[/code] or
-## [code]physical_keycode[/code] set to [constant KEY_V]).[br]
-## [b]Strategy 2[/b] — find the Q button (Select), get its [ButtonGroup], and
-## take [code]get_buttons()[4][/code] which is [code]MENU_TOOL_LIST_SELECT[/code]
-## (the 5th tool button, zero-indexed — the [i]Physical / List-select[/i] mode).
-## This is the robust fallback when editor shortcuts store [code]keycode = KEY_NONE[/code]
-## and only set [code]physical_keycode[/code], or use a different internal format.
-## Result is cached; subsequent calls are O(1).
-func _get_node3d_select_button() -> Button:
-	if _node3d_select_button != null and is_instance_valid(_node3d_select_button):
-		return _node3d_select_button
-	var sv := EditorInterface.get_editor_viewport_3d(0)
-	if sv == null:
-		return null
-	# Walk up: SubViewport → Node3DEditorViewport → Node3DEditor
-	var n3de: Node = null
-	var walk: Node = sv.get_parent()
-	while walk != null:
-		if walk.get_class() == "Node3DEditor":
-			n3de = walk
-			break
-		walk = walk.get_parent()
-	if n3de == null:
-		return null
-	# Strategy 1: find by KEY_V shortcut.
-	var btn := _find_tool_button_by_shortcut(n3de, KEY_V)
-	if btn != null:
-		_node3d_select_button = btn
-		GoBuildDebug.log("[GoBuild] PLUGIN  V button found via shortcut strategy")
-		return _node3d_select_button
-	# Strategy 2: find Q button's ButtonGroup; scan all buttons for the one
-	# whose tooltip contains "List" or "Physical" (the V/List-select mode).
-	# Index-based lookup ([4]) is fragile — button order varies by Godot build.
-	var btn_q := _find_tool_button_by_shortcut(n3de, KEY_Q)
-	if btn_q != null and btn_q.button_group != null:
-		var group_btns := btn_q.button_group.get_buttons()
-		GoBuildDebug.log("[GoBuild] PLUGIN._get_node3d_select_button  ButtonGroup has %d buttons" \
-				% group_btns.size())
-		for idx: int in group_btns.size():
-			var gb: Button = group_btns[idx] as Button
-			if gb == null:
-				continue
-			var tip: String = gb.tooltip_text.to_lower()
-			GoBuildDebug.log("[GoBuild]   [%d] tooltip=%s  shortcut=%s" \
-					% [idx, gb.tooltip_text,
-					str(gb.shortcut != null and not gb.shortcut.events.is_empty())])
-			if "list" in tip or "physical" in tip:
-				_node3d_select_button = gb
-				GoBuildDebug.log("[GoBuild] PLUGIN  V button found via tooltip scan at index %d" % idx)
-				return _node3d_select_button
-		GoBuildDebug.log(
-				"[GoBuild] PLUGIN._get_node3d_select_button  no List/Physical tooltip found")
-	else:
-		GoBuildDebug.log(
-				"[GoBuild] PLUGIN._get_node3d_select_button  Q button not found or has no ButtonGroup")
-	return null
-
-
-## Recursively walks [param root]'s subtree and returns the first [Button]
-## whose [member Button.shortcut] contains an [InputEventKey] matching
-## [param keycode] (checked against both [code]keycode[/code] and
-## [code]physical_keycode[/code]).  Returns [code]null[/code] if not found.
-static func _find_tool_button_by_shortcut(root: Node, keycode: Key) -> Button:
-	if root is Button:
-		var btn := root as Button
-		if btn.shortcut != null:
-			for evt: InputEvent in btn.shortcut.events:
-				if evt is InputEventKey:
-					var key_evt := evt as InputEventKey
-					if key_evt.keycode == keycode \
-							or key_evt.physical_keycode == keycode:
-						return btn
-	for child: Node in root.get_children():
-		var result := _find_tool_button_by_shortcut(child, keycode)
-		if result != null:
-			return result
-	return null
+	if _tool_pinner != null:
+		_tool_pinner.suppress()
