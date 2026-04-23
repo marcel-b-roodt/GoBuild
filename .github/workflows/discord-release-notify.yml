@@ -53,28 +53,13 @@ jobs:
             SUMMARY="(No highlights were included in the release body.)"
           fi
 
-          {
-            echo "CONTENT<<EOF"
-            cat <<EOF
-            @here
-
-            GoBuild ${TAG_NAME} is live.
-
-            ${RELEASE_NAME}
-            ${RELEASE_URL}
-
-            Highlights:
-            ${SUMMARY}
-
-            Try the new version from GitHub and share feedback.
-            EOF
-            echo "EOF"
-          } >> "$GITHUB_ENV"
+          printf '@here\n\nGoBuild %s is live.\n\n%s\n%s\n\nHighlights:\n%s\n\nTry the new version from GitHub and share feedback.' \
+            "$TAG_NAME" "$RELEASE_NAME" "$RELEASE_URL" "$SUMMARY" > discord_content.txt
 
       - name: Preview release payload (manual run)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          jq -n --arg content "$CONTENT" '{content:$content}' > payload.json
+          jq -n --arg content "$(cat discord_content.txt)" '{content:$content}' > payload.json
           echo "Preview payload.json (manual run):"
           jq . payload.json
 
@@ -88,12 +73,12 @@ jobs:
             exit 0
           fi
 
-          if [ -z "${CONTENT:-}" ]; then
-            echo "::warning::Release message content was empty; skipping Discord post."
+          if [ ! -f discord_content.txt ]; then
+            echo "::warning::Release message content file missing; skipping Discord post."
             exit 0
           fi
 
-          jq -n --arg content "$CONTENT" '{content:$content}' > payload.json
+          jq -n --arg content "$(cat discord_content.txt)" '{content:$content}' > payload.json
 
           curl -sS \
             -H "Content-Type: application/json" \

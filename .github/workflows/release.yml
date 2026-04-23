@@ -89,28 +89,13 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           RELEASES_URL="https://github.com/${{ github.repository }}/releases"
-          {
-            echo "CONTENT<<EOF"
-            cat <<EOF
-            @here
-
-            GoBuild ${TAG} draft release is ready.
-
-            Social checklist:
-            1) Review and publish the GitHub draft release
-            2) Post Patreon update
-            3) Post X/Reddit/Discord announcements
-            4) Mark queue status as posted
-
-            ${RELEASES_URL}
-            EOF
-            echo "EOF"
-          } >> "$GITHUB_ENV"
+          printf '@here\n\nGoBuild %s draft release is ready.\n\nSocial checklist:\n1) Review and publish the GitHub draft release\n2) Post Patreon update\n3) Post X/Reddit/Discord announcements\n4) Mark queue status as posted\n\n%s' \
+            "$TAG" "$RELEASES_URL" > discord_content.txt
 
       - name: Preview reminder payload (manual run)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          jq -n --arg content "$CONTENT" '{content:$content}' > payload.json
+          jq -n --arg content "$(cat discord_content.txt)" '{content:$content}' > payload.json
           echo "Preview payload.json (manual run):"
           jq . payload.json
 
@@ -124,12 +109,12 @@ jobs:
             exit 0
           fi
 
-          if [ -z "${CONTENT:-}" ]; then
-            echo "::warning::Reminder content was empty; skipping Discord post."
+          if [ ! -f discord_content.txt ]; then
+            echo "::warning::Reminder content file missing; skipping Discord post."
             exit 0
           fi
 
-          jq -n --arg content "$CONTENT" '{content:$content}' > payload.json
+          jq -n --arg content "$(cat discord_content.txt)" '{content:$content}' > payload.json
 
           curl -sS \
             -H "Content-Type: application/json" \
