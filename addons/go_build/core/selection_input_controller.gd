@@ -734,12 +734,37 @@ func _find_plane_handle(
 		lc + Vector3(0.0,  inner, inner),
 		lc + Vector3(inner, 0.0,  inner),
 	]
+	# Per-plane axis offset (local space) used to project the visual edge to
+	# screen for a resolution-independent pick radius. Each vector points
+	# along one axis that lies within the corresponding plane:
+	#   i=0  XY plane → X axis
+	#   i=1  YZ plane → Y axis
+	#   i=2  XZ plane → X axis
+	var half: float = GoBuildGizmoPlugin.PLANE_HALF * s
+	var plane_edge_offsets: Array[Vector3] = [
+		Vector3(half, 0.0,  0.0),
+		Vector3(0.0,  half, 0.0),
+		Vector3(half, 0.0,  0.0),
+	]
 	for i: int in 3:
 		var world_pos: Vector3 = gt * local_centers[i]
 		if not camera.is_position_in_frustum(world_pos):
 			continue
-		if camera.unproject_position(world_pos).distance_squared_to(click_pos) \
-				<= _PLANE_HANDLE_PICK_RADIUS_SQ:
+		var center_screen: Vector2 = camera.unproject_position(world_pos)
+		# Compute pick radius from the projected visual half-size so the
+		# hitbox matches the drawn square at any viewport resolution.
+		# Multiply by 2 to circumscribe the square (covers corners).
+		# Fall back to the fixed constant so very small/distant handles
+		# remain clickable.
+		var edge_world: Vector3 = gt * (local_centers[i] + plane_edge_offsets[i])
+		var pick_r_sq: float = _PLANE_HANDLE_PICK_RADIUS_SQ
+		if camera.is_position_in_frustum(edge_world):
+			pick_r_sq = maxf(
+					center_screen.distance_squared_to(
+							camera.unproject_position(edge_world)) * 2.0,
+					_PLANE_HANDLE_PICK_RADIUS_SQ
+			)
+		if center_screen.distance_squared_to(click_pos) <= pick_r_sq:
 			return GoBuildGizmoPlugin.PLANE_HANDLE_OFFSET + i
 
 	var centroid_world: Vector3 = gt * lc

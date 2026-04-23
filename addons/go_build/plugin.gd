@@ -675,19 +675,64 @@ func _do_send_editor_tool_shortcut(keycode: Key) -> void:
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 		return
 	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
-	if sv != null:
+	if sv == null:
+		return
+
+	# The 3D editor registers its key handler (Q/W/E/R tool-mode) via
+	# surface.connect("gui_input", ...) on a dedicated focusable Control
+	# that is a SIBLING of SubViewportContainer inside Node3DEditorViewport.
+	# Input.parse_input_event() only fires _input(), not _gui_input(), so
+	# it never reached that handler.  The fix is to focus the right Control
+	# and then route through Window.push_input() which does trigger _gui_input
+	# on the focused widget and its ancestors.
+	var surface: Control = _find_viewport_surface(sv.get_parent())
+	if surface != null:
+		surface.grab_focus()
+	else:
 		var parent: Node = sv.get_parent()
 		if parent is Control:
 			(parent as Control).grab_focus()
+
+	var window: Window = get_tree().root
 	var ev_down := InputEventKey.new()
 	ev_down.keycode          = keycode
 	ev_down.physical_keycode = keycode
 	ev_down.pressed          = true
 	ev_down.echo             = false
-	Input.parse_input_event(ev_down)
+	window.push_input(ev_down)
 	var ev_up := InputEventKey.new()
 	ev_up.keycode          = keycode
 	ev_up.physical_keycode = keycode
 	ev_up.pressed          = false
 	ev_up.echo             = false
-	Input.parse_input_event(ev_up)
+	window.push_input(ev_up)
+
+
+## Locate the focusable [Control] inside Godot 4's [code]Node3DEditorViewport[/code]
+## that receives the viewport's [code]gui_input[/code] events.
+##
+## The editor layout is:
+## [codeblock]
+##   Node3DEditorViewport
+##   ├── surface (Control, FOCUS_ALL) ← gui_input + key handler here
+##   └── SubViewportContainer
+##       └── SubViewport
+## [/codeblock]
+##
+## [param svc] is the parent of [SubViewport] (SubViewportContainer).
+## Walks up to two ancestor levels searching for a [constant
+## Control.FOCUS_ALL] sibling.  Returns [code]null[/code] if not found.
+static func _find_viewport_surface(svc: Node) -> Control:
+	var parent: Node = svc.get_parent()
+	for _level: int in 2:
+		if parent == null:
+			break
+		for child: Node in parent.get_children():
+			if child == svc:
+				continue
+			if child is Control \
+					and (child as Control).focus_mode == Control.FOCUS_ALL:
+				return child as Control
+		svc = parent
+		parent = parent.get_parent()
+	return null
