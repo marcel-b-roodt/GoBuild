@@ -10,15 +10,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.4.3] — 2026-04-23
+## [0.4.1] — 2026-04-23
 
----
+### Fixed
+- Scene reload crash — `GoBuildMesh`, `GoBuildFace`, and `GoBuildEdge` were
+  missing `@tool` annotations, causing Godot to return placeholder `Resource`
+  instances in editor context and crash with "Attempt to call a method on a
+  placeholder instance" on every reload
+- Mesh data not persisted — `GoBuildFace` extended `RefCounted` (not
+  serialisable by Godot) and none of the data fields had `@export`; after a
+  save/reload cycle all vertex positions, faces, and UVs were silently lost;
+  fixed by changing `GoBuildFace` to extend `Resource` and exporting
+  `vertices`, `faces`, and `material_slots` on `GoBuildMesh`
+- Derived caches stale after reload — `GoBuildMeshInstance._ready()` now calls
+  `rebuild_edges()` before `bake()` so the edge list and coincident-vertex
+  groups are always warm on the first frame after a scene reload
 
-## [0.4.2] — 2026-04-22
-
----
-
-## [0.4.1] — 2026-04-21
+### Tests
+- 20 new persistence round-trip tests (`go_build_mesh_persistence_test.gd`)
+  covering vertex positions, face topology, UV0/UV1, edge rebuild, coincident
+  groups, bake integrity, and a regression guard that catches the
+  `@tool`/`@export`-missing failure mode directly
 
 ---
 
