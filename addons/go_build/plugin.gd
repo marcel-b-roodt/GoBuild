@@ -93,6 +93,7 @@ func _enter_tree() -> void:
 	_input_controller.setup(_gizmo_plugin, _panel, self)
 
 	_build_toolbar()
+	set_process(true)
 
 
 func _build_toolbar() -> void:
@@ -166,6 +167,26 @@ func _exit_tree() -> void:
 		_gizmo_plugin = null
 
 	_input_controller = null
+	set_process(false)
+	_node3d_select_button = null  # invalidate cache on unload
+
+
+## Re-apply SELECT mode every frame while in a sub-element edit mode so the
+## native transform handle stays hidden even if something else (e.g. panel
+## focus + W/E/R keypress) temporarily switches the native tool mode.
+func _process(_delta: float) -> void:
+	if _edited_node == null:
+		return
+	if _edited_node.selection.mode == SelectionManager.Mode.OBJECT:
+		return
+	# Hot path after first lookup: _node3d_select_button is cached.
+	var btn := _node3d_select_button
+	if btn != null and is_instance_valid(btn):
+		if not btn.button_pressed:
+			btn.button_pressed = true
+	else:
+		_node3d_select_button = null  # stale reference — re-lookup next call
+		_suppress_native_gizmo()
 
 
 func _notification(what: int) -> void:
@@ -675,27 +696,39 @@ func _disconnect_node_signals() -> void:
 ## native move/rotate/scale transform handles.  Called whenever we enter a
 ## sub-element edit mode (Vertex / Edge / Face) so only our custom gizmo
 ## handles are visible.
+##
+## [b]Why [code]button_pressed = true[/code][/b]: [method Object.emit_signal] from
+## GDScript only invokes GDScript-connected listeners.  The C++ slot
+## [code]Node3DEditor._menu_item_pressed(MENU_TOOL_SELECT)[/code] is wired to the
+## button's [code]pressed[/code] [u]signal[/u] in C++.  Setting
+## [member BaseButton.button_pressed] goes through [method BaseButton.set_pressed]
+## which both updates the [ButtonGroup] visual state [i]and[/i] emits the signal
+## via Godot's unified C++/GDScript signal bus — reliably triggering the C++ slot.
 func _suppress_native_gizmo() -> void:
 	var btn := _get_node3d_select_button()
-	if btn == null:
-		return
-	if not btn.button_pressed:
-		btn.set_pressed_no_signal(true)
-	btn.emit_signal("pressed")
+	if btn != null and not btn.button_pressed:
+		btn.button_pressed = true
 
 
 ## Returns the Select-mode (Q) button from the built-in [code]Node3DEditor[/code]
-## toolbar.  The lookup traverses the editor UI tree once and caches the result;
-## subsequent calls are O(1).
+## toolbar.  The lookup walks up from [method EditorInterface.get_editor_viewport_3d]
+## to the [code]Node3DEditor[/code] ancestor (typically two [code]get_parent()[/code]
+## hops), then searches that node's subtree for the [Button] whose shortcut
+## contains [constant KEY_Q].  Result is cached; subsequent calls are O(1).
 func _get_node3d_select_button() -> Button:
 	if _node3d_select_button != null and is_instance_valid(_node3d_select_button):
 		return _node3d_select_button
-	var nodes: Array[Node] = \
-			EditorInterface.get_base_control().find_children("*", "Node3DEditor", true, false)
-	if nodes.is_empty():
+	var sv := EditorInterface.get_editor_viewport_3d(0)
+	if sv == null:
 		return null
-	_node3d_select_button = _find_tool_button_by_shortcut(nodes[0], KEY_Q)
-	return _node3d_select_button
+	# Walk up: SubViewport → Node3DEditorViewport → Node3DEditor
+	var node: Node = sv.get_parent()
+	while node != null:
+		if node.get_class() == "Node3DEditor":
+			_node3d_select_button = _find_tool_button_by_shortcut(node, KEY_Q)
+			return _node3d_select_button
+		node = node.get_parent()
+	return null
 
 
 ## Recursively walks [param root]'s subtree and returns the first [Button]
