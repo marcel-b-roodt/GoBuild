@@ -57,6 +57,9 @@ var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
 var _scale_snap_btn: OptionButton                = null
+## Cached reference to the Select-mode button (Q) in the [code]Node3DEditor[/code] toolbar.
+## Populated lazily on first call to [method _get_node3d_select_button].
+var _node3d_select_button: Button                = null
 
 # Mode-switch shortcuts (initialised in _enter_tree via EditorSettings).
 var _shortcut_object: Shortcut
@@ -222,7 +225,8 @@ func _edit(object: Object) -> void:
 			remove_node_3d_gizmo_plugin(_gizmo_plugin)
 			add_node_3d_gizmo_plugin(_gizmo_plugin)
 		_edited_node.update_gizmos()
-		_send_editor_tool_shortcut(KEY_Q)
+		if _edited_node.selection.mode != SelectionManager.Mode.OBJECT:
+			call_deferred("_suppress_native_gizmo")
 
 	if _panel:
 		_panel.set_target(_edited_node)
@@ -260,7 +264,6 @@ func _make_visible(visible: bool) -> void:
 		if _panel:
 			_panel.set_target(null)
 			_panel.update_context("")
-		_send_editor_tool_shortcut(KEY_W)
 
 
 # ---------------------------------------------------------------------------
@@ -638,7 +641,8 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 		_input_controller.clear_hover(_edited_node)
 		_input_controller.cancel_box_select(_edited_node)
 	_refresh_panel_context()
-	_send_editor_tool_shortcut(KEY_Q)
+	if mode != SelectionManager.Mode.OBJECT:
+		call_deferred("_suppress_native_gizmo")
 
 
 func _on_edited_node_removed() -> void:
@@ -648,7 +652,6 @@ func _on_edited_node_removed() -> void:
 	_edited_node = null
 	if _panel:
 		_panel.set_target(null)
-	_send_editor_tool_shortcut(KEY_W)
 	update_overlays()
 
 
@@ -664,68 +667,53 @@ func _disconnect_node_signals() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Editor tool shortcut helper
+# Native gizmo suppression
 # ---------------------------------------------------------------------------
 
-func _send_editor_tool_shortcut(keycode: Key) -> void:
-	call_deferred("_do_send_editor_tool_shortcut", keycode)
-
-
-func _do_send_editor_tool_shortcut(keycode: Key) -> void:
-	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+## Press the [code]Node3DEditor[/code] Select-mode (Q) button directly,
+## which switches the built-in editor tool to TOOL_MODE_SELECT and hides the
+## native move/rotate/scale transform handles.  Called whenever we enter a
+## sub-element edit mode (Vertex / Edge / Face) so only our custom gizmo
+## handles are visible.
+func _suppress_native_gizmo() -> void:
+	var btn := _get_node3d_select_button()
+	if btn == null:
 		return
-	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
-	if sv == null:
-		return
-
-	# The 3D editor registers its key handler (Q/W/E/R tool-mode) via
-	# surface.connect("gui_input", ...) on a dedicated focusable Control
-	# that is a SIBLING of SubViewportContainer inside Node3DEditorViewport.
-	# Input.parse_input_event() only fires _input(), not _gui_input(), so
-	# it never reached that handler.  The fix is to focus the right Control
-	# and then route through Window.push_input() which does trigger _gui_input
-	# on the focused widget and its ancestors.
-	var surface: Control = _find_viewport_surface(sv.get_parent())
-	if surface != null:
-		surface.grab_focus()
-	else:
-		var parent: Node = sv.get_parent()
-		if parent is Control:
-			(parent as Control).grab_focus()
-
-	var window: Window = get_tree().root
-	var ev_down := InputEventKey.new()
-	ev_down.keycode          = keycode
-	ev_down.physical_keycode = keycode
-	ev_down.pressed          = true
-	ev_down.echo             = false
-	window.push_input(ev_down)
-	var ev_up := InputEventKey.new()
-	ev_up.keycode          = keycode
-	ev_up.physical_keycode = keycode
-	ev_up.pressed          = false
-	ev_up.echo             = false
-	window.push_input(ev_up)
+	if not btn.button_pressed:
+		btn.set_pressed_no_signal(true)
+	btn.emit_signal("pressed")
 
 
-## Locate the focusable [Control] inside Godot 4's [code]Node3DEditorViewport[/code]
-## that receives the viewport's [code]gui_input[/code] events.
-##
-## Godot 4's actual layout (Node3DEditorViewport IS the SubViewportContainer):
-## [codeblock]
-##   Node3DEditorViewport (SubViewportContainer)  ← svc
-##   ├── surface (Control, FOCUS_ALL) ← gui_input + Q/W/E/R key handler
-##   └── SubViewport                 ← what get_editor_viewport_3d() returns
-## [/codeblock]
-##
-## [param svc] is [code]SubViewport.get_parent()[/code] which IS
-## [code]Node3DEditorViewport[/code] itself.  The surface is therefore a
-## direct child of [param svc], not a sibling — search children, not ancestors.
-## Returns [code]null[/code] if not found (version mismatch / editor change).
-static func _find_viewport_surface(svc: Node) -> Control:
-	for child: Node in svc.get_children():
-		if child is Control \
-				and not (child is SubViewportContainer) \
-				and (child as Control).focus_mode == Control.FOCUS_ALL:
-			return child as Control
+## Returns the Select-mode (Q) button from the built-in [code]Node3DEditor[/code]
+## toolbar.  The lookup traverses the editor UI tree once and caches the result;
+## subsequent calls are O(1).
+func _get_node3d_select_button() -> Button:
+	if _node3d_select_button != null and is_instance_valid(_node3d_select_button):
+		return _node3d_select_button
+	var nodes: Array[Node] = \
+			EditorInterface.get_base_control().find_children("*", "Node3DEditor", true, false)
+	if nodes.is_empty():
+		return null
+	_node3d_select_button = _find_tool_button_by_shortcut(nodes[0], KEY_Q)
+	return _node3d_select_button
+
+
+## Recursively walks [param root]'s subtree and returns the first [Button]
+## whose [member Button.shortcut] contains an [InputEventKey] matching
+## [param keycode] (checked against both [code]keycode[/code] and
+## [code]physical_keycode[/code]).  Returns [code]null[/code] if not found.
+static func _find_tool_button_by_shortcut(root: Node, keycode: Key) -> Button:
+	if root is Button:
+		var btn := root as Button
+		if btn.shortcut != null:
+			for evt: InputEvent in btn.shortcut.events:
+				if evt is InputEventKey:
+					var key_evt := evt as InputEventKey
+					if key_evt.keycode == keycode \
+							or key_evt.physical_keycode == keycode:
+						return btn
+	for child: Node in root.get_children():
+		var result := _find_tool_button_by_shortcut(child, keycode)
+		if result != null:
+			return result
 	return null
