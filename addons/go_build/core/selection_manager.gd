@@ -222,5 +222,3 @@ func set_selected_faces(indices: Array[int]) -> void:
 	_selected_faces.clear()
 	_selected_faces.assign(indices)
 	selection_changed.emit()
-
-

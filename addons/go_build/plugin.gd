@@ -691,4 +691,3 @@ func _do_send_editor_tool_shortcut(keycode: Key) -> void:
 	ev_up.pressed          = false
 	ev_up.echo             = false
 	Input.parse_input_event(ev_up)
-

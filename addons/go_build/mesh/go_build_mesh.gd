@@ -6,21 +6,22 @@
 ##
 ## All modelling operations (extrude, bevel, etc.) operate on this resource
 ## and then call bake() to update the visible mesh.
+@tool
 class_name GoBuildMesh
 extends Resource
 
 ## All vertex positions. Faces reference these by index.
-var vertices: Array[Vector3] = []
+@export var vertices: Array[Vector3] = []
 
 ## All faces. Each [GoBuildFace] references vertex positions by index.
-var faces: Array[GoBuildFace] = []
-
-## Derived edge list. Rebuilt via [method rebuild_edges] after face changes.
-var edges: Array[GoBuildEdge] = []
+@export var faces: Array[GoBuildFace] = []
 
 ## Material slots. [code]faces[i].material_index[/code] indexes into this array.
 ## Slot 0 is always the default material (may be null).
-var material_slots: Array[Material] = []
+@export var material_slots: Array[Material] = []
+
+## Derived edge list. Rebuilt via [method rebuild_edges] after face changes.
+var edges: Array[GoBuildEdge] = []
 
 ## Coincident-vertex group map.  Parallel to [member vertices] — same size.
 ## [code]coincident_groups[i][/code] is the canonical group ID for vertex [code]i[/code],

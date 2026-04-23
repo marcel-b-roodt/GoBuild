@@ -48,6 +48,13 @@ var _preview_mesh: ArrayMesh = null
 
 
 func _ready() -> void:
+	# After a scene reload the mesh data (vertices, faces, material_slots) is
+	# restored by Godot's serialiser, but the derived caches (edges,
+	# coincident_groups) are never stored — they are plain vars with no @export.
+	# Rebuild them so the gizmo and drag system have consistent data on the
+	# very first frame.
+	if go_build_mesh != null:
+		go_build_mesh.rebuild_edges()
 	bake()
 
 

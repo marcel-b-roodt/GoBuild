@@ -2,6 +2,7 @@
 ##
 ## Edges are derived from face data and rebuilt via [method GoBuildMesh.rebuild_edges].
 ## Do not modify this data directly; it is owned by the mesh.
+@tool
 class_name GoBuildEdge
 extends RefCounted
 

@@ -80,7 +80,15 @@ jobs:
 
           jq -n --arg content "$(cat discord_content.txt)" '{content:$content}' > payload.json
 
-          curl -sS \
+          HTTP_CODE=$(curl -sS -o /tmp/discord_response.txt --write-out "%{http_code}" \
             -H "Content-Type: application/json" \
             -d @payload.json \
-            "$WEBHOOK_URL" || echo "::warning::Discord reminder webhook returned a non-2xx response; continuing."
+            "$WEBHOOK_URL")
+          echo "Discord API HTTP ${HTTP_CODE}"
+          if [ -s /tmp/discord_response.txt ]; then
+            echo "Response body: $(cat /tmp/discord_response.txt)"
+          fi
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::error::Discord release webhook failed with HTTP ${HTTP_CODE}. See response body above."
+            exit 1
+          fi
