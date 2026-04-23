@@ -102,7 +102,7 @@ func test_vertex_positions_survive_round_trip() -> void:
 	var reloaded := _round_trip(original)
 	for i in original.vertices.size():
 		var approx := Vector3(1e-5, 1e-5, 1e-5)
-		assert_vector3(reloaded.vertices[i]).is_equal_approx(original.vertices[i], approx)
+		assert_vector(reloaded.vertices[i]).is_equal_approx(original.vertices[i], approx)
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +150,7 @@ func test_uv0_survives_round_trip() -> void:
 	var rf: GoBuildFace = reloaded.faces[0]
 	assert_int(rf.uvs.size()).is_equal(of.uvs.size())
 	for i in of.uvs.size():
-		assert_vector2(rf.uvs[i]).is_equal_approx(of.uvs[i], Vector2(1e-5, 1e-5))
+		assert_vector(rf.uvs[i]).is_equal_approx(of.uvs[i], Vector2(1e-5, 1e-5))
 
 
 func test_uv1_lightmap_survives_round_trip() -> void:
@@ -160,7 +160,7 @@ func test_uv1_lightmap_survives_round_trip() -> void:
 	var rf: GoBuildFace = reloaded.faces[0]
 	assert_int(rf.uv2s.size()).is_equal(of.uv2s.size())
 	for i in of.uv2s.size():
-		assert_vector2(rf.uv2s[i]).is_equal_approx(of.uv2s[i], Vector2(1e-5, 1e-5))
+		assert_vector(rf.uv2s[i]).is_equal_approx(of.uv2s[i], Vector2(1e-5, 1e-5))
 
 
 # ---------------------------------------------------------------------------
