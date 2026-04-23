@@ -171,9 +171,9 @@ func _exit_tree() -> void:
 	_node3d_select_button = null  # invalidate cache on unload
 
 
-## Re-apply SELECT mode every frame while in a sub-element edit mode so the
-## native transform handle stays hidden even if something else (e.g. panel
-## focus + W/E/R keypress) temporarily switches the native tool mode.
+## Re-apply Physical/Pan mode (V) every frame while in a sub-element edit mode
+## so the native transform handle stays hidden even if something else
+## temporarily modifies the native tool mode.
 func _process(_delta: float) -> void:
 	if _edited_node == null:
 		return
@@ -318,9 +318,11 @@ func _handle_keyboard(event: InputEvent) -> int:
 	var key := event as InputEventKey
 	if key.echo:
 		return 0
-	# Refresh the overlay hint on any Shift / Ctrl / Alt / V state change.
+	# Refresh the overlay hint on any Shift / Ctrl / Alt state change.
+	# V is consumed below in _handle_action_key so it never reaches native
+	# editor physical-mode — but Alt state changes still need overlay refresh.
 	match key.keycode:
-		KEY_SHIFT, KEY_CTRL, KEY_ALT, KEY_V:
+		KEY_SHIFT, KEY_CTRL, KEY_ALT:
 			update_overlays()
 			_refresh_panel_context()
 			return 0
@@ -362,6 +364,10 @@ func _handle_action_key(keycode: Key) -> int:
 		KEY_W:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
 		KEY_E:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.ROTATE)
 		KEY_R:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.SCALE)
+		# Consume V so the native editor never switches to physical/pan mode.
+		# GoBuild uses Alt (not V) for vertex snap, so V has no GoBuild action —
+		# swallowing it here is the entire suppression contract for this key.
+		KEY_V:             return 1
 	# Element-mode action keys — handled by helpers to keep return count low.
 	var result: int = _handle_element_action_key(keycode)
 	return result
@@ -543,7 +549,7 @@ func _build_overlay_hint() -> String:
 				elif mode == SelectionManager.Mode.EDGE:
 					hints.append("Shift: Extrude Edge")
 				hints.append("Ctrl: Snap")
-				hints.append("V: Vertex Snap")
+				hints.append("Alt: Vertex Snap")
 			GoBuildGizmoPlugin.TransformMode.SCALE:
 				if mode == SelectionManager.Mode.FACE:
 					hints.append("Shift: Inset")
@@ -567,7 +573,7 @@ func _build_panel_context() -> String:
 		return ""
 	var shift: bool = Input.is_key_pressed(KEY_SHIFT)
 	var ctrl:  bool = Input.is_key_pressed(KEY_CTRL)
-	var v_key: bool = Input.is_key_pressed(KEY_V)
+	var alt_key: bool = Input.is_key_pressed(KEY_ALT)
 	var tmode := _gizmo_plugin.transform_mode
 	var result: String
 	match tmode:
@@ -581,8 +587,8 @@ func _build_panel_context() -> String:
 			else:
 				result = "Scale"
 		_:  # TRANSLATE
-			if v_key:
-				result = "■ Vertex Snap"
+			if alt_key:
+				result = "■ Alt Vertex Snap"
 			elif ctrl:
 				result = "■ Snap"
 			elif shift:
@@ -691,30 +697,30 @@ func _disconnect_node_signals() -> void:
 # Native gizmo suppression
 # ---------------------------------------------------------------------------
 
-## Press the [code]Node3DEditor[/code] Select-mode (Q) button directly,
-## which switches the built-in editor tool to TOOL_MODE_SELECT and hides the
-## native move/rotate/scale transform handles.  Called whenever we enter a
-## sub-element edit mode (Vertex / Edge / Face) so only our custom gizmo
-## handles are visible.
+## Press the [code]Node3DEditor[/code] Physical/Pan mode (V) button directly,
+## which sets the built-in editor tool to TOOL_MODE_LIST_SELECT — the only
+## native tool mode that draws [b]no[/b] transform gizmo at the object origin.
+## Called whenever we enter a sub-element edit mode (Vertex / Edge / Face).
 ##
-## [b]Why [code]button_pressed = true[/code][/b]: [method Object.emit_signal] from
-## GDScript only invokes GDScript-connected listeners.  The C++ slot
-## [code]Node3DEditor._menu_item_pressed(MENU_TOOL_SELECT)[/code] is wired to the
-## button's [code]pressed[/code] [u]signal[/u] in C++.  Setting
-## [member BaseButton.button_pressed] goes through [method BaseButton.set_pressed]
-## which both updates the [ButtonGroup] visual state [i]and[/i] emits the signal
-## via Godot's unified C++/GDScript signal bus — reliably triggering the C++ slot.
+## GoBuild's own W/E/R transform modes are a separate internal state and are
+## unaffected: [method _handle_action_key] consumes W/E/R before the native
+## editor sees them, so the native tool mode stays at V regardless.
+##
+## [b]Why [code]button_pressed = true[/code][/b]: setting [member BaseButton.button_pressed]
+## goes through [method BaseButton.set_pressed] which updates the [ButtonGroup]
+## visual state [i]and[/i] emits [code]pressed[/code] via the unified C++/GDScript
+## signal bus, reliably triggering [code]Node3DEditor._menu_item_pressed[/code].
 func _suppress_native_gizmo() -> void:
 	var btn := _get_node3d_select_button()
 	if btn != null and not btn.button_pressed:
 		btn.button_pressed = true
 
 
-## Returns the Select-mode (Q) button from the built-in [code]Node3DEditor[/code]
+## Returns the Physical/Pan mode (V) button from the built-in [code]Node3DEditor[/code]
 ## toolbar.  The lookup walks up from [method EditorInterface.get_editor_viewport_3d]
 ## to the [code]Node3DEditor[/code] ancestor (typically two [code]get_parent()[/code]
 ## hops), then searches that node's subtree for the [Button] whose shortcut
-## contains [constant KEY_Q].  Result is cached; subsequent calls are O(1).
+## contains [constant KEY_V].  Result is cached; subsequent calls are O(1).
 func _get_node3d_select_button() -> Button:
 	if _node3d_select_button != null and is_instance_valid(_node3d_select_button):
 		return _node3d_select_button
@@ -725,7 +731,7 @@ func _get_node3d_select_button() -> Button:
 	var node: Node = sv.get_parent()
 	while node != null:
 		if node.get_class() == "Node3DEditor":
-			_node3d_select_button = _find_tool_button_by_shortcut(node, KEY_Q)
+			_node3d_select_button = _find_tool_button_by_shortcut(node, KEY_V)
 			return _node3d_select_button
 		node = node.get_parent()
 	return null

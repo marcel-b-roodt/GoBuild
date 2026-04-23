@@ -366,7 +366,7 @@ func _apply_translate_drag(
 	var world_axis: Vector3  = (node.global_transform.basis * local_axis).normalized()
 
 	# Vertex snap (V held): project the centroid→snap-vertex vector onto the axis.
-	if Input.is_key_pressed(KEY_V):
+	if Input.is_key_pressed(KEY_ALT):
 		var snap_world: Vector3 = _find_vertex_snap_world_pos(node, camera, screen_pos)
 		if snap_world != Vector3.INF:
 			var t_delta: float = (snap_world - world_centroid).dot(world_axis)
@@ -462,7 +462,7 @@ func _apply_plane_drag(
 
 	# Vertex snap (V held): move centroid to the nearest non-dragged vertex,
 	# but remove the component perpendicular to the plane so movement stays in-plane.
-	if Input.is_key_pressed(KEY_V):
+	if Input.is_key_pressed(KEY_ALT):
 		var snap_world: Vector3 = _find_vertex_snap_world_pos(node, camera, screen_pos)
 		if snap_world != Vector3.INF:
 			var raw_delta: Vector3 = snap_world - world_centroid
@@ -547,7 +547,7 @@ func _apply_viewport_plane_drag(
 
 	# Vertex snap (V held): snap the centroid directly to the nearest non-dragged
 	# vertex world position — no camera-plane constraint.
-	if Input.is_key_pressed(KEY_V):
+	if Input.is_key_pressed(KEY_ALT):
 		var snap_world: Vector3 = _find_vertex_snap_world_pos(node, camera, screen_pos)
 		if snap_world != Vector3.INF:
 			var delta_local: Vector3 = \
