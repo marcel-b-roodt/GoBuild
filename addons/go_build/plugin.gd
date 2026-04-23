@@ -711,28 +711,21 @@ func _do_send_editor_tool_shortcut(keycode: Key) -> void:
 ## Locate the focusable [Control] inside Godot 4's [code]Node3DEditorViewport[/code]
 ## that receives the viewport's [code]gui_input[/code] events.
 ##
-## The editor layout is:
+## Godot 4's actual layout (Node3DEditorViewport IS the SubViewportContainer):
 ## [codeblock]
-##   Node3DEditorViewport
-##   ├── surface (Control, FOCUS_ALL) ← gui_input + key handler here
-##   └── SubViewportContainer
-##       └── SubViewport
+##   Node3DEditorViewport (SubViewportContainer)  ← svc
+##   ├── surface (Control, FOCUS_ALL) ← gui_input + Q/W/E/R key handler
+##   └── SubViewport                 ← what get_editor_viewport_3d() returns
 ## [/codeblock]
 ##
-## [param svc] is the parent of [SubViewport] (SubViewportContainer).
-## Walks up to two ancestor levels searching for a [constant
-## Control.FOCUS_ALL] sibling.  Returns [code]null[/code] if not found.
+## [param svc] is [code]SubViewport.get_parent()[/code] which IS
+## [code]Node3DEditorViewport[/code] itself.  The surface is therefore a
+## direct child of [param svc], not a sibling — search children, not ancestors.
+## Returns [code]null[/code] if not found (version mismatch / editor change).
 static func _find_viewport_surface(svc: Node) -> Control:
-	var parent: Node = svc.get_parent()
-	for _level: int in 2:
-		if parent == null:
-			break
-		for child: Node in parent.get_children():
-			if child == svc:
-				continue
-			if child is Control \
-					and (child as Control).focus_mode == Control.FOCUS_ALL:
-				return child as Control
-		svc = parent
-		parent = parent.get_parent()
+	for child: Node in svc.get_children():
+		if child is Control \
+				and not (child is SubViewportContainer) \
+				and (child as Control).focus_mode == Control.FOCUS_ALL:
+			return child as Control
 	return null
