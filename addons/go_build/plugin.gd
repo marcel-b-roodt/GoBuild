@@ -185,12 +185,20 @@ func _pin_native_tool_mode() -> void:
 	if _edited_node.selection.mode == SelectionManager.Mode.OBJECT:
 		return
 	var btn := _node3d_select_button
-	if btn != null and is_instance_valid(btn):
-		if not btn.button_pressed:
-			btn.button_pressed = true
-	else:
+	if btn == null or not is_instance_valid(btn):
 		_node3d_select_button = null
 		_suppress_native_gizmo()
+		return
+	if not btn.button_pressed:
+		GoBuildDebug.log("[GoBuild] PLUGIN._pin_native_tool_mode  re-pressing V button")
+		# set_pressed_no_signal updates the ButtonGroup visual (unpress W/E/R)
+		# without emitting pressed — avoids re-entrancy.
+		# emit_signal then fires Node3DEditor._menu_item_pressed(MENU_TOOL_LIST_SELECT)
+		# via the C++ signal connection, actually changing tool_mode.
+		# button_pressed = true alone does NOT emit pressed and therefore
+		# never reaches _menu_item_pressed — the tool_mode stays unchanged.
+		btn.set_pressed_no_signal(true)
+		btn.emit_signal("pressed")
 
 
 func _notification(what: int) -> void:
@@ -722,14 +730,19 @@ func _disconnect_node_signals() -> void:
 ## unaffected: [method _handle_action_key] consumes W/E/R before the native
 ## editor sees them, so the native tool mode stays at V regardless.
 ##
-## [b]Why [code]button_pressed = true[/code][/b]: setting [member BaseButton.button_pressed]
-## goes through [method BaseButton.set_pressed] which updates the [ButtonGroup]
-## visual state [i]and[/i] emits [code]pressed[/code] via the unified C++/GDScript
-## signal bus, reliably triggering [code]Node3DEditor._menu_item_pressed[/code].
+## [b]Why the two-step press[/b]: [member BaseButton.button_pressed] (= [code]set_pressed()[/code])
+## only updates the [ButtonGroup] visual.  It does [b]not[/b] emit the [code]pressed[/code]
+## signal.  [code]Node3DEditor._menu_item_pressed[/code] is wired to [code]pressed[/code],
+## so calling [code]button_pressed = true[/code] alone [i]never changes the C++ tool_mode[/i].
+## [code]set_pressed_no_signal(true)[/code] + [code]emit_signal("pressed")[/code] is the
+## correct pair: visual update + C++ handler trigger.
 func _suppress_native_gizmo() -> void:
 	var btn := _get_node3d_select_button()
-	if btn != null and not btn.button_pressed:
-		btn.button_pressed = true
+	if btn == null:
+		return
+	if not btn.button_pressed:
+		btn.set_pressed_no_signal(true)
+	btn.emit_signal("pressed")
 
 
 ## Returns the Physical/Pan mode (V) button from the built-in [code]Node3DEditor[/code]
@@ -765,18 +778,28 @@ func _get_node3d_select_button() -> Button:
 		_node3d_select_button = btn
 		GoBuildDebug.log("[GoBuild] PLUGIN  V button found via shortcut strategy")
 		return _node3d_select_button
-	# Strategy 2: find Q button's ButtonGroup; V is at index 4
-	# (MENU_TOOL_SELECT=0, MOVE=1, ROTATE=2, SCALE=3, LIST_SELECT=4).
+	# Strategy 2: find Q button's ButtonGroup; scan all buttons for the one
+	# whose tooltip contains "List" or "Physical" (the V/List-select mode).
+	# Index-based lookup ([4]) is fragile — button order varies by Godot build.
 	var btn_q := _find_tool_button_by_shortcut(n3de, KEY_Q)
 	if btn_q != null and btn_q.button_group != null:
 		var group_btns := btn_q.button_group.get_buttons()
-		if group_btns.size() >= 5 and group_btns[4] is Button:
-			_node3d_select_button = group_btns[4] as Button
-			GoBuildDebug.log("[GoBuild] PLUGIN  V button found via ButtonGroup[4] strategy")
-			return _node3d_select_button
+		GoBuildDebug.log("[GoBuild] PLUGIN._get_node3d_select_button  ButtonGroup has %d buttons" \
+				% group_btns.size())
+		for idx: int in group_btns.size():
+			var gb: Button = group_btns[idx] as Button
+			if gb == null:
+				continue
+			var tip: String = gb.tooltip_text.to_lower()
+			GoBuildDebug.log("[GoBuild]   [%d] tooltip=%s  shortcut=%s" \
+					% [idx, gb.tooltip_text,
+					str(gb.shortcut != null and not gb.shortcut.events.is_empty())])
+			if "list" in tip or "physical" in tip:
+				_node3d_select_button = gb
+				GoBuildDebug.log("[GoBuild] PLUGIN  V button found via tooltip scan at index %d" % idx)
+				return _node3d_select_button
 		GoBuildDebug.log(
-				"[GoBuild] PLUGIN._get_node3d_select_button  ButtonGroup size=%d (need >=5)  Q=%s" \
-				% [group_btns.size(), str(btn_q != null)])
+				"[GoBuild] PLUGIN._get_node3d_select_button  no List/Physical tooltip found")
 	else:
 		GoBuildDebug.log(
 				"[GoBuild] PLUGIN._get_node3d_select_button  Q button not found or has no ButtonGroup")
