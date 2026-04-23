@@ -171,21 +171,25 @@ func _exit_tree() -> void:
 	_node3d_select_button = null  # invalidate cache on unload
 
 
-## Re-apply Physical/Pan mode (V) every frame while in a sub-element edit mode
-## so the native transform handle stays hidden even if something else
-## temporarily modifies the native tool mode.
+## Per-frame poll (belt-and-suspenders alongside the per-draw-frame check).
 func _process(_delta: float) -> void:
+	_pin_native_tool_mode()
+
+
+## Shared implementation: press the V button if we are in a sub-element mode
+## and the button is not already pressed.  Called both from [method _process]
+## and from [method _forward_3d_draw_over_viewport].
+func _pin_native_tool_mode() -> void:
 	if _edited_node == null:
 		return
 	if _edited_node.selection.mode == SelectionManager.Mode.OBJECT:
 		return
-	# Hot path after first lookup: _node3d_select_button is cached.
 	var btn := _node3d_select_button
 	if btn != null and is_instance_valid(btn):
 		if not btn.button_pressed:
 			btn.button_pressed = true
 	else:
-		_node3d_select_button = null  # stale reference — re-lookup next call
+		_node3d_select_button = null
 		_suppress_native_gizmo()
 
 
@@ -304,6 +308,11 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 
 ## Draw the box-select rect and the mode / modifier hint label.
 func _forward_3d_draw_over_viewport(overlay: Control) -> void:
+	# Pin native tool to Physical/List-select (no gizmo) on every draw frame
+	# while in any sub-element edit mode.  This is a belt-and-suspenders
+	# complement to the _process poll and fires unconditionally every viewport
+	# render frame, providing the tightest possible re-press window.
+	_pin_native_tool_mode()
 	if _input_controller != null:
 		_input_controller.draw_overlay(overlay)
 	if _input_controller != null and _input_controller.has_active_param_preview():
@@ -421,6 +430,13 @@ func _set_transform_mode(mode: GoBuildGizmoPlugin.TransformMode) -> int:
 		_edited_node.update_gizmos()
 	update_overlays()
 	_refresh_panel_context()
+	# W/E/R shortcuts fire via _shortcut_input on the Window root, which runs
+	# before _forward_3d_gui_input — so the native W/E/R button may press itself
+	# before GoBuild returns 1 to consume the event.  Defer a re-press of V so
+	# it fires at the end of this same frame, after all shortcut processing.
+	if _edited_node != null \
+			and _edited_node.selection.mode != SelectionManager.Mode.OBJECT:
+		call_deferred("_suppress_native_gizmo")
 	return 1
 
 
@@ -717,10 +733,16 @@ func _suppress_native_gizmo() -> void:
 
 
 ## Returns the Physical/Pan mode (V) button from the built-in [code]Node3DEditor[/code]
-## toolbar.  The lookup walks up from [method EditorInterface.get_editor_viewport_3d]
-## to the [code]Node3DEditor[/code] ancestor (typically two [code]get_parent()[/code]
-## hops), then searches that node's subtree for the [Button] whose shortcut
-## contains [constant KEY_V].  Result is cached; subsequent calls are O(1).
+## toolbar.  Uses two strategies in order:
+## [b]Strategy 1[/b] — find by [constant KEY_V] shortcut (direct, works when the
+## button shortcut has an explicit [InputEventKey] with [code]keycode[/code] or
+## [code]physical_keycode[/code] set to [constant KEY_V]).[br]
+## [b]Strategy 2[/b] — find the Q button (Select), get its [ButtonGroup], and
+## take [code]get_buttons()[4][/code] which is [code]MENU_TOOL_LIST_SELECT[/code]
+## (the 5th tool button, zero-indexed — the [i]Physical / List-select[/i] mode).
+## This is the robust fallback when editor shortcuts store [code]keycode = KEY_NONE[/code]
+## and only set [code]physical_keycode[/code], or use a different internal format.
+## Result is cached; subsequent calls are O(1).
 func _get_node3d_select_button() -> Button:
 	if _node3d_select_button != null and is_instance_valid(_node3d_select_button):
 		return _node3d_select_button
@@ -728,12 +750,36 @@ func _get_node3d_select_button() -> Button:
 	if sv == null:
 		return null
 	# Walk up: SubViewport → Node3DEditorViewport → Node3DEditor
-	var node: Node = sv.get_parent()
-	while node != null:
-		if node.get_class() == "Node3DEditor":
-			_node3d_select_button = _find_tool_button_by_shortcut(node, KEY_V)
+	var n3de: Node = null
+	var walk: Node = sv.get_parent()
+	while walk != null:
+		if walk.get_class() == "Node3DEditor":
+			n3de = walk
+			break
+		walk = walk.get_parent()
+	if n3de == null:
+		return null
+	# Strategy 1: find by KEY_V shortcut.
+	var btn := _find_tool_button_by_shortcut(n3de, KEY_V)
+	if btn != null:
+		_node3d_select_button = btn
+		GoBuildDebug.log("[GoBuild] PLUGIN  V button found via shortcut strategy")
+		return _node3d_select_button
+	# Strategy 2: find Q button's ButtonGroup; V is at index 4
+	# (MENU_TOOL_SELECT=0, MOVE=1, ROTATE=2, SCALE=3, LIST_SELECT=4).
+	var btn_q := _find_tool_button_by_shortcut(n3de, KEY_Q)
+	if btn_q != null and btn_q.button_group != null:
+		var group_btns := btn_q.button_group.get_buttons()
+		if group_btns.size() >= 5 and group_btns[4] is Button:
+			_node3d_select_button = group_btns[4] as Button
+			GoBuildDebug.log("[GoBuild] PLUGIN  V button found via ButtonGroup[4] strategy")
 			return _node3d_select_button
-		node = node.get_parent()
+		GoBuildDebug.log(
+				"[GoBuild] PLUGIN._get_node3d_select_button  ButtonGroup size=%d (need >=5)  Q=%s" \
+				% [group_btns.size(), str(btn_q != null)])
+	else:
+		GoBuildDebug.log(
+				"[GoBuild] PLUGIN._get_node3d_select_button  Q button not found or has no ButtonGroup")
 	return null
 
 
