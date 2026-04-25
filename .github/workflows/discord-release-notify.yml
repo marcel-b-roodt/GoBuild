@@ -47,14 +47,20 @@ jobs:
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.event.release.tag_name }}
           RELEASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.release_url || github.event.release.html_url }}
           RELEASE_BODY: ${{ github.event_name == 'workflow_dispatch' && inputs.release_body || github.event.release.body }}
+          IS_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && contains(inputs.tag_name, '-') || github.event.release.prerelease }}
         run: |
           SUMMARY=$(printf "%s" "$RELEASE_BODY" | sed 's/\r//g' | sed '/^\s*$/d' | head -n 8)
           if [ -z "$SUMMARY" ]; then
             SUMMARY="(No highlights were included in the release body.)"
           fi
 
-          printf '@here\n\nGoBuild %s is live.\n\n%s\n%s\n\nHighlights:\n%s\n\nTry the new version from GitHub and share feedback.' \
-            "$TAG_NAME" "$RELEASE_NAME" "$RELEASE_URL" "$SUMMARY" > discord_content.txt
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            printf '@here\n\nGoBuild prerelease %s is live for preview testing.\n\n%s\n%s\n\nHighlights:\n%s\n\nTry the dev build and share feedback before the stable release.' \
+              "$TAG_NAME" "$RELEASE_NAME" "$RELEASE_URL" "$SUMMARY" > discord_content.txt
+          else
+            printf '@here\n\nGoBuild %s is live.\n\n%s\n%s\n\nHighlights:\n%s\n\nTry the new version from GitHub and share feedback.' \
+              "$TAG_NAME" "$RELEASE_NAME" "$RELEASE_URL" "$SUMMARY" > discord_content.txt
+          fi
 
       - name: Preview release payload (manual run)
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -66,10 +72,10 @@ jobs:
       - name: Post release message to Discord (optional)
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
         env:
-          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_RELEASE }}
+          WEBHOOK_URL: ${{ (github.event_name == 'workflow_dispatch' && contains(inputs.tag_name, '-')) && secrets.DISCORD_WEBHOOK_PRERELEASE || (github.event.release.prerelease && secrets.DISCORD_WEBHOOK_PRERELEASE || secrets.DISCORD_WEBHOOK_RELEASE) }}
         run: |
           if [ -z "${WEBHOOK_URL:-}" ]; then
-            echo "::notice::DISCORD_WEBHOOK_RELEASE not set; skipping Discord post."
+            echo "::notice::Release webhook not set for this release type; skipping Discord post."
             exit 0
           fi
 

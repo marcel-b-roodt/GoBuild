@@ -41,8 +41,14 @@ jobs:
           if [ -z "$TAG_NAME" ]; then
             TAG_NAME="v0.0.0-preview"
           fi
+          VERSION="${TAG_NAME#v}"
+          IS_PRERELEASE=false
+          if [[ "$VERSION" == *-* ]]; then
+            IS_PRERELEASE=true
+          fi
           echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
-          echo "version=${TAG_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Extract changelog section
         id: changelog
@@ -82,6 +88,7 @@ jobs:
           name: "GoBuild ${{ steps.version.outputs.tag }}"
           body_path: release_notes.md
           draft: true
+          prerelease: ${{ steps.version.outputs.is_prerelease == 'true' }}
           files: ${{ steps.package.outputs.zip_name }}
 
       - name: Build reminder message content

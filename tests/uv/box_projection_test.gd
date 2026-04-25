@@ -255,3 +255,82 @@ func test_box_projection_degenerate_face_under_3_verts_is_noop() -> void:
 	mesh.faces.append(face)
 	BoxProjection.apply(mesh, [0], 1.0)
 	assert_int(mesh.faces[0].uvs.size()).is_equal(0)
+
+
+# ---------------------------------------------------------------------------
+# Transform-aware projection tests
+# ---------------------------------------------------------------------------
+
+func test_box_projection_identity_transform_matches_default_apply() -> void:
+	var mesh_a := _make_plus_y_rect(2.0, 3.0)
+	var mesh_b := _make_plus_y_rect(2.0, 3.0)
+
+	BoxProjection.apply(mesh_a, [0], 1.0)
+	BoxProjection.apply(mesh_b, [0], 1.0, Transform3D.IDENTITY)
+
+	for i: int in 4:
+		assert_float(mesh_a.faces[0].uvs[i].x).is_equal_approx(mesh_b.faces[0].uvs[i].x, 0.001)
+		assert_float(mesh_a.faces[0].uvs[i].y).is_equal_approx(mesh_b.faces[0].uvs[i].y, 0.001)
+
+
+func test_box_projection_translation_transform_offsets_uvs_in_projection_space() -> void:
+	# +Y face maps as UV=(x,-z). Translating by (+5,+0,+7) should shift UV by (+5,-7).
+	var mesh := _make_plus_y_rect(2.0, 3.0)
+	var t := Transform3D(Basis.IDENTITY, Vector3(5.0, 0.0, 7.0))
+
+	BoxProjection.apply(mesh, [0], 1.0, t)
+
+	var face: GoBuildFace = mesh.faces[0]
+	# v0 local=(0,0,0) -> world=(5,0,7) -> uv=(5,-7)
+	assert_float(face.uvs[0].x).is_equal_approx(5.0, 0.001)
+	assert_float(face.uvs[0].y).is_equal_approx(-7.0, 0.001)
+	# v2 local=(2,0,3) -> world=(7,0,10) -> uv=(7,-10)
+	assert_float(face.uvs[2].x).is_equal_approx(7.0, 0.001)
+	assert_float(face.uvs[2].y).is_equal_approx(-10.0, 0.001)
+
+
+func test_box_projection_translation_respects_units_per_tile() -> void:
+	# Same as above, but 0.5 units_per_tile doubles UV coordinates.
+	var mesh := _make_plus_y_rect(2.0, 3.0)
+	var t := Transform3D(Basis.IDENTITY, Vector3(5.0, 0.0, 7.0))
+
+	BoxProjection.apply(mesh, [0], 0.5, t)
+
+	var face: GoBuildFace = mesh.faces[0]
+	assert_float(face.uvs[0].x).is_equal_approx(10.0, 0.001)
+	assert_float(face.uvs[0].y).is_equal_approx(-14.0, 0.001)
+	assert_float(face.uvs[2].x).is_equal_approx(14.0, 0.001)
+	assert_float(face.uvs[2].y).is_equal_approx(-20.0, 0.001)
+
+
+func test_box_projection_rotation_transform_changes_axes_as_expected() -> void:
+	# Rotate +Y face by +90 deg around Y:
+	# local point (2,0,3) -> world (3,0,-2), so UV=(x,-z)=(3,2)
+	var mesh := _make_plus_y_rect(2.0, 3.0)
+	var basis := Basis(Vector3.UP, deg_to_rad(90.0))
+	var t := Transform3D(basis, Vector3.ZERO)
+
+	BoxProjection.apply(mesh, [0], 1.0, t)
+
+	var uv: Vector2 = mesh.faces[0].uvs[2]
+	assert_float(uv.x).is_equal_approx(3.0, 0.001)
+	assert_float(uv.y).is_equal_approx(2.0, 0.001)
+
+
+func test_box_projection_non_uniform_scale_transform_scales_uv_span() -> void:
+	# +Y face with width=2, depth=3. Applying scale (2,1,0.5) should produce
+	# world-space span U=4 (x scaled by 2) and V=1.5 (z scaled by 0.5).
+	var mesh := _make_plus_y_rect(2.0, 3.0)
+	var basis := Basis.from_scale(Vector3(2.0, 1.0, 0.5))
+	var t := Transform3D(basis, Vector3.ZERO)
+
+	BoxProjection.apply(mesh, [0], 1.0, t)
+
+	var face: GoBuildFace = mesh.faces[0]
+	var min_u := INF; var max_u := -INF
+	var min_v := INF; var max_v := -INF
+	for uv: Vector2 in face.uvs:
+		min_u = minf(min_u, uv.x); max_u = maxf(max_u, uv.x)
+		min_v = minf(min_v, uv.y); max_v = maxf(max_v, uv.y)
+	assert_float(max_u - min_u).is_equal_approx(4.0, 0.001)
+	assert_float(max_v - min_v).is_equal_approx(1.5, 0.001)

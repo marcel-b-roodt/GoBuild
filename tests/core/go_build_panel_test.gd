@@ -141,22 +141,22 @@ func test_set_target_stats_label_is_not_empty() -> void:
 	assert_str(panel._stats_label.text).is_not_empty()
 
 
-func test_set_target_syncs_auto_uv_checkbox_from_node() -> void:
+func test_set_target_syncs_auto_uv_option_from_node() -> void:
 	var panel := _make_panel()
 	var node  := _make_node_with_quad()
-	node.auto_uv = false
+	node.auto_uv_mode = GoBuildFace.UvMode.NONE
 	panel.set_target(node)
-	assert_bool(panel._auto_uv_check.button_pressed).is_false()
+	assert_int(panel._auto_uv_option.selected).is_equal(GoBuildFace.UvMode.NONE)
 
 
-func test_auto_uv_checkbox_toggle_updates_target_flag() -> void:
+func test_auto_uv_option_selection_updates_target_mode() -> void:
 	var panel := _make_panel()
 	var node  := _make_node_with_quad()
 	panel.set_target(node)
-	panel._on_auto_uv_check_toggled(false)
-	assert_bool(node.auto_uv).is_false()
-	panel._on_auto_uv_check_toggled(true)
-	assert_bool(node.auto_uv).is_true()
+	panel._on_auto_uv_mode_selected(GoBuildFace.UvMode.NONE)
+	assert_int(node.auto_uv_mode).is_equal(GoBuildFace.UvMode.NONE)
+	panel._on_auto_uv_mode_selected(GoBuildFace.UvMode.BOX)
+	assert_int(node.auto_uv_mode).is_equal(GoBuildFace.UvMode.BOX)
 
 
 func test_planar_uv_button_disabled_without_face_selection() -> void:
