@@ -17,20 +17,27 @@ signal mesh_changed
 # Self-preload: Godot's startup script scan processes core/ files alphabetically,
 # reaching this file before selection_manager.gd.  The explicit preload forces
 # SelectionManager to be registered before this script is compiled.
-const _SEL_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.gd")
+const _SEL_MGR_SCRIPT   := preload("res://addons/go_build/core/selection_manager.gd")
 const _PLANAR_UV_SCRIPT := preload("res://addons/go_build/uv/planar_projection.gd")
+const _BOX_UV_SCRIPT    := preload("res://addons/go_build/uv/box_projection.gd")
+const _FACE_SCRIPT      := preload("res://addons/go_build/mesh/go_build_face.gd")
 
 ## The editable mesh resource. Assigning a new resource immediately bakes it.
 @export var go_build_mesh: GoBuildMesh:
 	set(value):
 		go_build_mesh = value
-		if auto_uv and go_build_mesh != null:
+		if auto_uv_mode != GoBuildFace.UvMode.NONE and go_build_mesh != null:
 			_apply_auto_uv()
 		bake()
 
-## When [code]true[/code], planar UV projection is applied automatically after
-## every modelling operation.  Can be toggled in the GoBuild panel.
-@export var auto_uv: bool = true
+## Global auto-UV mode applied after every modelling operation.
+##
+## [constant GoBuildFace.UvMode.NONE] disables automatic re-projection.
+## Any other value projects all faces whose [member GoBuildFace.uv_projection_mode]
+## is [constant GoBuildFace.UvMode.NONE] (i.e. not explicitly set by the user)
+## using the chosen algorithm.  Faces with an explicit per-face mode are left
+## unchanged; they keep the projection that was last manually applied.
+@export var auto_uv_mode: GoBuildFace.UvMode = GoBuildFace.UvMode.PLANAR
 
 ## Per-instance selection state: which mode is active and which elements are
 ## selected. The gizmo and panel both hold a reference to this object.
@@ -162,22 +169,40 @@ func apply_operation(
 ## Execute [param operation] and rebake. Called by the undo/redo system.
 func _do_operation(operation: Callable) -> void:
 	operation.call()
-	if auto_uv:
+	if auto_uv_mode != GoBuildFace.UvMode.NONE:
 		_apply_auto_uv()
 	bake()
 	update_gizmos()
 
 
-## Apply planar UV projection to every face of [member go_build_mesh].
-## Called automatically after operations when [member auto_uv] is enabled.
+## Apply the global auto-UV mode to every face that has not been explicitly
+## projected.  Faces whose [member GoBuildFace.uv_projection_mode] is not
+## [constant GoBuildFace.UvMode.NONE] keep the projection that was manually
+## applied and are skipped.
+##
+## Called automatically after operations when [member auto_uv_mode] is not NONE.
 func _apply_auto_uv() -> void:
 	if go_build_mesh == null:
 		return
-	var all_faces: Array[int] = []
-	all_faces.resize(go_build_mesh.faces.size())
-	for i: int in all_faces.size():
-		all_faces[i] = i
-	PlanarProjection.apply(go_build_mesh, all_faces, 1.0)
+	var planar_faces: Array[int] = []
+	var box_faces: Array[int] = []
+	for i: int in go_build_mesh.faces.size():
+		var face: GoBuildFace = go_build_mesh.faces[i]
+		match face.uv_projection_mode:
+			GoBuildFace.UvMode.NONE:
+				# Defers to the global mode.
+				if auto_uv_mode == GoBuildFace.UvMode.PLANAR:
+					planar_faces.append(i)
+				elif auto_uv_mode == GoBuildFace.UvMode.BOX:
+					box_faces.append(i)
+			GoBuildFace.UvMode.PLANAR:
+				planar_faces.append(i)
+			GoBuildFace.UvMode.BOX:
+				box_faces.append(i)
+	if not planar_faces.is_empty():
+		PlanarProjection.apply(go_build_mesh, planar_faces, 1.0)
+	if not box_faces.is_empty():
+		BoxProjection.apply(go_build_mesh, box_faces, 1.0, global_transform)
 
 
 ## Restore the mesh from [param snapshot] and rebake.

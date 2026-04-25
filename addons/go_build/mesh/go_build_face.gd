@@ -6,6 +6,18 @@
 class_name GoBuildFace
 extends Resource
 
+## Which UV projection mode was last manually applied to this face.
+##
+## [constant NONE] means the face defers to the global Auto UV mode on
+## [GoBuildMeshInstance].  Any other value means the user explicitly applied a
+## projection to this face via the panel or right-click menu, and the global
+## auto-mode will leave it untouched.
+enum UvMode {
+	NONE    = 0, ## No manual projection applied; respects global auto_uv_mode.
+	PLANAR  = 1, ## Planar (dominant-axis) projection was manually applied.
+	BOX     = 2, ## World-space box projection was manually applied.
+}
+
 ## Indices into [member GoBuildMesh.vertices]. Minimum 3 (triangle), typically 4 (quad).
 @export var vertex_indices: Array[int] = []
 
@@ -22,6 +34,10 @@ extends Resource
 ## [code]0[/code] = flat shading (face normal used for every vertex).
 ## [code]> 0[/code] = normals are averaged with all faces sharing the same vertex and group.
 @export var smooth_group: int = 0
+
+## Records which UV projection mode was manually applied to this face.
+## [constant UvMode.NONE] means the face defers to the global auto UV mode.
+@export var uv_projection_mode: UvMode = UvMode.NONE
 
 
 ## Returns [code]true[/code] if the face has the minimum required data to be valid.

@@ -16,6 +16,7 @@ extends EditorPlugin
 # script in the chain.
 # ---------------------------------------------------------------------------
 const _DEBUG_SCRIPT         := preload("res://addons/go_build/core/go_build_debug.gd")
+const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
@@ -52,6 +53,7 @@ const _SCALE_SNAP_LABELS:  Array[String] = ["0.1", "0.2", "0.5", "1.0"]
 const _SCALE_SNAP_DEFAULT_IDX: int = 0   # 0.1
 
 var _panel: GoBuildPanel                         = null
+var _panel_scroll: ScrollContainer               = null
 var _edited_node: GoBuildMeshInstance            = null
 var _gizmo_plugin: GoBuildGizmoPlugin            = null
 var _input_controller: SelectionInputController  = null
@@ -61,6 +63,14 @@ var _rot_snap_btn: OptionButton                  = null
 var _scale_snap_btn: OptionButton                = null
 ## Keeps the native Physical/V tool mode pinned whenever in a sub-element mode.
 var _tool_pinner: Node3DEditorToolPinner         = null
+
+## Last observed global transform of the edited node while in Object mode.
+## Used to detect when the user moves the node so UVs can be refreshed.
+var _prev_object_transform: Transform3D          = Transform3D.IDENTITY
+
+## Guards the deferred object-mode UV rebake so at most one [method _flush_object_uv_bake]
+## call is queued per rendered frame, no matter how many _process ticks fire.
+var _object_uv_bake_scheduled: bool              = false
 
 # Mode-switch shortcuts (initialised in _enter_tree via EditorSettings).
 var _shortcut_object: Shortcut
@@ -83,7 +93,12 @@ func _enter_tree() -> void:
 	_init_shortcuts()
 
 	_panel = _PANEL_SCRIPT.new()
-	add_control_to_dock(DOCK_SLOT_LEFT_BL, _panel)
+	_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	_panel_scroll = ScrollContainer.new()
+	_panel_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_panel_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_panel_scroll.add_child(_panel)
+	add_control_to_dock(DOCK_SLOT_LEFT_BL, _panel_scroll)
 	_panel.set_plugin(self)
 
 	_gizmo_plugin = _GIZMO_PLUGIN_SCRIPT.new()
@@ -157,8 +172,9 @@ func _exit_tree() -> void:
 		_scale_snap_btn = null
 
 	if _panel:
-		remove_control_from_docks(_panel)
-		_panel.queue_free()
+		remove_control_from_docks(_panel_scroll)
+		_panel_scroll.queue_free()
+		_panel_scroll = null
 		_panel = null
 
 	_disconnect_node_signals()
@@ -179,6 +195,37 @@ func _exit_tree() -> void:
 func _process(_delta: float) -> void:
 	if _edited_node != null and _tool_pinner != null:
 		_tool_pinner.pin_if_active(_edited_node.selection.mode)
+
+	# Live UV refresh in Object mode: schedule a single end-of-frame rebake
+	# whenever the node's transform changes.  The flag ensures at most one
+	# _flush_object_uv_bake call is deferred per rendered frame, regardless of
+	# how many _process ticks fire while the user is dragging.
+	if _edited_node != null \
+			and _edited_node.selection.get_mode() == SelectionManager.Mode.OBJECT \
+			and _edited_node.auto_uv_mode != GoBuildFace.UvMode.NONE:
+		var t := _edited_node.global_transform
+		if not t.is_equal_approx(_prev_object_transform):
+			_prev_object_transform = t
+			_schedule_object_uv_bake()
+
+
+## Queue a single deferred UV re-apply + bake for the active node in Object mode.
+## Subsequent calls within the same frame are no-ops until the flush fires.
+func _schedule_object_uv_bake() -> void:
+	if not _object_uv_bake_scheduled:
+		_object_uv_bake_scheduled = true
+		call_deferred("_flush_object_uv_bake")
+
+
+## Flush a pending object-mode UV bake.  Invoked at end-of-frame via call_deferred.
+func _flush_object_uv_bake() -> void:
+	_object_uv_bake_scheduled = false
+	if _edited_node == null or not is_instance_valid(_edited_node):
+		return
+	if _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+		return
+	_edited_node._apply_auto_uv()
+	_edited_node.bake()
 
 
 func _notification(what: int) -> void:
@@ -226,6 +273,9 @@ func _edit(object: Object) -> void:
 	_disconnect_node_signals()
 
 	_edited_node = object as GoBuildMeshInstance
+	# Reset transform tracking so _process triggers an immediate UV refresh on
+	# the newly selected node (it will differ from the sentinel IDENTITY value).
+	_prev_object_transform = Transform3D.IDENTITY
 	GoBuildDebug.log("[GoBuild] PLUGIN._edit  node=%s  is_null=%s" \
 			% [str(object), str(_edited_node == null)])
 

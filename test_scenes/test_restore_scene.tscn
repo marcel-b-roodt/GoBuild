@@ -1,10 +1,14 @@
 [gd_scene format=4 uid="uid://bp6xghd6hw8f4"]
 
 [ext_resource type="Script" uid="uid://bvosyej4rvoc5" path="res://addons/go_build/core/go_build_mesh_instance.gd" id="1_4gi1e"]
+[ext_resource type="Texture2D" uid="uid://bjn5unawt5lge" path="res://icon.svg" id="1_km2o0"]
 [ext_resource type="Script" uid="uid://c3gp2asodfhen" path="res://addons/go_build/mesh/go_build_mesh.gd" id="2_f08cm"]
 [ext_resource type="Script" uid="uid://buk0bt51ksd2b" path="res://addons/go_build/mesh/go_build_face.gd" id="2_phtbm"]
 
-[sub_resource type="ArrayMesh" id="ArrayMesh_f08cm"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_5ph87"]
+albedo_texture = ExtResource("1_km2o0")
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_rsqht"]
 _surfaces = [{
 "aabb": AABB(-0.5, -0.5, -0.5, 1, 1, 1),
 "attribute_data": PackedByteArray("AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAA"),
@@ -15,32 +19,32 @@ _surfaces = [{
 "vertex_data": PackedByteArray("AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAL8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAA//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/")
 }]
 
-[sub_resource type="Resource" id="Resource_phtbm"]
+[sub_resource type="Resource" id="Resource_km2o0"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([0, 1, 3, 2])
 uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
 
-[sub_resource type="Resource" id="Resource_11321"]
+[sub_resource type="Resource" id="Resource_5ph87"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([4, 5, 7, 6])
 uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
 
-[sub_resource type="Resource" id="Resource_3q3h7"]
+[sub_resource type="Resource" id="Resource_rsqht"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([6, 7, 1, 0])
 uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
 
-[sub_resource type="Resource" id="Resource_tqc0n"]
+[sub_resource type="Resource" id="Resource_wbdyi"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([5, 4, 2, 3])
 uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
 
-[sub_resource type="Resource" id="Resource_scaea"]
+[sub_resource type="Resource" id="Resource_gr644"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([7, 5, 3, 1])
 uvs = Array[Vector2]([Vector2(1, 0), Vector2(0, 0), Vector2(0, 1), Vector2(1, 1)])
 
-[sub_resource type="Resource" id="Resource_bd1wq"]
+[sub_resource type="Resource" id="Resource_ux70q"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([4, 6, 0, 2])
 uvs = Array[Vector2]([Vector2(1, 0), Vector2(0, 0), Vector2(0, 1), Vector2(1, 1)])
@@ -48,11 +52,12 @@ uvs = Array[Vector2]([Vector2(1, 0), Vector2(0, 0), Vector2(0, 1), Vector2(1, 1)
 [sub_resource type="Resource" id="Resource_1nejd"]
 script = ExtResource("2_f08cm")
 vertices = Array[Vector3]([Vector3(-0.5, 0.5, 0.5), Vector3(0.5, 0.5, 0.5), Vector3(-0.5, 0.5, -0.5), Vector3(0.5, 0.5, -0.5), Vector3(-0.5, -0.5, -0.5), Vector3(0.5, -0.5, -0.5), Vector3(-0.5, -0.5, 0.5), Vector3(0.5, -0.5, 0.5)])
-faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_phtbm"), SubResource("Resource_11321"), SubResource("Resource_3q3h7"), SubResource("Resource_tqc0n"), SubResource("Resource_scaea"), SubResource("Resource_bd1wq")])
+faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_km2o0"), SubResource("Resource_5ph87"), SubResource("Resource_rsqht"), SubResource("Resource_wbdyi"), SubResource("Resource_gr644"), SubResource("Resource_ux70q")])
 
 [node name="Node3D" type="Node3D" unique_id=825975108]
 
 [node name="GoBuildCube" type="MeshInstance3D" parent="." unique_id=1389045781]
-mesh = SubResource("ArrayMesh_f08cm")
+material_override = SubResource("StandardMaterial3D_5ph87")
+mesh = SubResource("ArrayMesh_rsqht")
 script = ExtResource("1_4gi1e")
 go_build_mesh = SubResource("Resource_1nejd")

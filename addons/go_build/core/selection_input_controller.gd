@@ -11,6 +11,7 @@ class_name SelectionInputController
 extends RefCounted
 
 # Self-preloads — dependency order:
+const _FACE_SCRIPT           := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _SEL_MGR_SCRIPT        := preload("res://addons/go_build/core/selection_manager.gd")
 const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
 const _MESH_INSTANCE_SCRIPT  := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
@@ -340,7 +341,7 @@ func _flush_preview_apply() -> void:
 		return
 	node.go_build_mesh.restore_snapshot(_param_preview.snapshot)
 	_param_preview.apply_fn.call(_preview_apply_target)
-	if node.auto_uv:
+	if node.auto_uv_mode != GoBuildFace.UvMode.NONE:
 		node._apply_auto_uv()
 	node.bake_preview()
 	_editor_plugin.update_overlays()
@@ -1231,7 +1232,7 @@ func _commit_param_preview(edited_node: GoBuildMeshInstance) -> void:
 	# the last deferred flush hasn't fired yet (or was throttled).
 	edited_node.go_build_mesh.restore_snapshot(before)
 	apply_fn.call(final_target)
-	if edited_node.auto_uv:
+	if edited_node.auto_uv_mode != GoBuildFace.UvMode.NONE:
 		edited_node._apply_auto_uv()
 	edited_node.end_preview()
 	edited_node.bake()

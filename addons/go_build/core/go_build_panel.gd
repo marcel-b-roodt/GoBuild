@@ -32,6 +32,10 @@ const _INSET_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/inset_operation.gd")
 const _PLANAR_UV_SCRIPT := \
 		preload("res://addons/go_build/uv/planar_projection.gd")
+const _BOX_UV_SCRIPT := \
+		preload("res://addons/go_build/uv/box_projection.gd")
+const _FACE_SCRIPT := \
+		preload("res://addons/go_build/mesh/go_build_face.gd")
 const _PARAM_PREVIEW_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_param_preview.gd")
 
@@ -63,12 +67,13 @@ var _bevel_btn: Button         = null
 var _bridge_btn: Button        = null
 var _subdivide_btn: Button     = null
 var _planar_uv_btn: Button     = null
+var _box_uv_btn: Button        = null
 var _loop_cut_btn: Button      = null
 var _delete_btn: Button        = null
 var _merge_btn: Button         = null
 var _weld_btn: Button          = null
 var _cull_check: CheckBox      = null
-var _auto_uv_check: CheckBox   = null
+var _auto_uv_option: OptionButton = null
 
 ## Registry of all operation buttons and their enable-condition callables.
 ## Populated by [method _register_op] during [method _ready].
@@ -271,6 +276,15 @@ func _ready() -> void:
 	face_grid.add_child(_planar_uv_btn)
 	_register_op(_planar_uv_btn, _cond_face_any)
 
+	_box_uv_btn = _op_button("Box UV",
+		"Project selected face(s) using world-space box mapping (%.1f unit tiles).\n"
+		% _PLANAR_UV_UNITS_PER_TILE
+		+ "Adjacent same-axis faces share UV coordinates — no seam at shared edges.\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_box_uv_btn.pressed.connect(_on_box_uv_pressed)
+	face_grid.add_child(_box_uv_btn)
+	_register_op(_box_uv_btn, _cond_face_any)
+
 	_flip_btn = _op_button("Flip Normals",
 		"Reverse the outward normal of selected face(s) by flipping winding order.\n"
 		+ "Requires Face mode with ≥1 face selected.")
@@ -342,17 +356,33 @@ func _ready() -> void:
 	_cull_check.toggled.connect(_on_cull_check_toggled)
 	add_child(_cull_check)
 
-	_auto_uv_check = CheckBox.new()
-	_auto_uv_check.text = "Auto UV"
-	_auto_uv_check.button_pressed = true
-	_auto_uv_check.add_theme_font_size_override("font_size", 11)
-	_auto_uv_check.tooltip_text = (
-		"Automatically apply planar UV projection after every operation.\n"
-		+ "Keeps UVs world-aligned at 1 unit per tile (useful for blockout texturing).\n"
-		+ "Disable to preserve hand-edited UVs."
+	# ── Auto UV mode selector ─────────────────────────────────────────────
+	# Replaces the old boolean checkbox with a per-projection-type dropdown.
+	# "None" disables automatic re-projection after every operation.
+	# "Planar" and "Box" project all unoverridden faces after each operation.
+	var uv_row := HBoxContainer.new()
+	add_child(uv_row)
+
+	var uv_lbl := Label.new()
+	uv_lbl.text = "Auto UV:"
+	uv_lbl.add_theme_font_size_override("font_size", 11)
+	uv_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	uv_row.add_child(uv_lbl)
+
+	_auto_uv_option = OptionButton.new()
+	_auto_uv_option.flat = true
+	_auto_uv_option.add_item("None",   GoBuildFace.UvMode.NONE)
+	_auto_uv_option.add_item("Planar", GoBuildFace.UvMode.PLANAR)
+	_auto_uv_option.add_item("Box",    GoBuildFace.UvMode.BOX)
+	_auto_uv_option.add_theme_font_size_override("font_size", 11)
+	_auto_uv_option.tooltip_text = (
+		"Automatically re-project UVs after every operation.\n"
+		+ "None   — disabled; preserves any hand-edited UVs.\n"
+		+ "Planar — per-face dominant-axis projection (best for simple shapes).\n"
+		+ "Box    — world-space box projection; adjacent faces share UV coords."
 	)
-	_auto_uv_check.toggled.connect(_on_auto_uv_check_toggled)
-	add_child(_auto_uv_check)
+	_auto_uv_option.item_selected.connect(_on_auto_uv_mode_selected)
+	uv_row.add_child(_auto_uv_option)
 
 
 # ---------------------------------------------------------------------------
@@ -384,8 +414,8 @@ func set_target(target: GoBuildMeshInstance) -> void:
 		# Apply the current checkbox state so the new node matches immediately.
 		if _cull_check != null:
 			_target.set_edit_cull_override(_cull_check.button_pressed)
-		if _auto_uv_check != null:
-			_auto_uv_check.button_pressed = _target.auto_uv
+		if _auto_uv_option != null:
+			_auto_uv_option.selected = _target.auto_uv_mode
 	else:
 		_sync_mode_buttons(SelectionManager.Mode.OBJECT)
 
@@ -455,6 +485,12 @@ func trigger_subdivide() -> void:
 ## to project planar UVs onto the current face selection.
 func trigger_planar_uv() -> void:
 	_on_planar_uv_pressed()
+
+
+## Called by external code (e.g. the right-click context menu)
+## to apply box UV projection onto the current face selection.
+func trigger_box_uv() -> void:
+	_on_box_uv_pressed()
 
 
 # ---------------------------------------------------------------------------
@@ -847,11 +883,41 @@ func _on_planar_uv_pressed() -> void:
 	faces_to_project.assign(sel_faces)
 	_run_op(
 		"Auto UV Planar",
-		func(): PlanarProjection.apply(
-			_target.go_build_mesh,
-			faces_to_project,
-			_PLANAR_UV_UNITS_PER_TILE,
-		),
+		func():
+			for fi: int in faces_to_project:
+				_target.go_build_mesh.faces[fi].uv_projection_mode = GoBuildFace.UvMode.PLANAR
+			PlanarProjection.apply(
+				_target.go_build_mesh,
+				faces_to_project,
+				_PLANAR_UV_UNITS_PER_TILE,
+			),
+		false,
+	)
+
+
+func _on_box_uv_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+	var faces_to_project: Array[int] = []
+	faces_to_project.assign(sel_faces)
+	# Capture transform at button-press time so the closure uses the current pose.
+	var node_transform := _target.global_transform
+	_run_op(
+		"Box UV",
+		func():
+			for fi: int in faces_to_project:
+				_target.go_build_mesh.faces[fi].uv_projection_mode = GoBuildFace.UvMode.BOX
+			BoxProjection.apply(
+				_target.go_build_mesh,
+				faces_to_project,
+				_PLANAR_UV_UNITS_PER_TILE,
+				node_transform,
+			),
 		false,
 	)
 
@@ -936,10 +1002,18 @@ func _on_cull_check_toggled(enabled: bool) -> void:
 		_target.set_edit_cull_override(enabled)
 
 
-## Called when the Auto UV checkbox is toggled.
-func _on_auto_uv_check_toggled(enabled: bool) -> void:
-	if _target != null:
-		_target.auto_uv = enabled
+## Called when the Auto UV mode selector changes.
+## Applies the new projection immediately to all unoverridden faces so the
+## viewport updates without requiring the user to drag or operate.
+func _on_auto_uv_mode_selected(index: int) -> void:
+	if _target == null or _plugin == null:
+		return
+	var new_mode := _auto_uv_option.get_item_id(index) as GoBuildFace.UvMode
+	_target.auto_uv_mode = new_mode
+	if new_mode != GoBuildFace.UvMode.NONE:
+		# Push an undoable action; _do_operation will call _apply_auto_uv() after
+		# the no-op, applying the new mode to all unoverridden faces.
+		_run_op("Set Auto UV Mode", func(): pass, false)
 
 
 ## Return the plugin version from plugin.cfg so panel text stays in sync.

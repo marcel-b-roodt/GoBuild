@@ -17,6 +17,7 @@ class_name GoBuildDragHandler
 extends RefCounted
 
 # Self-preloads (dependency order).
+const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _EDGE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_edge.gd")
@@ -151,7 +152,7 @@ func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
 	_drag_restore = node.go_build_mesh.take_snapshot()
 	# Engage the fast vertex-position-only bake path for the duration of this drag.
 	_drag_vertex_update_mode = true
-	_drag_preview_mode = node.auto_uv
+	_drag_preview_mode = node.auto_uv_mode != GoBuildFace.UvMode.NONE
 	if _drag_preview_mode:
 		node.begin_preview()
 	return true
@@ -216,7 +217,7 @@ func commit_drag(
 		node.update_gizmos()
 	elif _drag_initial_t != INF:
 		# Bake final dragged state before snapshooting so normals are correct.
-		if node.auto_uv:
+		if node.auto_uv_mode != GoBuildFace.UvMode.NONE:
 			node._apply_auto_uv()
 		if _drag_preview_mode:
 			node.end_preview()
@@ -311,7 +312,7 @@ func _schedule_bake(node: GoBuildMeshInstance) -> void:
 func _flush_pending_bake() -> void:
 	_bake_scheduled = false
 	if _bake_pending_node != null and is_instance_valid(_bake_pending_node):
-		if _bake_pending_node.auto_uv:
+		if _bake_pending_node.auto_uv_mode != GoBuildFace.UvMode.NONE:
 			_bake_pending_node._apply_auto_uv()
 		if _drag_preview_mode:
 			_bake_pending_node.bake_preview()
