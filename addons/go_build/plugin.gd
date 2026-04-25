@@ -71,6 +71,8 @@ var _prev_object_transform: Transform3D          = Transform3D.IDENTITY
 ## Guards the deferred object-mode UV rebake so at most one [method _flush_object_uv_bake]
 ## call is queued per rendered frame, no matter how many _process ticks fire.
 var _object_uv_bake_scheduled: bool              = false
+## Node targeted by the pending object-mode UV bake.
+var _object_uv_pending_node: GoBuildMeshInstance = null
 
 # Mode-switch shortcuts (initialised in _enter_tree via EditorSettings).
 var _shortcut_object: Shortcut
@@ -185,6 +187,8 @@ func _exit_tree() -> void:
 		_gizmo_plugin = null
 
 	_input_controller = null
+	_object_uv_bake_scheduled = false
+	_object_uv_pending_node = null
 	set_process(false)
 	if _tool_pinner != null:
 		_tool_pinner.invalidate()
@@ -206,12 +210,14 @@ func _process(_delta: float) -> void:
 		var t := _edited_node.global_transform
 		if not t.is_equal_approx(_prev_object_transform):
 			_prev_object_transform = t
-			_schedule_object_uv_bake()
+			if _edited_node.needs_world_space_uv_refresh():
+				_schedule_object_uv_bake(_edited_node)
 
 
 ## Queue a single deferred UV re-apply + bake for the active node in Object mode.
 ## Subsequent calls within the same frame are no-ops until the flush fires.
-func _schedule_object_uv_bake() -> void:
+func _schedule_object_uv_bake(node: GoBuildMeshInstance) -> void:
+	_object_uv_pending_node = node
 	if not _object_uv_bake_scheduled:
 		_object_uv_bake_scheduled = true
 		call_deferred("_flush_object_uv_bake")
@@ -219,13 +225,17 @@ func _schedule_object_uv_bake() -> void:
 
 ## Flush a pending object-mode UV bake.  Invoked at end-of-frame via call_deferred.
 func _flush_object_uv_bake() -> void:
+	var node: GoBuildMeshInstance = _object_uv_pending_node
 	_object_uv_bake_scheduled = false
-	if _edited_node == null or not is_instance_valid(_edited_node):
+	_object_uv_pending_node = null
+	if node == null or not is_instance_valid(node):
 		return
-	if _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+	if _edited_node == null or node != _edited_node:
 		return
-	_edited_node._apply_auto_uv()
-	_edited_node.bake()
+	if node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+		return
+	node._apply_auto_uv()
+	node.bake_in_place()
 
 
 func _notification(what: int) -> void:
@@ -276,6 +286,8 @@ func _edit(object: Object) -> void:
 	# Reset transform tracking so _process triggers an immediate UV refresh on
 	# the newly selected node (it will differ from the sentinel IDENTITY value).
 	_prev_object_transform = Transform3D.IDENTITY
+	_object_uv_bake_scheduled = false
+	_object_uv_pending_node = null
 	GoBuildDebug.log("[GoBuild] PLUGIN._edit  node=%s  is_null=%s" \
 			% [str(object), str(_edited_node == null)])
 

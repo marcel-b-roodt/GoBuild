@@ -81,6 +81,24 @@ func bake() -> void:
 	mesh_changed.emit()
 
 
+## Rebuild the mesh in-place when possible, avoiding [member mesh] reassignment.
+##
+## This is ideal for high-frequency editor updates (e.g. object-mode world-space
+## UV refresh) because it reuses the same [ArrayMesh] object reference.
+func bake_in_place() -> void:
+	if go_build_mesh == null:
+		mesh = null
+		return
+	var target: ArrayMesh = mesh as ArrayMesh
+	if target == null:
+		target = ArrayMesh.new()
+		mesh = target
+	go_build_mesh.bake_into(target)
+	if _edit_cull_override:
+		_apply_cull_overrides()
+	mesh_changed.emit()
+
+
 ## Begin preview mode: allocate a persistent [ArrayMesh] and assign it to
 ## [member mesh] once.  Subsequent [method bake_preview] calls repopulate it
 ## in-place without reassigning [member mesh], so no inspector notification fires.
@@ -203,6 +221,22 @@ func _apply_auto_uv() -> void:
 		PlanarProjection.apply(go_build_mesh, planar_faces, 1.0)
 	if not box_faces.is_empty():
 		BoxProjection.apply(go_build_mesh, box_faces, 1.0, global_transform)
+
+
+## Returns [code]true[/code] when the current UV setup depends on world-space
+## box projection and therefore must be refreshed as the node transform changes.
+func needs_world_space_uv_refresh() -> bool:
+	if go_build_mesh == null:
+		return false
+	if auto_uv_mode == GoBuildFace.UvMode.NONE:
+		return false
+	if auto_uv_mode == GoBuildFace.UvMode.BOX:
+		return true
+	# Global mode is planar: still refresh if any face has manual box override.
+	for face: GoBuildFace in go_build_mesh.faces:
+		if face.uv_projection_mode == GoBuildFace.UvMode.BOX:
+			return true
+	return false
 
 
 ## Restore the mesh from [param snapshot] and rebake.
