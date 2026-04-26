@@ -8,6 +8,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Auto UV — Cylindrical projection (`CylindricalProjection`): wraps U around
+  the Y axis (0-1 using atan2), V scales with height / units_per_tile.
+  Seam correction prevents cross-seam smear on faces that straddle the atan2
+  discontinuity.  World-space transform support (same pattern as Box UV).
+  Panel button "Cyl UV" in Face section; full undo/redo; 11 unit tests.
+
 ---
 
 ## [0.5.0-dev2] — 2026-04-26

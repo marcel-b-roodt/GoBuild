@@ -17,10 +17,11 @@ signal mesh_changed
 # Self-preload: Godot's startup script scan processes core/ files alphabetically,
 # reaching this file before selection_manager.gd.  The explicit preload forces
 # SelectionManager to be registered before this script is compiled.
-const _SEL_MGR_SCRIPT   := preload("res://addons/go_build/core/selection_manager.gd")
-const _PLANAR_UV_SCRIPT := preload("res://addons/go_build/uv/planar_projection.gd")
-const _BOX_UV_SCRIPT    := preload("res://addons/go_build/uv/box_projection.gd")
-const _FACE_SCRIPT      := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _SEL_MGR_SCRIPT          := preload("res://addons/go_build/core/selection_manager.gd")
+const _PLANAR_UV_SCRIPT        := preload("res://addons/go_build/uv/planar_projection.gd")
+const _BOX_UV_SCRIPT           := preload("res://addons/go_build/uv/box_projection.gd")
+const _CYLINDRICAL_UV_SCRIPT   := preload("res://addons/go_build/uv/cylindrical_projection.gd")
+const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_face.gd")
 
 ## The editable mesh resource. Assigning a new resource immediately bakes it.
 @export var go_build_mesh: GoBuildMesh:
@@ -204,6 +205,7 @@ func _apply_auto_uv() -> void:
 		return
 	var planar_faces: Array[int] = []
 	var box_faces: Array[int] = []
+	var cylindrical_faces: Array[int] = []
 	for i: int in go_build_mesh.faces.size():
 		var face: GoBuildFace = go_build_mesh.faces[i]
 		match face.uv_projection_mode:
@@ -213,28 +215,35 @@ func _apply_auto_uv() -> void:
 					planar_faces.append(i)
 				elif auto_uv_mode == GoBuildFace.UvMode.BOX:
 					box_faces.append(i)
+				elif auto_uv_mode == GoBuildFace.UvMode.CYLINDRICAL:
+					cylindrical_faces.append(i)
 			GoBuildFace.UvMode.PLANAR:
 				planar_faces.append(i)
 			GoBuildFace.UvMode.BOX:
 				box_faces.append(i)
+			GoBuildFace.UvMode.CYLINDRICAL:
+				cylindrical_faces.append(i)
 	if not planar_faces.is_empty():
 		PlanarProjection.apply(go_build_mesh, planar_faces, 1.0)
 	if not box_faces.is_empty():
 		BoxProjection.apply(go_build_mesh, box_faces, 1.0, global_transform)
+	if not cylindrical_faces.is_empty():
+		CylindricalProjection.apply(go_build_mesh, cylindrical_faces, 1.0, global_transform)
 
 
 ## Returns [code]true[/code] when the current UV setup depends on world-space
-## box projection and therefore must be refreshed as the node transform changes.
+## projection and therefore must be refreshed as the node transform changes.
 func needs_world_space_uv_refresh() -> bool:
 	if go_build_mesh == null:
 		return false
 	if auto_uv_mode == GoBuildFace.UvMode.NONE:
 		return false
-	if auto_uv_mode == GoBuildFace.UvMode.BOX:
+	if auto_uv_mode == GoBuildFace.UvMode.BOX or auto_uv_mode == GoBuildFace.UvMode.CYLINDRICAL:
 		return true
-	# Global mode is planar: still refresh if any face has manual box override.
+	# Global mode is planar: still refresh if any face has a world-space manual override.
 	for face: GoBuildFace in go_build_mesh.faces:
-		if face.uv_projection_mode == GoBuildFace.UvMode.BOX:
+		if face.uv_projection_mode == GoBuildFace.UvMode.BOX \
+				or face.uv_projection_mode == GoBuildFace.UvMode.CYLINDRICAL:
 			return true
 	return false
 

@@ -34,6 +34,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Staircase | ✅ Complete | Steps, rise/run/width; closed solid |
 | Arch | ✅ Complete | Outer radius, thickness, angle, segments, depth |
 | Shape insert toolbar | ✅ Complete | One-click creation in GoBuildPanel; full undo/redo |
+| Generator parameter preview (pre-commit) | 📋 Planned | Before creating a primitive, choose per-shape counts (e.g. cone/cylinder sides, sphere segments, staircase steps) with live preview + Accept/Cancel |
 
 ---
 
@@ -82,8 +83,8 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Feature | Status | Notes |
 |---|---|---|
 | Auto UV — Planar | ✅ Complete | `PlanarProjection.apply(mesh, face_indices, units_per_tile)`; dominant-axis per-face projection; defaults to 1 unit per texture repeat so checker or metre textures tile with mesh size; panel button in Face section + face context menu; 5 unit tests |
-| Auto UV — Box | 📋 Planned | Six-axis projection |
-| Auto UV — Cylindrical | 📋 Planned | |
+| Auto UV — Box | ✅ Complete | `BoxProjection.apply(mesh, face_indices, units_per_tile, transform)`; world-space triplanar mapping; seamless tiling across adjacent axis-aligned faces; panel button; 8 unit tests |
+| Auto UV — Cylindrical | ✅ Complete | `CylindricalProjection.apply(mesh, face_indices, units_per_tile, transform)`; wraps U around Y axis (atan2); V scales with height; seam correction for faces straddling the discontinuity; panel button ("Cyl UV"); 11 unit tests |
 | Auto UV — Spherical | 📋 Planned | |
 | UV editor panel | 📋 Planned | 2D panel; drag/rotate/scale islands |
 | Lightmap UV (UV2) generation | 📋 Planned | Non-overlapping second channel |

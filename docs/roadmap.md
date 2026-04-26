@@ -37,6 +37,7 @@ Users can create basic shapes without leaving the editor.
 | Staircase | Step count, rise/run, width |
 | Arch | Angle, radius, thickness, sides |
 | Shape toolbar | One-click insert at world origin with configurable defaults |
+| Generator parameter preview | Before commit, adjust shape-specific counts (cone/cylinder sides, sphere segments, staircase steps) with live preview and explicit Accept/Cancel |
 
 ---
 

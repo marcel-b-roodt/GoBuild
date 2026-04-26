@@ -13,9 +13,10 @@ extends Resource
 ## projection to this face via the panel or right-click menu, and the global
 ## auto-mode will leave it untouched.
 enum UvMode {
-	NONE    = 0, ## No manual projection applied; respects global auto_uv_mode.
-	PLANAR  = 1, ## Planar (dominant-axis) projection was manually applied.
-	BOX     = 2, ## World-space box projection was manually applied.
+	NONE        = 0, ## No manual projection applied; respects global auto_uv_mode.
+	PLANAR      = 1, ## Planar (dominant-axis) projection was manually applied.
+	BOX         = 2, ## World-space box projection was manually applied.
+	CYLINDRICAL = 3, ## Cylindrical projection around the Y axis was manually applied.
 }
 
 ## Indices into [member GoBuildMesh.vertices]. Minimum 3 (triangle), typically 4 (quad).

@@ -34,6 +34,8 @@ const _PLANAR_UV_SCRIPT := \
 		preload("res://addons/go_build/uv/planar_projection.gd")
 const _BOX_UV_SCRIPT := \
 		preload("res://addons/go_build/uv/box_projection.gd")
+const _CYLINDRICAL_UV_SCRIPT := \
+		preload("res://addons/go_build/uv/cylindrical_projection.gd")
 const _FACE_SCRIPT := \
 		preload("res://addons/go_build/mesh/go_build_face.gd")
 const _PARAM_PREVIEW_SCRIPT := \
@@ -68,6 +70,7 @@ var _bridge_btn: Button        = null
 var _subdivide_btn: Button     = null
 var _planar_uv_btn: Button     = null
 var _box_uv_btn: Button        = null
+var _cylindrical_uv_btn: Button = null
 var _loop_cut_btn: Button      = null
 var _delete_btn: Button        = null
 var _merge_btn: Button         = null
@@ -285,6 +288,15 @@ func _ready() -> void:
 	face_grid.add_child(_box_uv_btn)
 	_register_op(_box_uv_btn, _cond_face_any)
 
+	_cylindrical_uv_btn = _op_button("Cyl UV",
+		"Project selected face(s) using cylindrical mapping around the Y axis (%.1f unit tiles).\n"
+		% _PLANAR_UV_UNITS_PER_TILE
+		+ "U wraps 0-1 around the Y axis; V scales with height.\n"
+		+ "Requires Face mode with \u22651 face selected.")
+	_cylindrical_uv_btn.pressed.connect(_on_cylindrical_uv_pressed)
+	face_grid.add_child(_cylindrical_uv_btn)
+	_register_op(_cylindrical_uv_btn, _cond_face_any)
+
 	_flip_btn = _op_button("Flip Normals",
 		"Reverse the outward normal of selected face(s) by flipping winding order.\n"
 		+ "Requires Face mode with ≥1 face selected.")
@@ -371,15 +383,17 @@ func _ready() -> void:
 
 	_auto_uv_option = OptionButton.new()
 	_auto_uv_option.flat = true
-	_auto_uv_option.add_item("None",   GoBuildFace.UvMode.NONE)
-	_auto_uv_option.add_item("Planar", GoBuildFace.UvMode.PLANAR)
-	_auto_uv_option.add_item("Box",    GoBuildFace.UvMode.BOX)
+	_auto_uv_option.add_item("None",     GoBuildFace.UvMode.NONE)
+	_auto_uv_option.add_item("Planar",   GoBuildFace.UvMode.PLANAR)
+	_auto_uv_option.add_item("Box",      GoBuildFace.UvMode.BOX)
+	_auto_uv_option.add_item("Cylinder", GoBuildFace.UvMode.CYLINDRICAL)
 	_auto_uv_option.add_theme_font_size_override("font_size", 11)
 	_auto_uv_option.tooltip_text = (
 		"Automatically re-project UVs after every operation.\n"
-		+ "None   — disabled; preserves any hand-edited UVs.\n"
-		+ "Planar — per-face dominant-axis projection (best for simple shapes).\n"
-		+ "Box    — world-space box projection; adjacent faces share UV coords."
+		+ "None     — disabled; preserves any hand-edited UVs.\n"
+		+ "Planar   — per-face dominant-axis projection (best for simple shapes).\n"
+		+ "Box      — world-space box projection; adjacent faces share UV coords.\n"
+		+ "Cylinder — cylindrical wrap around Y axis; U = angle, V = height."
 	)
 	_auto_uv_option.item_selected.connect(_on_auto_uv_mode_selected)
 	uv_row.add_child(_auto_uv_option)
@@ -491,6 +505,12 @@ func trigger_planar_uv() -> void:
 ## to apply box UV projection onto the current face selection.
 func trigger_box_uv() -> void:
 	_on_box_uv_pressed()
+
+
+## Called by external code (e.g. the right-click context menu)
+## to apply cylindrical UV projection onto the current face selection.
+func trigger_cylindrical_uv() -> void:
+	_on_cylindrical_uv_pressed()
 
 
 # ---------------------------------------------------------------------------
@@ -913,6 +933,36 @@ func _on_box_uv_pressed() -> void:
 			for fi: int in faces_to_project:
 				_target.go_build_mesh.faces[fi].uv_projection_mode = GoBuildFace.UvMode.BOX
 			BoxProjection.apply(
+				_target.go_build_mesh,
+				faces_to_project,
+				_PLANAR_UV_UNITS_PER_TILE,
+				node_transform,
+			),
+		false,
+	)
+
+
+## Flip the outward normals of the currently selected faces.
+## Requires Face mode and at least one selected face.
+## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
+func _on_cylindrical_uv_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+	var faces_to_project: Array[int] = []
+	faces_to_project.assign(sel_faces)
+	var node_transform := _target.global_transform
+	_run_op(
+		"Cylindrical UV",
+		func():
+			for fi: int in faces_to_project:
+				_target.go_build_mesh.faces[fi].uv_projection_mode = \
+						GoBuildFace.UvMode.CYLINDRICAL
+			CylindricalProjection.apply(
 				_target.go_build_mesh,
 				faces_to_project,
 				_PLANAR_UV_UNITS_PER_TILE,
