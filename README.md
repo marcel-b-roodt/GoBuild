@@ -16,7 +16,7 @@ Designed for level blockout, architecture, and game-ready props. No external too
 
 ## Status
 
-🔧 **Active development — Stage 2 (Element Selection & Transform).**
+🔧 **Active development — Stage 5 (UV Tools).**
 
 Primitive shapes, sub-element selection, move handles, rotate handles, and box select are working. See [GUIDE.md](GUIDE.md) for what you can do right now.
 
@@ -44,7 +44,7 @@ See **[GUIDE.md](GUIDE.md)** for a full walkthrough — creating shapes, selecti
 
 ## Contributing
 
-Bug reports, feature requests, and pull requests are welcome. Please open an issue first for significant changes.
+Bug reports and feature requests are welcome. Please open an issue first for significant changes.
 
 ## Support the project
 

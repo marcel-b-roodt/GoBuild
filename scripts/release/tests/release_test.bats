@@ -8,6 +8,7 @@
 #   - Git guard: dirty working tree → exit 1
 #   - Git guard: tag already exists → exit 1
 #   - CHANGELOG guard: no [Unreleased] section → exit 1
+#   - CHANGELOG guard: empty [Unreleased] section → exit 1 with prepare hint
 #   - CHANGELOG.md is updated with versioned heading and today's date
 #   - CHANGELOG.md retains a fresh [Unreleased] section above the new version
 #   - plugin.cfg version= line is bumped
@@ -164,6 +165,28 @@ _run_release() {
     _run_release 0.3.0
     [ "$status" -eq 1 ]
     echo "$output" | grep -qi "Unreleased"
+}
+
+@test "exits 1 when [Unreleased] section is empty" {
+    _setup_git_repo
+    cd "$TMP_DIR"
+    cat > CHANGELOG.md << 'EOF'
+# Changelog
+
+## [Unreleased]
+
+---
+
+## [0.1.0] — 2026-01-01
+
+### Added
+- Initial release
+EOF
+    "$REAL_GIT" add CHANGELOG.md
+    "$REAL_GIT" commit -m "empty unreleased"
+    _run_release 0.3.0
+    [ "$status" -eq 1 ]
+    echo "$output" | grep -q "prepare_release_notes.sh"
 }
 
 # ---------------------------------------------------------------------------

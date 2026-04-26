@@ -12,13 +12,15 @@
 #      and validates version format:
 #        stable: X.Y.Z
 #        dev:    X.Y.Z-devN
-#   2. Updates CHANGELOG.md — promotes [Unreleased] → [VERSION] — DATE and
+#   2. Requires a non-empty [Unreleased] section (prepare it first with
+#      scripts/release/prepare_release_notes.sh)
+#   3. Updates CHANGELOG.md — promotes [Unreleased] → [VERSION] — DATE and
 #      inserts a fresh empty [Unreleased] section above it
-#   3. Bumps version= in addons/go_build/plugin.cfg
-#   4. Runs verify.sh (GDScript syntax + lint)
-#   5. Commits both files: "chore: bump version to vVERSION"
-#   6. Creates annotated tag vVERSION
-#   7. Pushes main + tags to origin
+#   4. Bumps version= in addons/go_build/plugin.cfg
+#   5. Runs verify.sh (GDScript syntax + lint)
+#   6. Commits both files: "chore: bump version to vVERSION"
+#   7. Creates annotated tag vVERSION
+#   8. Pushes main + tags to origin
 #
 # After this script finishes:
 #   - The release.yml CI workflow triggers on the tag and creates a draft
@@ -90,6 +92,22 @@ fi
 # ── Validate CHANGELOG has an [Unreleased] section ────────────────────────────
 if ! grep -q "^## \[Unreleased\]" CHANGELOG.md; then
     echo "Error: no '## [Unreleased]' section found in CHANGELOG.md" >&2
+    exit 1
+fi
+
+# ── Validate [Unreleased] is not empty ────────────────────────────────────────
+if ! awk '
+    /^## \[Unreleased\]/ { in_unreleased=1; next }
+    in_unreleased && /^## \[/ { in_unreleased=0 }
+    in_unreleased {
+        if ($0 !~ /^[[:space:]]*$/ && $0 !~ /^---$/) {
+            found=1
+            exit 0
+        }
+    }
+    END { exit found ? 0 : 1 }
+' CHANGELOG.md; then
+    echo "Error: [Unreleased] section is empty. Run scripts/release/prepare_release_notes.sh first." >&2
     exit 1
 fi
 
