@@ -76,6 +76,13 @@ func invalidate() -> void:
 func _get_button() -> Button:
 	if _button != null and is_instance_valid(_button):
 		return _button
+	if not Engine.is_editor_hint():
+		return null
+	# Some Godot builds (and headless test runs) do not expose
+	# EditorInterface.get_editor_viewport_3d(). Guard the lookup so tests and
+	# non-editor contexts fail gracefully instead of throwing invalid-call errors.
+	if not ClassDB.class_has_method("EditorInterface", "get_editor_viewport_3d"):
+		return null
 	var sv := EditorInterface.get_editor_viewport_3d(0)
 	if sv == null:
 		return null

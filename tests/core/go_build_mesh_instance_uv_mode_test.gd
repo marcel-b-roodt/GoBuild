@@ -81,6 +81,7 @@ func test_needs_world_space_uv_refresh_true_when_planar_global_has_box_override(
 
 func test_apply_auto_uv_respects_face_override_vs_global_mode() -> void:
 	var node := GoBuildMeshInstance.new()
+	add_child(node)
 	auto_free(node)
 	node.auto_uv_mode = GoBuildFace.UvMode.NONE
 	node.go_build_mesh = _make_two_quad_mesh()
@@ -93,12 +94,25 @@ func test_apply_auto_uv_respects_face_override_vs_global_mode() -> void:
 	node._apply_auto_uv()
 
 	var box_uv0: Vector2 = node.go_build_mesh.faces[0].uvs[0]
-	var planar_uv0: Vector2 = node.go_build_mesh.faces[1].uvs[0]
+	var planar_face: GoBuildFace = node.go_build_mesh.faces[1]
 
 	# Face 0 (box/global) uses world-space transform: local (0,0,0) -> world (5,0,7) -> UV (5,-7)
 	assert_float(box_uv0.x).is_equal_approx(5.0, 0.001)
 	assert_float(box_uv0.y).is_equal_approx(-7.0, 0.001)
 
-	# Face 1 (manual planar override) stays locally projected and rebased to (0,0).
-	assert_float(planar_uv0.x).is_equal_approx(0.0, 0.001)
-	assert_float(planar_uv0.y).is_equal_approx(0.0, 0.001)
+	# Face 1 (manual planar override) stays locally projected and rebased.
+	# Do not assert a specific vertex's UV is (0,0); assert canonical invariants:
+	# min U/V are 0 and spans match a 1x1 quad.
+	var min_u: float = INF
+	var max_u: float = -INF
+	var min_v: float = INF
+	var max_v: float = -INF
+	for uv: Vector2 in planar_face.uvs:
+		min_u = minf(min_u, uv.x)
+		max_u = maxf(max_u, uv.x)
+		min_v = minf(min_v, uv.y)
+		max_v = maxf(max_v, uv.y)
+	assert_float(min_u).is_equal_approx(0.0, 0.001)
+	assert_float(min_v).is_equal_approx(0.0, 0.001)
+	assert_float(max_u - min_u).is_equal_approx(1.0, 0.001)
+	assert_float(max_v - min_v).is_equal_approx(1.0, 0.001)

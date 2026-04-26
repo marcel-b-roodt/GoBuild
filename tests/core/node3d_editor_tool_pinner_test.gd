@@ -10,6 +10,16 @@
 @tool
 extends GdUnitTestSuite
 
+var _press_count: int = 0
+
+
+func _reset_press_count() -> void:
+	_press_count = 0
+
+
+func _on_button_pressed() -> void:
+	_press_count += 1
+
 
 # ---------------------------------------------------------------------------
 # Helpers — build a minimal Button with a given shortcut key
@@ -175,8 +185,8 @@ func test_suppress_presses_button_and_emits_signal() -> void:
 	btn.button_group = group
 	add_child(btn)
 
-	var press_count: int = 0
-	btn.pressed.connect(func() -> void: press_count += 1)
+	_reset_press_count()
+	btn.pressed.connect(_on_button_pressed)
 
 	var pinner := Node3DEditorToolPinner.new()
 	pinner._button = btn  # inject directly — skip editor walk
@@ -184,7 +194,7 @@ func test_suppress_presses_button_and_emits_signal() -> void:
 	pinner.suppress()
 
 	assert_bool(btn.button_pressed).is_true()
-	assert_int(press_count).is_equal(1)
+	assert_int(_press_count).is_equal(1)
 	btn.queue_free()
 
 
@@ -196,15 +206,15 @@ func test_suppress_still_emits_when_already_pressed() -> void:
 	add_child(btn)
 	btn.set_pressed_no_signal(true)  # pre-set visual
 
-	var press_count: int = 0
-	btn.pressed.connect(func() -> void: press_count += 1)
+	_reset_press_count()
+	btn.pressed.connect(_on_button_pressed)
 
 	var pinner := Node3DEditorToolPinner.new()
 	pinner._button = btn
 
 	pinner.suppress()
 
-	assert_int(press_count).is_equal(1)
+	assert_int(_press_count).is_equal(1)
 	btn.queue_free()
 
 
@@ -223,15 +233,15 @@ func test_pin_if_active_skips_object_mode() -> void:
 	btn.toggle_mode = true
 	add_child(btn)
 
-	var press_count: int = 0
-	btn.pressed.connect(func() -> void: press_count += 1)
+	_reset_press_count()
+	btn.pressed.connect(_on_button_pressed)
 
 	var pinner := Node3DEditorToolPinner.new()
 	pinner._button = btn
 
 	pinner.pin_if_active(SelectionManager.Mode.OBJECT)
 
-	assert_int(press_count).is_equal(0)
+	assert_int(_press_count).is_equal(0)
 	btn.queue_free()
 
 
@@ -240,15 +250,15 @@ func test_pin_if_active_presses_in_vertex_mode() -> void:
 	btn.toggle_mode = true
 	add_child(btn)
 
-	var press_count: int = 0
-	btn.pressed.connect(func() -> void: press_count += 1)
+	_reset_press_count()
+	btn.pressed.connect(_on_button_pressed)
 
 	var pinner := Node3DEditorToolPinner.new()
 	pinner._button = btn
 
 	pinner.pin_if_active(SelectionManager.Mode.VERTEX)
 
-	assert_int(press_count).is_equal(1)
+	assert_int(_press_count).is_equal(1)
 	btn.queue_free()
 
 
@@ -258,15 +268,15 @@ func test_pin_if_active_no_op_when_already_pressed() -> void:
 	add_child(btn)
 	btn.set_pressed_no_signal(true)
 
-	var press_count: int = 0
-	btn.pressed.connect(func() -> void: press_count += 1)
+	_reset_press_count()
+	btn.pressed.connect(_on_button_pressed)
 
 	var pinner := Node3DEditorToolPinner.new()
 	pinner._button = btn
 
 	pinner.pin_if_active(SelectionManager.Mode.FACE)
 
-	assert_int(press_count).is_equal(0)
+	assert_int(_press_count).is_equal(0)
 	btn.queue_free()
 
 

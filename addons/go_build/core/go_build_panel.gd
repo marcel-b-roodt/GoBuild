@@ -1006,11 +1006,11 @@ func _on_cull_check_toggled(enabled: bool) -> void:
 ## Applies the new projection immediately to all unoverridden faces so the
 ## viewport updates without requiring the user to drag or operate.
 func _on_auto_uv_mode_selected(index: int) -> void:
-	if _target == null or _plugin == null:
+	if _target == null:
 		return
 	var new_mode := _auto_uv_option.get_item_id(index) as GoBuildFace.UvMode
 	_target.auto_uv_mode = new_mode
-	if new_mode != GoBuildFace.UvMode.NONE:
+	if new_mode != GoBuildFace.UvMode.NONE and _plugin != null:
 		# Push an undoable action; _do_operation will call _apply_auto_uv() after
 		# the no-op, applying the new mode to all unoverridden faces.
 		_run_op("Set Auto UV Mode", func(): pass, false)
