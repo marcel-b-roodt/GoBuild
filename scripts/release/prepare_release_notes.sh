@@ -80,13 +80,15 @@ fi
 
 format_subject() {
 	local subject="$1"
-	if [[ "$subject" =~ ^([a-z]+)\(([^)]+)\):[[:space:]]*(.*)$ ]]; then
+	local scoped_re='^([a-z]+)\(([^)]*)\):[[:space:]]*(.*)$'
+	local plain_re='^([a-z]+):[[:space:]]*(.*)$'
+	if [[ "$subject" =~ $scoped_re ]]; then
 		local scope="${BASH_REMATCH[2]}"
 		local text="${BASH_REMATCH[3]}"
 		echo "${scope^} - $text"
 		return
 	fi
-	if [[ "$subject" =~ ^([a-z]+):[[:space:]]*(.*)$ ]]; then
+	if [[ "$subject" =~ $plain_re ]]; then
 		echo "${BASH_REMATCH[2]}"
 		return
 	fi

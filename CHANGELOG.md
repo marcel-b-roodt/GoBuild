@@ -7,9 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 
 ## [Unreleased]
-
----
-
+### Changed
+- Further modify the dev release pipeline Update readme
 ## [0.5.0-dev1] — 2026-04-25
 
 ---

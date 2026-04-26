@@ -62,9 +62,9 @@ _run_prep() {
 	_run_prep
 	[ "$status" -eq 0 ]
 	grep -q "### Added" CHANGELOG.md
-	grep -q "- add box projection" CHANGELOG.md
+	grep -q -- "- add box projection" CHANGELOG.md
 	grep -q "### Fixed" CHANGELOG.md
-	grep -q "- Editor - smooth object mode UV updates" CHANGELOG.md
+	grep -q -- "- Editor - smooth object mode UV updates" CHANGELOG.md
 }
 
 @test "can target a named release section" {
@@ -74,7 +74,7 @@ _run_prep() {
 	_run_prep --section 0.2.0-dev1 --from v0.1.0 --to HEAD
 	[ "$status" -eq 0 ]
 	grep -q "## \[0.2.0-dev1\]" CHANGELOG.md
-	grep -q "- add box projection" CHANGELOG.md
+	grep -q -- "- add box projection" CHANGELOG.md
 }
 
 @test "fails when target section does not exist" {
