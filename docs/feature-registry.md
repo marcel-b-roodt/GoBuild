@@ -88,7 +88,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Auto UV — Box | ✅ Complete | `BoxProjection.apply(mesh, face_indices, units_per_tile, transform)`; world-space triplanar mapping; seamless tiling across adjacent axis-aligned faces; panel button; 8 unit tests |
 | Auto UV — Cylindrical | ✅ Complete | `CylindricalProjection.apply(mesh, face_indices, units_per_tile, transform)`; wraps U around Y axis (atan2); V scales with height; seam correction for faces straddling the discontinuity; panel button ("Cyl UV"); 11 unit tests |
 | Auto UV — Spherical | ✅ Complete | `SphericalProjection.apply(mesh, face_indices, units_per_tile, transform)`; equirectangular (lat/lon) mapping; U = longitude (atan2/TAU), V = latitude (acos/PI); seam correction for faces straddling the ±X seam; pole guard for degenerate vertices at origin; panel button ("Sphere UV") in Face UV section; 10 unit tests |
-| UV projection parameters (scale, offset, seam rotation) | 📋 Planned | Expose `units_per_tile` (scale), UV offset (U/V pan), and seam/longitude rotation via param-preview for all projection buttons; essential for usable spherical/cylindrical without a UV editor |
+| UV projection parameters (scale, offset, seam rotation) | ✅ Complete | `uv_scale`, `uv_offset`, `uv_seam_rotation` stored per-face; exposed via `GoBuildUvParamBox` live-preview for all four projection buttons; per-face params re-applied by `_apply_face_projection` on auto-UV refresh |
 | UV editor panel | 📋 Planned | 2D panel; drag/rotate/scale islands |
 | Lightmap UV (UV2) generation | 📋 Planned | Non-overlapping second channel |
 | Per-face material assignment | 📋 Planned | Right-click → Assign Material |

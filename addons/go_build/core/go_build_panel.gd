@@ -48,6 +48,10 @@ const _SHAPE_PREVIEW_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_shape_preview.gd")
 const _UV_PARAM_BOX_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_uv_param_box.gd")
+const _MATERIALS_SCRIPT := \
+		preload("res://addons/go_build/core/go_build_materials.gd")
+const _MAT_ASSIGN_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/material_assign_operation.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
@@ -86,6 +90,11 @@ var _merge_btn: Button         = null
 var _weld_btn: Button          = null
 var _cull_check: CheckBox      = null
 var _auto_uv_option: OptionButton = null
+var _material_slot_spin: SpinBox = null
+var _assign_material_btn: Button = null
+var _qs_checker_btn: Button = null
+var _qs_white_btn: Button = null
+var _qs_grey_btn: Button = null
 var _shape_preview: GoBuildShapePreview = null
 
 ## Param box shown for all UV projection operations.
@@ -343,6 +352,69 @@ func _ready() -> void:
 	_uv_param_box.apply_requested.connect(_on_uv_params_apply)
 	_uv_param_box.cancelled.connect(_on_uv_params_cancelled)
 	add_child(_uv_param_box)
+
+	add_child(_section_label("── Materials ──"))
+
+	var mat_grid := GridContainer.new()
+	mat_grid.columns = 2
+	add_child(mat_grid)
+
+	var slot_lbl := Label.new()
+	slot_lbl.text = "Slot:"
+	slot_lbl.add_theme_font_size_override("font_size", 11)
+	mat_grid.add_child(slot_lbl)
+
+	_material_slot_spin = SpinBox.new()
+	_material_slot_spin.min_value = 0
+	_material_slot_spin.max_value = 15
+	_material_slot_spin.step = 1
+	_material_slot_spin.rounded = true
+	_material_slot_spin.value = 0
+	_material_slot_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mat_grid.add_child(_material_slot_spin)
+
+	_assign_material_btn = _op_button("Assign to Faces",
+		"Assign selected face(s) to the chosen material slot.\n"
+		+ "Add materials to slots via the Inspector (go_build_mesh → material_slots).\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_assign_material_btn.pressed.connect(_on_assign_material_pressed)
+	mat_grid.add_child(_assign_material_btn)
+	_register_op(_assign_material_btn, _cond_face_any)
+
+	# Spacer so the button is 2-wide in the grid.
+	mat_grid.add_child(Control.new())
+
+	var qs_lbl := Label.new()
+	qs_lbl.text = "Quicksets:"
+	qs_lbl.add_theme_font_size_override("font_size", 11)
+	qs_lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	add_child(qs_lbl)
+
+	var qs_grid := GridContainer.new()
+	qs_grid.columns = 3
+	add_child(qs_grid)
+
+	_qs_checker_btn = _op_button("Checker",
+		"Apply a procedural B&W checker material to selected faces.\n"
+		+ "One tile = one mesh unit, matching UV scale 1.0 for instant scale feedback.\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_qs_checker_btn.pressed.connect(_on_quickset_pressed.bind(0, GoBuildMaterials.checker_material))
+	qs_grid.add_child(_qs_checker_btn)
+	_register_op(_qs_checker_btn, _cond_face_any)
+
+	_qs_white_btn = _op_button("White",
+		"Apply a solid-white prototype material to selected faces.\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_qs_white_btn.pressed.connect(_on_quickset_pressed.bind(1, GoBuildMaterials.white_material))
+	qs_grid.add_child(_qs_white_btn)
+	_register_op(_qs_white_btn, _cond_face_any)
+
+	_qs_grey_btn = _op_button("Grey",
+		"Apply a mid-grey prototype material to selected faces.\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_qs_grey_btn.pressed.connect(_on_quickset_pressed.bind(2, GoBuildMaterials.grey_material))
+	qs_grid.add_child(_qs_grey_btn)
+	_register_op(_qs_grey_btn, _cond_face_any)
 
 	add_child(_section_label("── General ──"))
 
@@ -1144,6 +1216,49 @@ func _uv_action_name(mode: GoBuildFace.UvMode) -> String:
 		GoBuildFace.UvMode.CYLINDRICAL: return "Cylindrical UV"
 		GoBuildFace.UvMode.SPHERICAL:   return "Spherical UV"
 	return "UV"
+
+
+## Assign the material slot from the slot spinner to all selected faces.
+## Pushes a single undo/redo action.
+func _on_assign_material_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+	var faces: Array[int] = []
+	faces.assign(sel_faces)
+	var slot: int = int(_material_slot_spin.value)
+	_run_op(
+		"Assign Material Slot %d" % slot,
+		func(): MaterialAssignOperation.apply(_target.go_build_mesh, faces, slot),
+		false,
+	)
+
+
+## Apply a prototype quickset material to the selected faces.
+##
+## [param slot_index] is the material slot to use (different quicksets use
+## different slots so multiple prototype materials coexist on one mesh).
+## [param material_factory] is a [Callable] that returns the [Material] to assign.
+func _on_quickset_pressed(slot_index: int, material_factory: Callable) -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+	var faces: Array[int] = []
+	faces.assign(sel_faces)
+	var mat: Material = material_factory.call()
+	_run_op(
+		"Assign Quickset Material",
+		func(): MaterialAssignOperation.apply(_target.go_build_mesh, faces, slot_index, mat),
+		false,
+	)
 
 
 ## Flip the outward normals of the currently selected faces.
