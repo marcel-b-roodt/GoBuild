@@ -95,6 +95,8 @@ var _assign_material_btn: Button = null
 var _qs_checker_btn: Button = null
 var _qs_white_btn: Button = null
 var _qs_grey_btn: Button = null
+## Rebuilt by _rebuild_mat_palette() on every _refresh() call.
+var _mat_palette_vbox: VBoxContainer = null
 var _shape_preview: GoBuildShapePreview = null
 
 ## Param box shown for all UV projection operations.
@@ -416,6 +418,17 @@ func _ready() -> void:
 	qs_grid.add_child(_qs_grey_btn)
 	_register_op(_qs_grey_btn, _cond_face_any)
 
+	# Live slot list — rebuilt in _rebuild_mat_palette() on every refresh.
+	var slots_hdr := Label.new()
+	slots_hdr.text = "Slots:"
+	slots_hdr.add_theme_font_size_override("font_size", 11)
+	slots_hdr.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	add_child(slots_hdr)
+
+	_mat_palette_vbox = VBoxContainer.new()
+	_mat_palette_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_child(_mat_palette_vbox)
+
 	add_child(_section_label("── General ──"))
 
 	var general_grid := GridContainer.new()
@@ -641,6 +654,7 @@ func trigger_spherical_uv() -> void:
 # ---------------------------------------------------------------------------
 
 func _refresh() -> void:
+	_rebuild_mat_palette()
 	if _target == null or _target.go_build_mesh == null:
 		_status_label.text = "No mesh selected."
 		_stats_label.text = ""
@@ -1216,6 +1230,77 @@ func _uv_action_name(mode: GoBuildFace.UvMode) -> String:
 		GoBuildFace.UvMode.CYLINDRICAL: return "Cylindrical UV"
 		GoBuildFace.UvMode.SPHERICAL:   return "Spherical UV"
 	return "UV"
+
+
+## Rebuild the live slot list in the Materials section.
+## Called by _refresh().  Clears and repopulates _mat_palette_vbox with one
+## row per entry in mesh.material_slots.  Shows an empty-state label when no
+## slots exist.
+func _rebuild_mat_palette() -> void:
+	for child in _mat_palette_vbox.get_children():
+		child.free()
+	if _target == null or _target.go_build_mesh == null:
+		return
+	var slots: Array[Material] = _target.go_build_mesh.material_slots
+	if slots.is_empty():
+		var empty_lbl := Label.new()
+		empty_lbl.text = "  (no slots — assign via Inspector)"
+		empty_lbl.add_theme_color_override("font_color", Color(0.45, 0.45, 0.45))
+		empty_lbl.add_theme_font_size_override("font_size", 10)
+		_mat_palette_vbox.add_child(empty_lbl)
+		return
+	for i in slots.size():
+		var mat: Material = slots[i]
+		var row := HBoxContainer.new()
+		_mat_palette_vbox.add_child(row)
+
+		var idx_lbl := Label.new()
+		idx_lbl.text = "[%d]" % i
+		idx_lbl.custom_minimum_size.x = 26
+		idx_lbl.add_theme_font_size_override("font_size", 10)
+		row.add_child(idx_lbl)
+
+		var mat_name: String
+		if mat == null:
+			mat_name = "(null)"
+		elif mat.resource_name != "":
+			mat_name = mat.resource_name
+		else:
+			mat_name = "(unnamed)"
+		var name_lbl := Label.new()
+		name_lbl.text = mat_name
+		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_lbl.clip_text = true
+		name_lbl.add_theme_font_size_override("font_size", 10)
+		name_lbl.add_theme_color_override("font_color", Color(0.65, 0.65, 0.65))
+		row.add_child(name_lbl)
+
+		var use_btn := Button.new()
+		use_btn.text = "Use"
+		use_btn.tooltip_text = (
+			"Assign selected face(s) to material slot %d.\nRequires Face mode with ≥1 face selected." % i
+		)
+		use_btn.custom_minimum_size.x = 34
+		use_btn.pressed.connect(_on_palette_slot_assign_pressed.bind(i))
+		row.add_child(use_btn)
+
+
+## Assign all selected faces to [param slot_index] via the live palette.
+func _on_palette_slot_assign_pressed(slot_index: int) -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+	var faces: Array[int] = []
+	faces.assign(sel_faces)
+	_run_op(
+		"Assign Material Slot %d" % slot_index,
+		func(): MaterialAssignOperation.apply(_target.go_build_mesh, faces, slot_index),
+		false,
+	)
 
 
 ## Assign the material slot from the slot spinner to all selected faces.
