@@ -16,6 +16,8 @@ const _SEL_MGR_SCRIPT        := preload("res://addons/go_build/core/selection_ma
 const _MESH_INSTANCE_SCRIPT  := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _EXTRUDE_SCRIPT  := preload("res://addons/go_build/mesh/operations/extrude_operation.gd")
 const _FNORMALS_SCRIPT := preload("res://addons/go_build/mesh/operations/flip_normals_operation.gd")
+const _SMOOTH_GRP_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/smooth_group_operation.gd")
 const _DELETE_SCRIPT   := preload("res://addons/go_build/mesh/operations/delete_operation.gd")
 const _WELD_SCRIPT          := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
 const _EDGE_EXTRUDE_SCRIPT := \
@@ -78,6 +80,10 @@ var _mode_buttons: Array[Button] = []
 var _extrude_btn: Button       = null
 var _inset_btn: Button         = null
 var _flip_btn: Button          = null
+var _smooth_group_spin: SpinBox = null
+var _assign_smooth_btn: Button = null
+var _flat_btn: Button          = null
+var _smooth_btn: Button        = null
 var _extrude_edge_btn: Button  = null
 var _bevel_btn: Button         = null
 var _bridge_btn: Button        = null
@@ -357,6 +363,61 @@ func _ready() -> void:
 	_uv_param_box.apply_requested.connect(_on_uv_params_apply)
 	_uv_param_box.cancelled.connect(_on_uv_params_cancelled)
 	add_child(_uv_param_box)
+
+	add_child(_section_label("── Surface ──"))
+
+	var surface_grid := GridContainer.new()
+	surface_grid.columns = 2
+	add_child(surface_grid)
+
+	var sg_lbl := Label.new()
+	sg_lbl.text = "Group:"
+	sg_lbl.add_theme_font_size_override("font_size", 11)
+	surface_grid.add_child(sg_lbl)
+
+	_smooth_group_spin = SpinBox.new()
+	_smooth_group_spin.min_value = 0
+	_smooth_group_spin.max_value = 31
+	_smooth_group_spin.step = 1
+	_smooth_group_spin.rounded = true
+	_smooth_group_spin.value = 1
+	_smooth_group_spin.tooltip_text = (
+		"Smooth group ID to assign.  0 = flat-shaded (no smoothing).\n"
+		+ "Faces sharing the same non-zero ID average normals at shared vertices."
+	)
+	_smooth_group_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	surface_grid.add_child(_smooth_group_spin)
+
+	_assign_smooth_btn = _op_button("Assign",
+		"Set selected face(s) to the smooth group shown in the Group spinner.\n"
+		+ "Faces in the same non-zero group share averaged normals (smooth shading).\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_assign_smooth_btn.pressed.connect(_on_assign_smooth_group_pressed)
+	surface_grid.add_child(_assign_smooth_btn)
+	_register_op(_assign_smooth_btn, _cond_face_any)
+
+	# Spacer to complete the two-column row.
+	surface_grid.add_child(Control.new())
+
+	var sg_quick_grid := GridContainer.new()
+	sg_quick_grid.columns = 2
+	add_child(sg_quick_grid)
+
+	_flat_btn = _op_button("Flat",
+		"Set selected face(s) to smooth group 0 (flat shading — each face uses\n"
+		+ "its own face normal, no interpolation with neighbours).\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_flat_btn.pressed.connect(_on_flat_shading_pressed)
+	sg_quick_grid.add_child(_flat_btn)
+	_register_op(_flat_btn, _cond_face_any)
+
+	_smooth_btn = _op_button("Smooth",
+		"Set selected face(s) to smooth group 1, enabling normal averaging with\n"
+		+ "all adjacent faces that also belong to group 1.\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_smooth_btn.pressed.connect(_on_smooth_shading_pressed)
+	sg_quick_grid.add_child(_smooth_btn)
+	_register_op(_smooth_btn, _cond_face_any)
 
 	add_child(_section_label("── Materials ──"))
 
@@ -1399,6 +1460,61 @@ func _on_flip_normals_pressed() -> void:
 	_run_op("Flip Normals",
 			func(): FlipNormalsOperation.apply(_target.go_build_mesh, faces_to_flip),
 			false)
+
+
+## Assign the smooth group ID from the spinner to all selected faces.
+func _on_assign_smooth_group_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+	var faces: Array[int] = []
+	faces.assign(sel_faces)
+	var group_id: int = int(_smooth_group_spin.value)
+	_run_op(
+		"Assign Smooth Group %d" % group_id,
+		func(): SmoothGroupOperation.apply(_target.go_build_mesh, faces, group_id),
+		false,
+	)
+
+
+## Flat-shade selected faces (smooth_group = 0).
+func _on_flat_shading_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+	var faces: Array[int] = []
+	faces.assign(sel_faces)
+	_run_op(
+		"Flat Shading",
+		func(): SmoothGroupOperation.apply(_target.go_build_mesh, faces, 0),
+		false,
+	)
+
+
+## Smooth-shade selected faces (smooth_group = 1).
+func _on_smooth_shading_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.is_empty():
+		return
+	var faces: Array[int] = []
+	faces.assign(sel_faces)
+	_run_op(
+		"Smooth Shading",
+		func(): SmoothGroupOperation.apply(_target.go_build_mesh, faces, 1),
+		false,
+	)
 
 
 ## Delete the currently selected vertices, edges, or faces.
