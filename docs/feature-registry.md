@@ -94,7 +94,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Per-face material assignment | ✅ Complete | `MaterialAssignOperation.apply(mesh, faces, slot, material=null)`; assigns `face.material_index`; optionally writes material to `material_slots[slot]`; grows slots array as needed; panel slot spinner + Assign to Faces button; 10 unit tests |
 | Material palette panel | ✅ Complete | Live slot list in the Materials section of GoBuildPanel; rebuilds on every selection change; shows slot index, material name, and a Use button that assigns selected faces to that slot; empty-state label when no slots exist |
 | Prototype blockout materials | ✅ Complete | `GoBuildMaterials`: lazily cached `StandardMaterial3D` presets — checker (256×256 procedural B&W grid, 8×8 cells, NEAREST filter), white, grey; panel quickset buttons assign preset + slot to selected faces in one undo step |
-| GoBuild material palette resource | 📋 Planned | Swap-able palette asset supplying reusable material slots |
+| GoBuild material palette resource | ✅ Complete | `GoBuildMaterialPalette` Resource (palette_name + materials array); assign to `GoBuildMeshInstance.material_palette` in Inspector; panel Apply Palette button copies materials into mesh.material_slots in one undo step |
 
 ---
 
