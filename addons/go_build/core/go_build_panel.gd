@@ -38,8 +38,12 @@ const _CYLINDRICAL_UV_SCRIPT := \
 		preload("res://addons/go_build/uv/cylindrical_projection.gd")
 const _FACE_SCRIPT := \
 		preload("res://addons/go_build/mesh/go_build_face.gd")
+const _SHAPE_CATALOG_SCRIPT := \
+		preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
 const _PARAM_PREVIEW_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_param_preview.gd")
+const _SHAPE_PREVIEW_SCRIPT := \
+		preload("res://addons/go_build/core/go_build_shape_preview.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
@@ -77,6 +81,7 @@ var _merge_btn: Button         = null
 var _weld_btn: Button          = null
 var _cull_check: CheckBox      = null
 var _auto_uv_option: OptionButton = null
+var _shape_preview: GoBuildShapePreview = null
 
 ## Registry of all operation buttons and their enable-condition callables.
 ## Populated by [method _register_op] during [method _ready].
@@ -168,22 +173,17 @@ func _ready() -> void:
 	grid.columns = 2
 	add_child(grid)
 
-	var shapes: Array = [
-		["Cube",      func(): return CubeGenerator.generate()],
-		["Plane",     func(): return PlaneGenerator.generate()],
-		["Cylinder",  func(): return CylinderGenerator.generate()],
-		["Sphere",    func(): return SphereGenerator.generate()],
-		["Cone",      func(): return ConeGenerator.generate()],
-		["Torus",     func(): return TorusGenerator.generate()],
-		["Staircase", func(): return StaircaseGenerator.generate()],
-		["Arch",      func(): return ArchGenerator.generate()],
-	]
-	for shape_data: Array in shapes:
+	for shape_name: String in ShapeCreationCatalog.all_shapes():
 		var btn := Button.new()
-		btn.text = shape_data[0]
+		btn.text = shape_name
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		btn.pressed.connect(_insert_shape.bind(shape_data[1], "GoBuild" + shape_data[0]))
+		btn.pressed.connect(_on_shape_button_pressed.bind(shape_name))
 		grid.add_child(btn)
+
+	_shape_preview = GoBuildShapePreview.new()
+	_shape_preview.accepted.connect(_on_shape_preview_accepted)
+	_shape_preview.cancelled.connect(_on_shape_preview_cancelled)
+	add_child(_shape_preview)
 
 	add_child(HSeparator.new())
 
@@ -270,13 +270,26 @@ func _ready() -> void:
 	face_grid.add_child(_subdivide_btn)
 	_register_op(_subdivide_btn, _cond_face_any)
 
+	_flip_btn = _op_button("Flip Normals",
+		"Reverse the outward normal of selected face(s) by flipping winding order.\n"
+		+ "Requires Face mode with ≥1 face selected.")
+	_flip_btn.pressed.connect(_on_flip_normals_pressed)
+	face_grid.add_child(_flip_btn)
+	_register_op(_flip_btn, _cond_face_any)
+
+	add_child(_section_label("── Face UV ──"))
+
+	var face_uv_grid := GridContainer.new()
+	face_uv_grid.columns = 2
+	add_child(face_uv_grid)
+
 	_planar_uv_btn = _op_button("Auto UV",
 		"Project selected face(s) onto their dominant axis using %.1f unit tiles.\n"
 		% _PLANAR_UV_UNITS_PER_TILE
 		+ "Useful for checker or metre textures during blockout.\n"
 		+ "Requires Face mode with ≥1 face selected.")
 	_planar_uv_btn.pressed.connect(_on_planar_uv_pressed)
-	face_grid.add_child(_planar_uv_btn)
+	face_uv_grid.add_child(_planar_uv_btn)
 	_register_op(_planar_uv_btn, _cond_face_any)
 
 	_box_uv_btn = _op_button("Box UV",
@@ -285,7 +298,7 @@ func _ready() -> void:
 		+ "Adjacent same-axis faces share UV coordinates — no seam at shared edges.\n"
 		+ "Requires Face mode with ≥1 face selected.")
 	_box_uv_btn.pressed.connect(_on_box_uv_pressed)
-	face_grid.add_child(_box_uv_btn)
+	face_uv_grid.add_child(_box_uv_btn)
 	_register_op(_box_uv_btn, _cond_face_any)
 
 	_cylindrical_uv_btn = _op_button("Cyl UV",
@@ -294,15 +307,8 @@ func _ready() -> void:
 		+ "U wraps 0-1 around the Y axis; V scales with height.\n"
 		+ "Requires Face mode with \u22651 face selected.")
 	_cylindrical_uv_btn.pressed.connect(_on_cylindrical_uv_pressed)
-	face_grid.add_child(_cylindrical_uv_btn)
+	face_uv_grid.add_child(_cylindrical_uv_btn)
 	_register_op(_cylindrical_uv_btn, _cond_face_any)
-
-	_flip_btn = _op_button("Flip Normals",
-		"Reverse the outward normal of selected face(s) by flipping winding order.\n"
-		+ "Requires Face mode with ≥1 face selected.")
-	_flip_btn.pressed.connect(_on_flip_normals_pressed)
-	face_grid.add_child(_flip_btn)
-	_register_op(_flip_btn, _cond_face_any)
 
 	add_child(_section_label("── General ──"))
 
@@ -532,6 +538,52 @@ func _refresh() -> void:
 	_stats_label.text = "Verts: %d   Faces: %d   Edges: %d" % [
 		vert_count, face_count, edge_count,
 	]
+
+
+func _on_shape_button_pressed(shape_name: String) -> void:
+	if not ShapeCreationCatalog.supports_preview(shape_name):
+		# Shapes without parameters (Cube, Plane) insert immediately.
+		if _shape_preview != null and _shape_preview.is_active():
+			_shape_preview.cancel()
+		var params := ShapeCreationCatalog.default_params(shape_name)
+		_insert_shape(func() -> GoBuildMesh:
+				return ShapeCreationCatalog.build_mesh(shape_name, params),
+				ShapeCreationCatalog.node_name(shape_name))
+		return
+
+	if not Engine.is_editor_hint():
+		return
+	var scene_root: Node = EditorInterface.get_edited_scene_root()
+	if scene_root == null:
+		push_warning("GoBuild: no open scene — create or open a scene first")
+		return
+	_shape_preview.start(shape_name, scene_root)
+
+
+func _on_shape_preview_accepted(shape_key: String, params: Dictionary) -> void:
+	_insert_shape(func() -> GoBuildMesh:
+			return ShapeCreationCatalog.build_mesh(shape_key, params),
+			ShapeCreationCatalog.node_name(shape_key))
+
+
+func _on_shape_preview_cancelled() -> void:
+	pass  # Nothing extra needed; GoBuildShapePreview already cleaned up.
+
+
+func _supports_shape_preview(shape_name: String) -> bool:
+	return _SHAPE_CATALOG_SCRIPT.supports_preview(shape_name)
+
+
+func _shape_node_name(shape_name: String) -> String:
+	return _SHAPE_CATALOG_SCRIPT.node_name(shape_name)
+
+
+func _default_shape_params(shape_name: String) -> Dictionary:
+	return _SHAPE_CATALOG_SCRIPT.default_params(shape_name)
+
+
+func _build_shape_mesh(shape_name: String, params: Dictionary) -> GoBuildMesh:
+	return _SHAPE_CATALOG_SCRIPT.build_mesh(shape_name, params)
 
 
 ## Create a [GoBuildMeshInstance] populated by [param mesh_callable] and
