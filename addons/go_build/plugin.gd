@@ -22,6 +22,7 @@ const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh
 const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
 const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
 const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_panel.gd")
+const _UV_PANEL_SCRIPT      := preload("res://addons/go_build/uv/go_build_uv_panel.gd")
 const _CONTROLLER_SCRIPT    := preload(
 		"res://addons/go_build/core/selection_input_controller.gd")
 const _TOOL_PINNER_SCRIPT   := preload(
@@ -54,6 +55,7 @@ const _SCALE_SNAP_DEFAULT_IDX: int = 0   # 0.1
 
 var _panel: GoBuildPanel                         = null
 var _panel_scroll: ScrollContainer               = null
+var _uv_panel: GoBuildUvPanel                    = null
 var _edited_node: GoBuildMeshInstance            = null
 var _gizmo_plugin: GoBuildGizmoPlugin            = null
 var _input_controller: SelectionInputController  = null
@@ -103,6 +105,12 @@ func _enter_tree() -> void:
 	_panel_scroll.add_child(_panel)
 	add_control_to_dock(DOCK_SLOT_LEFT_BL, _panel_scroll)
 	_panel.set_plugin(self)
+
+	_uv_panel = _UV_PANEL_SCRIPT.new()
+	_uv_panel.name = "GoBuild UV"
+	_uv_panel.custom_minimum_size = Vector2(200.0, 180.0)
+	add_control_to_dock(DOCK_SLOT_RIGHT_UL, _uv_panel)
+	_uv_panel.set_plugin(self)
 
 	_gizmo_plugin = _GIZMO_PLUGIN_SCRIPT.new()
 	_gizmo_plugin.setup(self)
@@ -179,6 +187,11 @@ func _exit_tree() -> void:
 		_panel_scroll.queue_free()
 		_panel_scroll = null
 		_panel = null
+
+	if _uv_panel:
+		remove_control_from_docks(_uv_panel)
+		_uv_panel.queue_free()
+		_uv_panel = null
 
 	_disconnect_node_signals()
 	_edited_node = null
@@ -306,6 +319,8 @@ func _edit(object: Object) -> void:
 
 	if _panel:
 		_panel.set_target(_edited_node)
+	if _uv_panel:
+		_uv_panel.set_target(_edited_node)
 	_refresh_panel_context()
 
 
@@ -340,6 +355,8 @@ func _make_visible(visible: bool) -> void:
 		if _panel:
 			_panel.set_target(null)
 			_panel.update_context("")
+		if _uv_panel:
+			_uv_panel.set_target(null)
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +721,8 @@ func _on_selection_changed() -> void:
 	if _edited_node:
 		_edited_node.update_gizmos()
 	update_overlays()
+	if _uv_panel:
+		_uv_panel.refresh()
 
 
 func _on_snap_selected(index: int) -> void:
@@ -744,6 +763,8 @@ func _on_edited_node_removed() -> void:
 	_edited_node = null
 	if _panel:
 		_panel.set_target(null)
+	if _uv_panel:
+		_uv_panel.set_target(null)
 	update_overlays()
 
 

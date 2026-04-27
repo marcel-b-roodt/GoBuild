@@ -16,6 +16,12 @@ var vertex_b: int = 0
 ## Typically 1 for a boundary edge, 2 for an interior edge.
 var face_indices: Array[int] = []
 
+## When [code]true[/code] this edge acts as a normal seam.
+## Adjacent faces sharing this edge will not average their normals at shared
+## vertices even when they belong to the same smooth group.
+## Derived from [member GoBuildMesh.hard_edge_pairs] by [method GoBuildMesh.rebuild_edges].
+var is_hard: bool = false
+
 
 ## Returns [code]true[/code] if this edge connects the two given vertex indices
 ## (order-independent).

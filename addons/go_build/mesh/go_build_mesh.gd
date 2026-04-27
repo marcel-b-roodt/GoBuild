@@ -20,6 +20,13 @@ extends Resource
 ## Slot 0 is always the default material (may be null).
 @export var material_slots: Array[Material] = []
 
+## Persisted set of hard edges, stored as canonical vertex-index pairs.
+## Each [Vector2i] is [code]Vector2i(min_vi, max_vi)[/code] where [code]min_vi[/code]
+## and [code]max_vi[/code] are vertex indices from [member vertices].
+## The [member GoBuildEdge.is_hard] flag on each entry in [member edges] is set
+## from this array whenever [method rebuild_edges] runs.
+@export var hard_edge_pairs: Array[Vector2i] = []
+
 ## Derived edge list. Rebuilt via [method rebuild_edges] after face changes.
 var edges: Array[GoBuildEdge] = []
 
@@ -76,29 +83,32 @@ func _bake_into(array_mesh: ArrayMesh) -> void:
 	for i in faces.size():
 		face_normals[i] = compute_face_normal(faces[i])
 
-	# Build smooth-group normal map:
-	# vertex_index → { smooth_group_id: Vector3 (accumulated, then normalised) }
-	# Only populated for faces with smooth_group > 0.
+	# Assign smooth-region IDs.  Each region is a connected set of faces with
+	# the same non-zero smooth_group joined through non-hard interior edges.
+	# Faces in the same region share averaged per-vertex normals; hard edges and
+	# smooth-group boundaries act as normal seams.
+	var face_region: Array[int] = _compute_face_regions()
+
+	# Accumulate smooth normals: vertex_index → { region_id: Vector3 (accumulated) }.
 	var smooth_normals: Dictionary = {}
 	for fi in faces.size():
+		var region_id: int = face_region[fi]
+		if region_id == -1:
+			continue  # flat face — uses its own face normal
 		var face: GoBuildFace = faces[fi]
-		if face.smooth_group == 0:
-			continue
 		for vi in face.vertex_indices:
 			if not smooth_normals.has(vi):
 				smooth_normals[vi] = {}
 			var gmap: Dictionary = smooth_normals[vi]
-			if not gmap.has(face.smooth_group):
-				gmap[face.smooth_group] = Vector3.ZERO
-			gmap[face.smooth_group] += face_normals[fi]
+			gmap[region_id] = gmap.get(region_id, Vector3.ZERO) + face_normals[fi]
 
 	for vi in smooth_normals:
-		for gid in smooth_normals[vi]:
-			smooth_normals[vi][gid] = (smooth_normals[vi][gid] as Vector3).normalized()
+		for rid in smooth_normals[vi]:
+			smooth_normals[vi][rid] = (smooth_normals[vi][rid] as Vector3).normalized()
 
 	# One surface per material index.
 	for mat_idx in _collect_material_indices():
-		var surface_arrays := _build_surface(mat_idx, face_normals, smooth_normals)
+		var surface_arrays := _build_surface(mat_idx, face_normals, face_region, smooth_normals)
 		if surface_arrays.is_empty():
 			continue
 		array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_arrays)
@@ -106,6 +116,59 @@ func _bake_into(array_mesh: ArrayMesh) -> void:
 		if mat_idx < material_slots.size() and material_slots[mat_idx] != null:
 			array_mesh.surface_set_material(surf_idx, material_slots[mat_idx])
 
+## Assign smooth-region IDs to faces via BFS over non-hard interior edges.
+##
+## Returns an [Array][int] parallel to [member faces]:
+## [code]>= 0[/code] = smooth face (region index); [code]-1[/code] = flat face.
+## Faces with the same region ID and a shared smooth vertex will average normals.
+##
+## Hard edges ([member GoBuildEdge.is_hard]) and smooth-group boundaries are
+## treated as seams: no normal averaging crosses them.
+func _compute_face_regions() -> Array[int]:
+	var result: Array[int] = []
+	result.resize(faces.size())
+	result.fill(-1)
+
+	if edges.is_empty():
+		return result
+
+	# Build face → adjacent edge indices for fast BFS traversal.
+	var face_edge_map: Array = []
+	face_edge_map.resize(faces.size())
+	for fi in faces.size():
+		face_edge_map[fi] = []
+	for ei in edges.size():
+		for fi in edges[ei].face_indices:
+			face_edge_map[fi].append(ei)
+
+	var next_region: int = 0
+	for start_fi in faces.size():
+		if faces[start_fi].smooth_group == 0:
+			continue
+		if result[start_fi] != -1:
+			continue
+		var sg: int = faces[start_fi].smooth_group
+		var queue: Array[int] = [start_fi]
+		result[start_fi] = next_region
+		var qi: int = 0
+		while qi < queue.size():
+			var fi: int = queue[qi]
+			qi += 1
+			for ei: int in face_edge_map[fi]:
+				if edges[ei].is_hard:
+					continue
+				for fi2: int in edges[ei].face_indices:
+					if fi2 == fi:
+						continue
+					if result[fi2] != -1:
+						continue
+					if faces[fi2].smooth_group != sg:
+						continue
+					result[fi2] = next_region
+					queue.append(fi2)
+		next_region += 1
+
+	return result
 
 ## Build packed vertex-position byte arrays for all material surfaces, in the
 ## same triangle fan order as [method _build_surface].
@@ -159,9 +222,11 @@ func _collect_material_indices() -> Array[int]:
 
 ## Build the packed vertex/normal/UV arrays for a single material surface.
 ## Returns an empty Array if no faces use this material index.
+## [param face_region] is the region-ID array from [method _compute_face_regions].
 func _build_surface(
 		mat_idx: int,
 		face_normals: Array[Vector3],
+		face_region: Array[int],
 		smooth_normals: Dictionary,
 ) -> Array:
 	var verts  := PackedVector3Array()
@@ -189,11 +254,12 @@ func _build_surface(
 				var vi: int = face.vertex_indices[li]
 				verts.append(vertices[vi])
 
-				# Normal: smooth group average or flat face normal.
-				if face.smooth_group != 0 \
+				# Normal: region-based smooth average, or flat face normal.
+				var region_id: int = face_region[fi]
+				if region_id != -1 \
 						and smooth_normals.has(vi) \
-						and smooth_normals[vi].has(face.smooth_group):
-					norms.append(smooth_normals[vi][face.smooth_group])
+						and smooth_normals[vi].has(region_id):
+					norms.append(smooth_normals[vi][region_id])
 				else:
 					norms.append(fn)
 
@@ -247,6 +313,11 @@ func rebuild_edges() -> void:
 	# edge_map: canonical "min_max" key → index in edges array.
 	var edge_map: Dictionary = {}
 
+	# Build a fast lookup for persisted hard edges.
+	var hard_set: Dictionary = {}
+	for pair: Vector2i in hard_edge_pairs:
+		hard_set[pair] = true
+
 	for fi in faces.size():
 		var face: GoBuildFace = faces[fi]
 		var vc: int = face.vertex_indices.size()
@@ -263,6 +334,8 @@ func rebuild_edges() -> void:
 				edge.vertex_a = va
 				edge.vertex_b = vb
 				edge.face_indices.append(fi)
+				var pair_key := Vector2i(min(va, vb), max(va, vb))
+				edge.is_hard = hard_set.has(pair_key)
 				edge_map[key] = edges.size()
 				edges.append(edge)
 
@@ -466,10 +539,14 @@ func take_snapshot() -> Dictionary:
 	var slots_copy: Array[Material] = []
 	slots_copy.assign(material_slots)
 
+	var pairs_copy: Array[Vector2i] = []
+	pairs_copy.assign(hard_edge_pairs)
+
 	return {
 		"vertices": verts_copy,
 		"faces": faces_copy,
 		"material_slots": slots_copy,
+		"hard_edge_pairs": pairs_copy,
 	}
 
 
@@ -478,6 +555,9 @@ func take_snapshot() -> Dictionary:
 ## corrupt the snapshot's face references.  Automatically rebuilds the edge list.
 func restore_snapshot(snapshot: Dictionary) -> void:
 	vertices.assign(snapshot["vertices"])
+	var restored_pairs: Array[Vector2i] = []
+	restored_pairs.assign(snapshot.get("hard_edge_pairs", []))
+	hard_edge_pairs = restored_pairs
 	var fresh_faces: Array[GoBuildFace] = []
 	for f: GoBuildFace in snapshot["faces"]:
 		var nf := GoBuildFace.new()

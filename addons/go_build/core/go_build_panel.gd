@@ -18,6 +18,8 @@ const _EXTRUDE_SCRIPT  := preload("res://addons/go_build/mesh/operations/extrude
 const _FNORMALS_SCRIPT := preload("res://addons/go_build/mesh/operations/flip_normals_operation.gd")
 const _SMOOTH_GRP_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/smooth_group_operation.gd")
+const _HARD_EDGE_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/hard_edge_operation.gd")
 const _DELETE_SCRIPT   := preload("res://addons/go_build/mesh/operations/delete_operation.gd")
 const _WELD_SCRIPT          := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
 const _EDGE_EXTRUDE_SCRIPT := \
@@ -88,6 +90,8 @@ var _extrude_edge_btn: Button  = null
 var _bevel_btn: Button         = null
 var _bridge_btn: Button        = null
 var _subdivide_btn: Button     = null
+var _hard_edge_btn: Button     = null
+var _soft_edge_btn: Button     = null
 var _planar_uv_btn: Button     = null
 var _box_uv_btn: Button        = null
 var _cylindrical_uv_btn: Button = null
@@ -280,6 +284,22 @@ func _ready() -> void:
 	_loop_cut_btn.pressed.connect(_on_loop_cut_pressed)
 	edge_grid.add_child(_loop_cut_btn)
 	_register_op(_loop_cut_btn, _cond_edge_any)
+
+	_hard_edge_btn = _op_button("Hard",
+		"Mark selected edge(s) as hard: adjacent faces will not average normals\n"
+		+ "across the edge even if they share the same smooth group.\n"
+		+ "Requires Edge mode with \u22651 edge selected.")
+	_hard_edge_btn.pressed.connect(_on_hard_edge_pressed)
+	edge_grid.add_child(_hard_edge_btn)
+	_register_op(_hard_edge_btn, _cond_edge_any)
+
+	_soft_edge_btn = _op_button("Soft",
+		"Clear the hard-edge flag on selected edge(s): adjacent faces with the\n"
+		+ "same smooth group will resume averaging normals.\n"
+		+ "Requires Edge mode with \u22651 edge selected.")
+	_soft_edge_btn.pressed.connect(_on_soft_edge_pressed)
+	edge_grid.add_child(_soft_edge_btn)
+	_register_op(_soft_edge_btn, _cond_edge_any)
 
 	add_child(_section_label("── Face ──"))
 
@@ -1693,3 +1713,39 @@ func _on_loop_cut_pressed() -> void:
 	preview.apply_fn         = func(p: float) -> void: \
 			LoopCutOperation.apply(_target.go_build_mesh, edges_to_cut, p)
 	_plugin.call("begin_param_preview", preview)
+
+
+## Mark selected edge(s) as hard: adjacent faces won't average normals across them.
+func _on_hard_edge_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return
+	var sel_edges: Array[int] = _target.selection.get_selected_edges()
+	if sel_edges.is_empty():
+		return
+	var edges: Array[int] = []
+	edges.assign(sel_edges)
+	_run_op(
+		"Hard Edge",
+		func(): HardEdgeOperation.apply(_target.go_build_mesh, edges, true),
+		false,
+	)
+
+
+## Clear the hard-edge flag on selected edge(s): normals will average across them.
+func _on_soft_edge_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return
+	var sel_edges: Array[int] = _target.selection.get_selected_edges()
+	if sel_edges.is_empty():
+		return
+	var edges: Array[int] = []
+	edges.assign(sel_edges)
+	_run_op(
+		"Soft Edge",
+		func(): HardEdgeOperation.apply(_target.go_build_mesh, edges, false),
+		false,
+	)
