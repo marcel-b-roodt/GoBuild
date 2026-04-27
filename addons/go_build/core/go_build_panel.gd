@@ -301,7 +301,7 @@ func _ready() -> void:
 	face_uv_grid.columns = 2
 	add_child(face_uv_grid)
 
-	_planar_uv_btn = _op_button("Auto UV",
+	_planar_uv_btn = _op_button("Planar UV",
 		"Project selected face(s) onto their dominant axis using %.1f unit tiles.\n"
 		% _PLANAR_UV_UNITS_PER_TILE
 		+ "Useful for checker or metre textures during blockout.\n"
@@ -988,7 +988,7 @@ func _on_subdivide_pressed() -> void:
 
 ## Reproject the currently selected faces with dominant-axis planar UVs.
 func _on_planar_uv_pressed() -> void:
-	_uv_start_preview(GoBuildFace.UvMode.PLANAR, "Auto UV", false)
+	_uv_start_preview(GoBuildFace.UvMode.PLANAR, "Planar UV", false)
 
 
 func _on_box_uv_pressed() -> void:
@@ -1139,7 +1139,7 @@ func _uv_project_batch(
 ## Return the action name string for [param mode], used in undo history.
 func _uv_action_name(mode: GoBuildFace.UvMode) -> String:
 	match mode:
-		GoBuildFace.UvMode.PLANAR:      return "Auto UV Planar"
+		GoBuildFace.UvMode.PLANAR:      return "Planar UV"
 		GoBuildFace.UvMode.BOX:         return "Box UV"
 		GoBuildFace.UvMode.CYLINDRICAL: return "Cylindrical UV"
 		GoBuildFace.UvMode.SPHERICAL:   return "Spherical UV"
