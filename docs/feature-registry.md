@@ -91,9 +91,9 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | UV projection parameters (scale, offset, seam rotation) | ✅ Complete | `uv_scale`, `uv_offset`, `uv_seam_rotation` stored per-face; exposed via `GoBuildUvParamBox` live-preview for all four projection buttons; per-face params re-applied by `_apply_face_projection` on auto-UV refresh |
 | UV editor panel | 📋 Planned | 2D panel; drag/rotate/scale islands |
 | Lightmap UV (UV2) generation | 📋 Planned | Non-overlapping second channel |
-| Per-face material assignment | 📋 Planned | Right-click → Assign Material |
+| Per-face material assignment | ✅ Complete | `MaterialAssignOperation.apply(mesh, faces, slot, material=null)`; assigns `face.material_index`; optionally writes material to `material_slots[slot]`; grows slots array as needed; panel slot spinner + Assign to Faces button; 10 unit tests |
 | Material palette panel | 📋 Planned | All slots on active mesh |
-| Prototype blockout materials | 📋 Planned | Unit checker plus colour-coded defaults for fast greyboxing |
+| Prototype blockout materials | ✅ Complete | `GoBuildMaterials`: lazily cached `StandardMaterial3D` presets — checker (256×256 procedural B&W grid, 8×8 cells, NEAREST filter), white, grey; panel quickset buttons assign preset + slot to selected faces in one undo step |
 | GoBuild material palette resource | 📋 Planned | Swap-able palette asset supplying reusable material slots |
 
 ---
