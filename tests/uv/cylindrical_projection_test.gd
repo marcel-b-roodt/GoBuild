@@ -166,3 +166,39 @@ func test_degenerate_face_not_modified() -> void:
 	# UVs unchanged.
 	assert_float(face.uvs[0].x).is_equal_approx(0.1, 0.001)
 	assert_float(face.uvs[0].y).is_equal_approx(0.2, 0.001)
+
+
+# ---------------------------------------------------------------------------
+# UV offset
+# ---------------------------------------------------------------------------
+
+func test_cylindrical_offset_shifts_all_uvs() -> void:
+	# Project twice; second projection uses offset (0.1, 0.2).
+	# Every UV in the second result must be shifted by exactly that.
+	var mesh := _make_ring_face()
+	var mesh2 := _make_ring_face()
+	CylindricalProjection.apply(mesh,  [0], 1.0)
+	CylindricalProjection.apply(mesh2, [0], 1.0, Transform3D.IDENTITY,
+			Vector2(0.1, 0.2))
+	for i: int in 4:
+		assert_float(mesh2.faces[0].uvs[i].x).is_equal_approx(
+				mesh.faces[0].uvs[i].x + 0.1, 0.001)
+		assert_float(mesh2.faces[0].uvs[i].y).is_equal_approx(
+				mesh.faces[0].uvs[i].y + 0.2, 0.001)
+
+
+# ---------------------------------------------------------------------------
+# Seam rotation
+# ---------------------------------------------------------------------------
+
+func test_seam_rotation_180_moves_plus_z_to_u0() -> void:
+	# +Z normally maps to U=0.5.  seam_rotation=180 shifts by 0.5 → U=0.
+	var mesh := _make_vertical_strip(1.0, 1.0)
+	# Override vertices so vertex 0 is exactly at +Z.
+	mesh.vertices[0] = Vector3(0.0, 0.0, 1.0)
+	mesh.vertices[1] = Vector3(0.0, 1.0, 1.0)
+	mesh.vertices[2] = Vector3(0.0, 1.0, 1.001)
+	mesh.vertices[3] = Vector3(0.0, 0.0, 1.001)
+	CylindricalProjection.apply(mesh, [0], 1.0, Transform3D.IDENTITY,
+			Vector2.ZERO, 180.0)
+	assert_float(mesh.faces[0].uvs[0].x).is_equal_approx(0.0, 0.001)

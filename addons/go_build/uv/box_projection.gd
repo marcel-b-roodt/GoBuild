@@ -27,18 +27,21 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 ## [param transform] maps local vertices into the projection space.  Pass
 ## [constant Transform3D.IDENTITY] (default) for local-space projection, or pass
 ## the node’s [member Node3D.global_transform] for world-space projection.
+##
+## [param offset] is added to every UV coordinate after projection, in UV space.
 static func apply(
 		mesh: GoBuildMesh,
 		face_indices: Array[int],
 		units_per_tile: float = 1.0,
 		transform: Transform3D = Transform3D.IDENTITY,
+		offset: Vector2 = Vector2.ZERO,
 ) -> void:
 	if mesh == null or units_per_tile <= 0.0:
 		return
 	for face_idx: int in face_indices:
 		if face_idx < 0 or face_idx >= mesh.faces.size():
 			continue
-		_apply_to_face(mesh, mesh.faces[face_idx], units_per_tile, transform)
+		_apply_to_face(mesh, mesh.faces[face_idx], units_per_tile, transform, offset)
 
 
 static func _apply_to_face(
@@ -46,6 +49,7 @@ static func _apply_to_face(
 		face: GoBuildFace,
 		units_per_tile: float,
 		transform: Transform3D,
+		offset: Vector2,
 ) -> void:
 	var vc: int = face.vertex_indices.size()
 	if vc < 3:
@@ -58,7 +62,7 @@ static func _apply_to_face(
 	face.uvs.resize(vc)
 	for i: int in vc:
 		var point: Vector3 = transform * mesh.vertices[face.vertex_indices[i]]
-		face.uvs[i] = _project_point(point, normal) / units_per_tile
+		face.uvs[i] = _project_point(point, normal) / units_per_tile + offset
 
 
 ## Project [param point] onto its dominant-axis plane using world-space

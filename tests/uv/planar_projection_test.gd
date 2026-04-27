@@ -131,3 +131,17 @@ func test_planar_projection_empty_selection_is_noop() -> void:
 	PlanarProjection.apply(mesh, [], 1.0)
 	assert_int(mesh.faces[0].uvs.size()).is_equal(0)
 
+
+func test_planar_projection_offset_shifts_all_uvs() -> void:
+	# Same geometry; projection with offset (0.5, 0.25) should produce UVs
+	# shifted by exactly that amount relative to the unshifted result.
+	var mesh := _make_plus_y_rect(2.0, 3.0)
+	var mesh2 := _make_plus_y_rect(2.0, 3.0)
+	PlanarProjection.apply(mesh,  [0], 1.0)
+	PlanarProjection.apply(mesh2, [0], 1.0, Vector2(0.5, 0.25))
+	for i: int in 4:
+		assert_float(mesh2.faces[0].uvs[i].x).is_equal_approx(
+				mesh.faces[0].uvs[i].x + 0.5, 0.001)
+		assert_float(mesh2.faces[0].uvs[i].y).is_equal_approx(
+				mesh.faces[0].uvs[i].y + 0.25, 0.001)
+

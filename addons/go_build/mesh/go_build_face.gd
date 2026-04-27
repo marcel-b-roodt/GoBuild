@@ -41,6 +41,21 @@ enum UvMode {
 ## [constant UvMode.NONE] means the face defers to the global auto UV mode.
 @export var uv_projection_mode: UvMode = UvMode.NONE
 
+## UV tiling scale applied during the last manual projection.
+## [code]1.0[/code] means one texture repeat per mesh unit; [code]2.0[/code] means two repeats.
+## Only meaningful when [member uv_projection_mode] is not [constant UvMode.NONE].
+@export var uv_scale: float = 1.0
+
+## UV offset applied after the last manual projection (in UV space).
+## Shifts the entire face's UVs by this amount without re-projecting.
+## Only meaningful when [member uv_projection_mode] is not [constant UvMode.NONE].
+@export var uv_offset: Vector2 = Vector2.ZERO
+
+## Seam rotation offset in degrees applied during the last manual cylindrical or
+## spherical projection.  Rotates the longitude seam around the Y axis.
+## Only meaningful for [constant UvMode.CYLINDRICAL] and [constant UvMode.SPHERICAL].
+@export var uv_seam_rotation: float = 0.0
+
 
 ## Returns [code]true[/code] if the face has the minimum required data to be valid.
 func is_valid() -> bool:

@@ -458,6 +458,9 @@ func take_snapshot() -> Dictionary:
 		nf.material_index = face.material_index
 		nf.smooth_group = face.smooth_group
 		nf.uv_projection_mode = face.uv_projection_mode
+		nf.uv_scale = face.uv_scale
+		nf.uv_offset = face.uv_offset
+		nf.uv_seam_rotation = face.uv_seam_rotation
 		faces_copy.append(nf)
 
 	var slots_copy: Array[Material] = []
@@ -484,6 +487,9 @@ func restore_snapshot(snapshot: Dictionary) -> void:
 		nf.material_index = f.material_index
 		nf.smooth_group   = f.smooth_group
 		nf.uv_projection_mode = f.uv_projection_mode
+		nf.uv_scale = f.uv_scale
+		nf.uv_offset = f.uv_offset
+		nf.uv_seam_rotation = f.uv_seam_rotation
 		fresh_faces.append(nf)
 	faces.assign(fresh_faces)
 	material_slots.assign(snapshot["material_slots"])

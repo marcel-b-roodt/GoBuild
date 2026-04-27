@@ -36,18 +36,25 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 ## [param transform] maps local vertices into the projection space.  Pass
 ## [constant Transform3D.IDENTITY] for local-space projection, or the node's
 ## [member Node3D.global_transform] for world-space projection.
+##
+## [param offset] is added to every UV coordinate after projection, in UV space.
+##
+## [param seam_rotation] shifts the longitude seam in degrees.  A value of 180
+## moves the seam to the +X/−Z side.
 static func apply(
 		mesh: GoBuildMesh,
 		face_indices: Array[int],
 		units_per_tile: float = 1.0,
 		transform: Transform3D = Transform3D.IDENTITY,
+		offset: Vector2 = Vector2.ZERO,
+		seam_rotation: float = 0.0,
 ) -> void:
 	if mesh == null or units_per_tile <= 0.0:
 		return
 	for face_idx: int in face_indices:
 		if face_idx < 0 or face_idx >= mesh.faces.size():
 			continue
-		_apply_to_face(mesh, mesh.faces[face_idx], units_per_tile, transform)
+		_apply_to_face(mesh, mesh.faces[face_idx], units_per_tile, transform, offset, seam_rotation)
 
 
 static func _apply_to_face(
@@ -55,6 +62,8 @@ static func _apply_to_face(
 		face: GoBuildFace,
 		units_per_tile: float,
 		transform: Transform3D,
+		offset: Vector2,
+		seam_rotation: float,
 ) -> void:
 	var vc: int = face.vertex_indices.size()
 	if vc < 3:
@@ -64,7 +73,11 @@ static func _apply_to_face(
 
 	# First pass: compute raw UV per vertex.
 	for i: int in vc:
-		face.uvs[i] = _spherical_uv(transform * mesh.vertices[face.vertex_indices[i]], units_per_tile)
+		face.uvs[i] = _spherical_uv(
+			transform * mesh.vertices[face.vertex_indices[i]],
+			units_per_tile,
+			seam_rotation,
+		)
 
 	# Seam correction: shift U by ±1 when a vertex is more than 0.5 away from
 	# vertex 0 so the face doesn't smear across the full texture width.
@@ -76,6 +89,11 @@ static func _apply_to_face(
 		elif delta < -0.5:
 			face.uvs[i] = Vector2(face.uvs[i].x + 1.0, face.uvs[i].y)
 
+	# Apply UV offset.
+	if offset != Vector2.ZERO:
+		for i: int in vc:
+			face.uvs[i] = face.uvs[i] + offset
+
 
 ## Compute the equirectangular UV for a single world-space (or local-space)
 ## vertex position [param p].
@@ -83,14 +101,16 @@ static func _apply_to_face(
 ## Returns [code]Vector2(U, V)[/code] where U is longitude and V is latitude.
 ## Both are divided by [param units_per_tile] so 1.0 maps the full sphere to
 ## the [0, 1] × [0, 1] UV square.
-static func _spherical_uv(p: Vector3, units_per_tile: float) -> Vector2:
+##
+## [param seam_rotation] shifts the longitude seam in degrees.
+static func _spherical_uv(p: Vector3, units_per_tile: float, seam_rotation: float = 0.0) -> Vector2:
 	var r: float = p.length()
 	if r < 0.0001:
 		# Degenerate: vertex is at the origin; place it at the centre of the UV.
 		return Vector2(0.5, 0.5) / units_per_tile
 
-	# Longitude: atan2(x, z) → [−π, π], remap to [0, 1].
-	var u: float = (atan2(p.x, p.z) / TAU + 0.5) / units_per_tile
+	# Longitude: atan2(x, z) → [−π, π], remap to [0, 1], then apply seam rotation.
+	var u: float = fposmod((atan2(p.x, p.z) / TAU + 0.5) + seam_rotation / 360.0, 1.0) / units_per_tile
 
 	# Latitude: acos(y / r) → [0, π], normalise to [0, 1] (0 = north, 1 = south).
 	var y_norm: float = clamp(p.y / r, -1.0, 1.0)

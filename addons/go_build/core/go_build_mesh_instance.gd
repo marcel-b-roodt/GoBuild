@@ -197,46 +197,55 @@ func _do_operation(operation: Callable) -> void:
 
 ## Apply the global auto-UV mode to every face that has not been explicitly
 ## projected.  Faces whose [member GoBuildFace.uv_projection_mode] is not
-## [constant GoBuildFace.UvMode.NONE] keep the projection that was manually
-## applied and are skipped.
+## [constant GoBuildFace.UvMode.NONE] are re-projected individually using their
+## stored per-face params ([member GoBuildFace.uv_scale], [member GoBuildFace.uv_offset],
+## [member GoBuildFace.uv_seam_rotation]).
 ##
 ## Called automatically after operations when [member auto_uv_mode] is not NONE.
 func _apply_auto_uv() -> void:
 	if go_build_mesh == null:
 		return
-	var planar_faces: Array[int] = []
-	var box_faces: Array[int] = []
-	var cylindrical_faces: Array[int] = []
-	var spherical_faces: Array[int] = []
+	var auto_faces: Array[int] = []
 	for i: int in go_build_mesh.faces.size():
 		var face: GoBuildFace = go_build_mesh.faces[i]
-		match face.uv_projection_mode:
-			GoBuildFace.UvMode.NONE:
-				# Defers to the global mode.
-				if auto_uv_mode == GoBuildFace.UvMode.PLANAR:
-					planar_faces.append(i)
-				elif auto_uv_mode == GoBuildFace.UvMode.BOX:
-					box_faces.append(i)
-				elif auto_uv_mode == GoBuildFace.UvMode.CYLINDRICAL:
-					cylindrical_faces.append(i)
-				elif auto_uv_mode == GoBuildFace.UvMode.SPHERICAL:
-					spherical_faces.append(i)
-			GoBuildFace.UvMode.PLANAR:
-				planar_faces.append(i)
-			GoBuildFace.UvMode.BOX:
-				box_faces.append(i)
-			GoBuildFace.UvMode.CYLINDRICAL:
-				cylindrical_faces.append(i)
-			GoBuildFace.UvMode.SPHERICAL:
-				spherical_faces.append(i)
-	if not planar_faces.is_empty():
-		PlanarProjection.apply(go_build_mesh, planar_faces, 1.0)
-	if not box_faces.is_empty():
-		BoxProjection.apply(go_build_mesh, box_faces, 1.0, global_transform)
-	if not cylindrical_faces.is_empty():
-		CylindricalProjection.apply(go_build_mesh, cylindrical_faces, 1.0, global_transform)
-	if not spherical_faces.is_empty():
-		SphericalProjection.apply(go_build_mesh, spherical_faces, 1.0, global_transform)
+		if face.uv_projection_mode == GoBuildFace.UvMode.NONE:
+			auto_faces.append(i)
+		else:
+			_apply_face_projection(i, face)
+	if auto_faces.is_empty() or auto_uv_mode == GoBuildFace.UvMode.NONE:
+		return
+	match auto_uv_mode:
+		GoBuildFace.UvMode.PLANAR:
+			PlanarProjection.apply(go_build_mesh, auto_faces, 1.0)
+		GoBuildFace.UvMode.BOX:
+			BoxProjection.apply(go_build_mesh, auto_faces, 1.0, global_transform)
+		GoBuildFace.UvMode.CYLINDRICAL:
+			CylindricalProjection.apply(go_build_mesh, auto_faces, 1.0, global_transform)
+		GoBuildFace.UvMode.SPHERICAL:
+			SphericalProjection.apply(go_build_mesh, auto_faces, 1.0, global_transform)
+
+
+## Re-project a single face using its stored per-face projection params.
+## Only call this when [member GoBuildFace.uv_projection_mode] is not NONE.
+func _apply_face_projection(face_idx: int, face: GoBuildFace) -> void:
+	var indices: Array[int] = [face_idx]
+	match face.uv_projection_mode:
+		GoBuildFace.UvMode.PLANAR:
+			PlanarProjection.apply(go_build_mesh, indices, face.uv_scale, face.uv_offset)
+		GoBuildFace.UvMode.BOX:
+			BoxProjection.apply(go_build_mesh, indices, face.uv_scale, global_transform, face.uv_offset)
+		GoBuildFace.UvMode.CYLINDRICAL:
+			CylindricalProjection.apply(
+				go_build_mesh, indices,
+				face.uv_scale, global_transform,
+				face.uv_offset, face.uv_seam_rotation,
+			)
+		GoBuildFace.UvMode.SPHERICAL:
+			SphericalProjection.apply(
+				go_build_mesh, indices,
+				face.uv_scale, global_transform,
+				face.uv_offset, face.uv_seam_rotation,
+			)
 
 
 ## Returns [code]true[/code] when the current UV setup depends on world-space

@@ -16,20 +16,29 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 ##
 ## [param units_per_tile] is the mesh-space size of one texture repeat.
 ## A value of 1.0 means a 1 m x 1 m prototype texture repeats once per metre.
+##
+## [param offset] is added to every UV coordinate after projection, in UV space.
+## Use this to shift the entire face's UVs without changing the scale.
 static func apply(
 		mesh: GoBuildMesh,
 		face_indices: Array[int],
 		units_per_tile: float = 1.0,
+		offset: Vector2 = Vector2.ZERO,
 ) -> void:
 	if mesh == null or units_per_tile <= 0.0:
 		return
 	for face_idx: int in face_indices:
 		if face_idx < 0 or face_idx >= mesh.faces.size():
 			continue
-		_apply_to_face(mesh, mesh.faces[face_idx], units_per_tile)
+		_apply_to_face(mesh, mesh.faces[face_idx], units_per_tile, offset)
 
 
-static func _apply_to_face(mesh: GoBuildMesh, face: GoBuildFace, units_per_tile: float) -> void:
+static func _apply_to_face(
+		mesh: GoBuildMesh,
+		face: GoBuildFace,
+		units_per_tile: float,
+		offset: Vector2,
+) -> void:
 	var vc: int = face.vertex_indices.size()
 	if vc < 3:
 		return
@@ -53,7 +62,7 @@ static func _apply_to_face(mesh: GoBuildMesh, face: GoBuildFace, units_per_tile:
 		face.uvs[i] = Vector2(
 			(uv.x - min_u) / units_per_tile,
 			(uv.y - min_v) / units_per_tile,
-		)
+		) + offset
 
 
 ## Project [param point] into a canonical 2D basis chosen from the dominant

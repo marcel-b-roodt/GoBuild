@@ -46,6 +46,8 @@ const _PARAM_PREVIEW_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_param_preview.gd")
 const _SHAPE_PREVIEW_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_shape_preview.gd")
+const _UV_PARAM_BOX_SCRIPT := \
+		preload("res://addons/go_build/core/go_build_uv_param_box.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
@@ -85,6 +87,19 @@ var _weld_btn: Button          = null
 var _cull_check: CheckBox      = null
 var _auto_uv_option: OptionButton = null
 var _shape_preview: GoBuildShapePreview = null
+
+## Param box shown for all UV projection operations.
+var _uv_param_box: GoBuildUvParamBox = null
+## Snapshot captured when a UV param preview starts; used to restore on cancel.
+var _uv_preview_snapshot: Dictionary = {}
+## Face indices captured when a UV param preview starts.
+var _uv_preview_faces: Array[int] = []
+## Which UV mode is being previewed.
+var _uv_preview_mode: GoBuildFace.UvMode = GoBuildFace.UvMode.NONE
+## Node world transform captured at UV preview start (for world-space projections).
+var _uv_preview_transform: Transform3D = Transform3D.IDENTITY
+## True while a UV param preview is active.
+var _uv_preview_active: bool = false
 
 ## Registry of all operation buttons and their enable-condition callables.
 ## Populated by [method _register_op] during [method _ready].
@@ -322,6 +337,13 @@ func _ready() -> void:
 	face_uv_grid.add_child(_spherical_uv_btn)
 	_register_op(_spherical_uv_btn, _cond_face_any)
 
+	# UV parameter box — shown below the UV buttons during a live param preview.
+	_uv_param_box = GoBuildUvParamBox.new()
+	_uv_param_box.params_changed.connect(_on_uv_params_preview)
+	_uv_param_box.apply_requested.connect(_on_uv_params_apply)
+	_uv_param_box.cancelled.connect(_on_uv_params_cancelled)
+	add_child(_uv_param_box)
+
 	add_child(_section_label("── General ──"))
 
 	var general_grid := GridContainer.new()
@@ -426,6 +448,9 @@ func _ready() -> void:
 ## Update the panel to reflect [param target].
 ## Pass [code]null[/code] to clear the selection display.
 func set_target(target: GoBuildMeshInstance) -> void:
+	# Cancel any active UV param preview before switching targets.
+	_uv_cancel_preview()
+
 	# Clear the back-face override on the old target before switching.
 	if _target != null and is_instance_valid(_target):
 		_target.set_edit_cull_override(false)
@@ -962,92 +987,30 @@ func _on_subdivide_pressed() -> void:
 
 
 ## Reproject the currently selected faces with dominant-axis planar UVs.
-## Uses unit-based tiling so a 2-unit span maps to 2 texture repeats.
 func _on_planar_uv_pressed() -> void:
-	if _target == null or _plugin == null:
-		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
-	if sel_faces.is_empty():
-		return
-	var faces_to_project: Array[int] = []
-	faces_to_project.assign(sel_faces)
-	_run_op(
-		"Auto UV Planar",
-		func():
-			for fi: int in faces_to_project:
-				_target.go_build_mesh.faces[fi].uv_projection_mode = GoBuildFace.UvMode.PLANAR
-			PlanarProjection.apply(
-				_target.go_build_mesh,
-				faces_to_project,
-				_PLANAR_UV_UNITS_PER_TILE,
-			),
-		false,
-	)
+	_uv_start_preview(GoBuildFace.UvMode.PLANAR, "Auto UV", false)
 
 
 func _on_box_uv_pressed() -> void:
-	if _target == null or _plugin == null:
-		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
-	if sel_faces.is_empty():
-		return
-	var faces_to_project: Array[int] = []
-	faces_to_project.assign(sel_faces)
-	# Capture transform at button-press time so the closure uses the current pose.
-	var node_transform := _target.global_transform
-	_run_op(
-		"Box UV",
-		func():
-			for fi: int in faces_to_project:
-				_target.go_build_mesh.faces[fi].uv_projection_mode = GoBuildFace.UvMode.BOX
-			BoxProjection.apply(
-				_target.go_build_mesh,
-				faces_to_project,
-				_PLANAR_UV_UNITS_PER_TILE,
-				node_transform,
-			),
-		false,
-	)
+	_uv_start_preview(GoBuildFace.UvMode.BOX, "Box UV", false)
 
 
-## Flip the outward normals of the currently selected faces.
-## Requires Face mode and at least one selected face.
-## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
 func _on_cylindrical_uv_pressed() -> void:
-	if _target == null or _plugin == null:
-		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
-	if sel_faces.is_empty():
-		return
-	var faces_to_project: Array[int] = []
-	faces_to_project.assign(sel_faces)
-	var node_transform := _target.global_transform
-	_run_op(
-		"Cylindrical UV",
-		func():
-			for fi: int in faces_to_project:
-				_target.go_build_mesh.faces[fi].uv_projection_mode = \
-						GoBuildFace.UvMode.CYLINDRICAL
-			CylindricalProjection.apply(
-				_target.go_build_mesh,
-				faces_to_project,
-				_PLANAR_UV_UNITS_PER_TILE,
-				node_transform,
-			),
-		false,
-	)
+	_uv_start_preview(GoBuildFace.UvMode.CYLINDRICAL, "Cyl UV", true)
 
 
-## Flip the outward normals of the currently selected faces.
-## Requires Face mode and at least one selected face.
-## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
 func _on_spherical_uv_pressed() -> void:
+	_uv_start_preview(GoBuildFace.UvMode.SPHERICAL, "Sphere UV", true)
+
+
+## Begin a UV param-preview for [param mode].
+## Takes a mesh snapshot, populates [member _uv_param_box] with the first selected
+## face's existing params (if it uses the same mode) and shows the param box.
+func _uv_start_preview(
+		mode: GoBuildFace.UvMode,
+		action_name: String,
+		has_seam: bool,
+) -> void:
 	if _target == null or _plugin == null:
 		return
 	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
@@ -1055,23 +1018,132 @@ func _on_spherical_uv_pressed() -> void:
 	var sel_faces: Array[int] = _target.selection.get_selected_faces()
 	if sel_faces.is_empty():
 		return
-	var faces_to_project: Array[int] = []
-	faces_to_project.assign(sel_faces)
-	var node_transform := _target.global_transform
+	# Cancel any previous preview cleanly before starting a new one.
+	if _uv_preview_active:
+		_uv_cancel_preview()
+	# Capture the pre-preview state.
+	_uv_preview_snapshot = _target.go_build_mesh.take_snapshot()
+	_uv_preview_faces.assign(sel_faces)
+	_uv_preview_mode = mode
+	_uv_preview_transform = _target.global_transform
+	_uv_preview_active = true
+	# Seed the param box with the first face's existing params when it already
+	# uses the same mode, so the user starts from the last applied values.
+	var first: GoBuildFace = _target.go_build_mesh.faces[sel_faces[0]]
+	var initial_scale: float = 1.0
+	var initial_offset := Vector2.ZERO
+	var initial_seam_rot: float = 0.0
+	if first.uv_projection_mode == mode:
+		initial_scale   = first.uv_scale
+		initial_offset  = first.uv_offset
+		initial_seam_rot = first.uv_seam_rotation
+	_uv_param_box.setup(action_name, has_seam, initial_scale, initial_offset, initial_seam_rot)
+
+
+## Cancel the active UV param preview and restore the mesh to its pre-preview state.
+func _uv_cancel_preview() -> void:
+	if not _uv_preview_active:
+		return
+	_uv_preview_active = false
+	if _uv_param_box != null:
+		_uv_param_box.hide_box()
+	if _target != null and not _uv_preview_snapshot.is_empty():
+		_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
+		_target.bake()
+	_uv_preview_snapshot = {}
+	_uv_preview_faces = []
+
+
+## Live-preview handler: restore snapshot, re-project with current params, bake.
+## Called by [GoBuildUvParamBox] on every spinbox change.
+func _on_uv_params_preview(params: Dictionary) -> void:
+	if not _uv_preview_active or _target == null:
+		return
+	_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
+	_uv_project_batch(
+		_uv_preview_mode,
+		_uv_preview_faces,
+		params.get("scale", 1.0),
+		Vector2(params.get("u_offset", 0.0), params.get("v_offset", 0.0)),
+		params.get("seam_rotation", 0.0),
+		_uv_preview_transform,
+	)
+	_target.bake()
+
+
+## Commit handler: restore snapshot so undo baseline is clean, then run op.
+## Called by [GoBuildUvParamBox] when the user clicks Accept.
+func _on_uv_params_apply(params: Dictionary) -> void:
+	if not _uv_preview_active or _target == null or _plugin == null:
+		return
+	_uv_preview_active = false
+	# Restore to pre-preview state so the undo snapshot captures the original mesh.
+	_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
+	var faces: Array[int] = _uv_preview_faces.duplicate()
+	var mode: GoBuildFace.UvMode = _uv_preview_mode
+	var xform: Transform3D = _uv_preview_transform
+	var scale: float = float(params.get("scale", 1.0))
+	var offset := Vector2(float(params.get("u_offset", 0.0)), float(params.get("v_offset", 0.0)))
+	var seam_rot: float = float(params.get("seam_rotation", 0.0))
+	_uv_preview_snapshot = {}
+	_uv_preview_faces = []
 	_run_op(
-		"Spherical UV",
+		_uv_action_name(mode),
 		func():
-			for fi: int in faces_to_project:
-				_target.go_build_mesh.faces[fi].uv_projection_mode = \
-						GoBuildFace.UvMode.SPHERICAL
-			SphericalProjection.apply(
-				_target.go_build_mesh,
-				faces_to_project,
-				_PLANAR_UV_UNITS_PER_TILE,
-				node_transform,
-			),
+			for fi: int in faces:
+				var face: GoBuildFace = _target.go_build_mesh.faces[fi]
+				face.uv_projection_mode = mode
+				face.uv_scale = scale
+				face.uv_offset = offset
+				face.uv_seam_rotation = seam_rot
+			_uv_project_batch(mode, faces, scale, offset, seam_rot, xform),
 		false,
 	)
+
+
+## Cancel handler: restore snapshot and bake.
+## Called by [GoBuildUvParamBox] when the user clicks Cancel.
+func _on_uv_params_cancelled() -> void:
+	if not _uv_preview_active or _target == null:
+		return
+	_uv_preview_active = false
+	if not _uv_preview_snapshot.is_empty():
+		_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
+		_target.bake()
+	_uv_preview_snapshot = {}
+	_uv_preview_faces = []
+
+
+## Dispatch a UV projection onto [param faces] without creating an undo entry.
+func _uv_project_batch(
+		mode: GoBuildFace.UvMode,
+		faces: Array[int],
+		scale: float,
+		offset: Vector2,
+		seam_rot: float,
+		xform: Transform3D,
+) -> void:
+	match mode:
+		GoBuildFace.UvMode.PLANAR:
+			PlanarProjection.apply(_target.go_build_mesh, faces, scale, offset)
+		GoBuildFace.UvMode.BOX:
+			BoxProjection.apply(_target.go_build_mesh, faces, scale, xform, offset)
+		GoBuildFace.UvMode.CYLINDRICAL:
+			CylindricalProjection.apply(
+				_target.go_build_mesh, faces, scale, xform, offset, seam_rot)
+		GoBuildFace.UvMode.SPHERICAL:
+			SphericalProjection.apply(
+				_target.go_build_mesh, faces, scale, xform, offset, seam_rot)
+
+
+## Return the action name string for [param mode], used in undo history.
+func _uv_action_name(mode: GoBuildFace.UvMode) -> String:
+	match mode:
+		GoBuildFace.UvMode.PLANAR:      return "Auto UV Planar"
+		GoBuildFace.UvMode.BOX:         return "Box UV"
+		GoBuildFace.UvMode.CYLINDRICAL: return "Cylindrical UV"
+		GoBuildFace.UvMode.SPHERICAL:   return "Spherical UV"
+	return "UV"
 
 
 ## Flip the outward normals of the currently selected faces.

@@ -28,18 +28,26 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 ## [param transform] maps local vertices into the projection space.  Pass
 ## [constant Transform3D.IDENTITY] for local-space projection, or the node's
 ## [member Node3D.global_transform] for world-space projection.
+##
+## [param offset] is added to every UV coordinate after projection, in UV space.
+##
+## [param seam_rotation] shifts the longitude seam in degrees.  A value of 180
+## moves the seam to the +X/−Z side; use this to hide the seam on a face that
+## would otherwise sit right on the atan2 discontinuity.
 static func apply(
 		mesh: GoBuildMesh,
 		face_indices: Array[int],
 		units_per_tile: float = 1.0,
 		transform: Transform3D = Transform3D.IDENTITY,
+		offset: Vector2 = Vector2.ZERO,
+		seam_rotation: float = 0.0,
 ) -> void:
 	if mesh == null or units_per_tile <= 0.0:
 		return
 	for face_idx: int in face_indices:
 		if face_idx < 0 or face_idx >= mesh.faces.size():
 			continue
-		_apply_to_face(mesh, mesh.faces[face_idx], units_per_tile, transform)
+		_apply_to_face(mesh, mesh.faces[face_idx], units_per_tile, transform, offset, seam_rotation)
 
 
 static func _apply_to_face(
@@ -47,6 +55,8 @@ static func _apply_to_face(
 		face: GoBuildFace,
 		units_per_tile: float,
 		transform: Transform3D,
+		offset: Vector2,
+		seam_rotation: float,
 ) -> void:
 	var vc: int = face.vertex_indices.size()
 	if vc < 3:
@@ -57,7 +67,8 @@ static func _apply_to_face(
 	# First pass: compute raw UV for each vertex.
 	for i: int in vc:
 		var p: Vector3 = transform * mesh.vertices[face.vertex_indices[i]]
-		var u: float = (atan2(p.x, p.z) / TAU) + 0.5   # remap [−0.5, 0.5] → [0, 1]
+		# Apply seam_rotation by shifting longitude before normalisation.
+		var u: float = fposmod((atan2(p.x, p.z) / TAU + 0.5) + seam_rotation / 360.0, 1.0)
 		var v: float = p.y / units_per_tile
 		face.uvs[i] = Vector2(u, v)
 
@@ -70,3 +81,8 @@ static func _apply_to_face(
 			face.uvs[i] = Vector2(face.uvs[i].x - 1.0, face.uvs[i].y)
 		elif delta < -0.5:
 			face.uvs[i] = Vector2(face.uvs[i].x + 1.0, face.uvs[i].y)
+
+	# Apply UV offset.
+	if offset != Vector2.ZERO:
+		for i: int in vc:
+			face.uvs[i] = face.uvs[i] + offset

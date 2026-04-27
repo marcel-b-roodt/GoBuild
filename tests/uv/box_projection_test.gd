@@ -334,3 +334,16 @@ func test_box_projection_non_uniform_scale_transform_scales_uv_span() -> void:
 		min_v = minf(min_v, uv.y); max_v = maxf(max_v, uv.y)
 	assert_float(max_u - min_u).is_equal_approx(4.0, 0.001)
 	assert_float(max_v - min_v).is_equal_approx(1.5, 0.001)
+
+
+func test_box_projection_offset_shifts_all_uvs() -> void:
+	# A +Y rect with offset (0.1, -0.2): all UVs must be shifted by exactly that.
+	var mesh := _make_plus_y_rect(2.0, 3.0)
+	var mesh2 := _make_plus_y_rect(2.0, 3.0)
+	BoxProjection.apply(mesh,  [0], 1.0)
+	BoxProjection.apply(mesh2, [0], 1.0, Transform3D.IDENTITY, Vector2(0.1, -0.2))
+	for i: int in 4:
+		assert_float(mesh2.faces[0].uvs[i].x).is_equal_approx(
+				mesh.faces[0].uvs[i].x + 0.1, 0.001)
+		assert_float(mesh2.faces[0].uvs[i].y).is_equal_approx(
+				mesh.faces[0].uvs[i].y - 0.2, 0.001)
