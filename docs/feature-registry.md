@@ -89,7 +89,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Auto UV — Cylindrical | ✅ Complete | `CylindricalProjection.apply(mesh, face_indices, units_per_tile, transform)`; wraps U around Y axis (atan2); V scales with height; seam correction for faces straddling the discontinuity; panel button ("Cyl UV"); 11 unit tests |
 | Auto UV — Spherical | ✅ Complete | `SphericalProjection.apply(mesh, face_indices, units_per_tile, transform)`; equirectangular (lat/lon) mapping; U = longitude (atan2/TAU), V = latitude (acos/PI); seam correction for faces straddling the ±X seam; pole guard for degenerate vertices at origin; panel button ("Sphere UV") in Face UV section; 10 unit tests |
 | UV projection parameters (scale, offset, seam rotation) | ✅ Complete | `uv_scale`, `uv_offset`, `uv_seam_rotation` stored per-face; exposed via `GoBuildUvParamBox` live-preview for all four projection buttons; per-face params re-applied by `_apply_face_projection` on auto-UV refresh |
-| UV editor panel | 📋 Planned | 2D panel; drag/rotate/scale islands |
+| UV editor panel | � In Progress | `GoBuildUvCanvas` (pan/zoom, face wireframe + selection fill); `GoBuildUvPanel` dock at `DOCK_SLOT_RIGHT_UL`; view-only; island editing (drag/rotate/scale) planned |
 | Lightmap UV (UV2) generation | 📋 Planned | Non-overlapping second channel |
 | Per-face material assignment | ✅ Complete | `MaterialAssignOperation.apply(mesh, faces, slot, material=null)`; assigns `face.material_index`; optionally writes material to `material_slots[slot]`; grows slots array as needed; panel slot spinner + Assign to Faces button; 10 unit tests |
 | Material palette panel | ✅ Complete | Live slot list in the Materials section of GoBuildPanel; rebuilds on every selection change; shows slot index, material name, and a Use button that assigns selected faces to that slot; empty-state label when no slots exist |
@@ -103,7 +103,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Feature | Status | Notes |
 |---|---|---|
 | Smooth groups | ✅ Complete | `SmoothGroupOperation.apply(mesh, faces, group_id)`; group 0 = flat-shaded, non-zero IDs average normals at shared vertices; panel Surface section with Group SpinBox (0-31) + Assign, Flat, Smooth buttons; 9 unit tests |
-| Hard/soft edge toggle | 📋 Planned | Split normals per edge |
+| Hard/soft edge toggle | ✅ Complete | `HardEdgeOperation.apply(mesh, edges, hard)`; `GoBuildEdge.is_hard` (derived); `GoBuildMesh.hard_edge_pairs @export`; BFS `_compute_face_regions()` replaces smooth-group-keyed normals; panel Hard/Soft buttons in Edge section; 11 unit tests incl. bake seam |
 | Vertex color paint | 📋 Planned | Per-vertex RGBA brush |
 | Normal visualiser overlay | 📋 Planned | Face + vertex normals as viewport lines |
 
