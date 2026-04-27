@@ -102,7 +102,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 
 | Feature | Status | Notes |
 |---|---|---|
-| Smooth groups | 📋 Planned | Normal averaging within group |
+| Smooth groups | ✅ Complete | `SmoothGroupOperation.apply(mesh, faces, group_id)`; group 0 = flat-shaded, non-zero IDs average normals at shared vertices; panel Surface section with Group SpinBox (0-31) + Assign, Flat, Smooth buttons; 9 unit tests |
 | Hard/soft edge toggle | 📋 Planned | Split normals per edge |
 | Vertex color paint | 📋 Planned | Per-vertex RGBA brush |
 | Normal visualiser overlay | 📋 Planned | Face + vertex normals as viewport lines |
