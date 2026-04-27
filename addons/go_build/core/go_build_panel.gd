@@ -52,6 +52,8 @@ const _MATERIALS_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_materials.gd")
 const _MAT_ASSIGN_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/material_assign_operation.gd")
+const _PALETTE_SCRIPT := \
+		preload("res://addons/go_build/core/go_build_material_palette.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
@@ -95,6 +97,7 @@ var _assign_material_btn: Button = null
 var _qs_checker_btn: Button = null
 var _qs_white_btn: Button = null
 var _qs_grey_btn: Button = null
+var _apply_palette_btn: Button = null
 ## Rebuilt by _rebuild_mat_palette() on every _refresh() call.
 var _mat_palette_vbox: VBoxContainer = null
 var _shape_preview: GoBuildShapePreview = null
@@ -356,6 +359,15 @@ func _ready() -> void:
 	add_child(_uv_param_box)
 
 	add_child(_section_label("── Materials ──"))
+
+	_apply_palette_btn = _op_button("Apply Palette",
+		"Copy all materials from the assigned GoBuildMaterialPalette into the mesh's\n"
+		+ "material_slots array.  Assign a palette resource to this node in the Inspector\n"
+		+ "(material_palette property) before using this button.\n"
+		+ "Existing face material_index values are unchanged; only the slot objects are replaced.")
+	_apply_palette_btn.pressed.connect(_on_apply_palette_pressed)
+	add_child(_apply_palette_btn)
+	_register_op(_apply_palette_btn, _cond_palette_set)
 
 	var mat_grid := GridContainer.new()
 	mat_grid.columns = 2
@@ -875,6 +887,12 @@ func _cond_face_any() -> bool:
 			and not _target.selection.get_selected_faces().is_empty()
 
 
+## [code]true[/code] when the active [GoBuildMeshInstance] has a non-null
+## [member GoBuildMeshInstance.material_palette] assigned.
+func _cond_palette_set() -> bool:
+	return _target != null and _target.material_palette != null
+
+
 ## [code]true[/code] when there is at least one selected element in the
 ## current non-Object edit mode.
 func _cond_any_selection() -> bool:
@@ -1230,6 +1248,25 @@ func _uv_action_name(mode: GoBuildFace.UvMode) -> String:
 		GoBuildFace.UvMode.CYLINDRICAL: return "Cylindrical UV"
 		GoBuildFace.UvMode.SPHERICAL:   return "Spherical UV"
 	return "UV"
+
+
+## Apply the assigned [GoBuildMaterialPalette] to the active mesh.
+## Copies [member GoBuildMaterialPalette.materials] into
+## [member GoBuildMesh.material_slots].  Face material_index values are
+## unchanged; only the slot objects are replaced.
+func _on_apply_palette_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	var palette: GoBuildMaterialPalette = _target.material_palette
+	if palette == null:
+		return
+	var new_slots: Array[Material] = []
+	new_slots.assign(palette.materials)
+	_run_op(
+		"Apply Material Palette",
+		func(): _target.go_build_mesh.material_slots = new_slots,
+		false,
+	)
 
 
 ## Rebuild the live slot list in the Materials section.

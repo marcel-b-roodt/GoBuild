@@ -18,6 +18,7 @@ signal mesh_changed
 # reaching this file before selection_manager.gd.  The explicit preload forces
 # SelectionManager to be registered before this script is compiled.
 const _SEL_MGR_SCRIPT          := preload("res://addons/go_build/core/selection_manager.gd")
+const _PALETTE_SCRIPT          := preload("res://addons/go_build/core/go_build_material_palette.gd")
 const _PLANAR_UV_SCRIPT        := preload("res://addons/go_build/uv/planar_projection.gd")
 const _BOX_UV_SCRIPT           := preload("res://addons/go_build/uv/box_projection.gd")
 const _CYLINDRICAL_UV_SCRIPT   := preload("res://addons/go_build/uv/cylindrical_projection.gd")
@@ -40,6 +41,15 @@ const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_f
 ## using the chosen algorithm.  Faces with an explicit per-face mode are left
 ## unchanged; they keep the projection that was last manually applied.
 @export var auto_uv_mode: GoBuildFace.UvMode = GoBuildFace.UvMode.PLANAR
+
+## Optional material palette for quick slot assignment.
+##
+## Assign a saved [GoBuildMaterialPalette] resource here, then press
+## [b]Apply Palette[/b] in the GoBuild panel to copy its
+## [member GoBuildMaterialPalette.materials] into [member GoBuildMesh.material_slots].
+## Existing face [code]material_index[/code] values are unchanged — only the
+## slot objects are replaced.
+@export var material_palette: GoBuildMaterialPalette = null
 
 ## Per-instance selection state: which mode is active and which elements are
 ## selected. The gizmo and panel both hold a reference to this object.
