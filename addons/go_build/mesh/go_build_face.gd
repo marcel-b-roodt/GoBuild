@@ -17,6 +17,7 @@ enum UvMode {
 	PLANAR      = 1, ## Planar (dominant-axis) projection was manually applied.
 	BOX         = 2, ## World-space box projection was manually applied.
 	CYLINDRICAL = 3, ## Cylindrical projection around the Y axis was manually applied.
+	SPHERICAL   = 4, ## Spherical (latitude/longitude) projection was manually applied.
 }
 
 ## Indices into [member GoBuildMesh.vertices]. Minimum 3 (triangle), typically 4 (quad).

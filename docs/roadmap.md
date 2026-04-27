@@ -37,8 +37,7 @@ Users can create basic shapes without leaving the editor.
 | Staircase | Step count, rise/run, width |
 | Arch | Angle, radius, thickness, sides |
 | Shape toolbar | One-click insert at world origin with configurable defaults |
-| Generator parameter preview | Before commit, adjust shape-specific counts (cone/cylinder sides, sphere segments, staircase steps) with live preview and explicit Accept/Cancel |
-
+| Generator parameter preview | Before commit, adjust shape-specific counts (cone/cylinder sides, sphere segments, staircase steps) with live preview and explicit Accept/Cancel || Shape placement at 3D cursor / object position | Insert primitives at the 3D cursor or at a selected object; param popup stays open until confirmed (Enter/click Accept) or cancelled (Escape); right-click in Object mode viewport → "Create Shape Here" submenu |
 ---
 
 ## Stage 2 — Element Selection & Transform (`v0.3.x`)
@@ -91,6 +90,7 @@ Enough UV control to produce lightmap-ready, textured geometry.
 | Auto UV — Box | Six-axis box projection; best for cubes and blocky geometry |
 | Auto UV — Cylindrical | Cylindrical wrap for pillars, pipes |
 | Auto UV — Spherical | Spherical projection |
+| UV projection parameters | Scale (`units_per_tile`), UV offset (U/V pan), and seam rotation (cylindrical/spherical) exposed via param-preview so artists can tune each projection without a 2D UV editor |
 | UV panel | 2D UV editor panel showing the UV layout; drag, rotate, scale islands |
 | Lightmap UV channel | Generate a second non-overlapping UV channel (UV2) for lightmapping |
 | Per-face material | Right-click → Assign Material; each face stores a material index |

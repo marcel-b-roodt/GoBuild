@@ -21,6 +21,7 @@ const _SEL_MGR_SCRIPT          := preload("res://addons/go_build/core/selection_
 const _PLANAR_UV_SCRIPT        := preload("res://addons/go_build/uv/planar_projection.gd")
 const _BOX_UV_SCRIPT           := preload("res://addons/go_build/uv/box_projection.gd")
 const _CYLINDRICAL_UV_SCRIPT   := preload("res://addons/go_build/uv/cylindrical_projection.gd")
+const _SPHERICAL_UV_SCRIPT     := preload("res://addons/go_build/uv/spherical_projection.gd")
 const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_face.gd")
 
 ## The editable mesh resource. Assigning a new resource immediately bakes it.
@@ -206,6 +207,7 @@ func _apply_auto_uv() -> void:
 	var planar_faces: Array[int] = []
 	var box_faces: Array[int] = []
 	var cylindrical_faces: Array[int] = []
+	var spherical_faces: Array[int] = []
 	for i: int in go_build_mesh.faces.size():
 		var face: GoBuildFace = go_build_mesh.faces[i]
 		match face.uv_projection_mode:
@@ -217,18 +219,24 @@ func _apply_auto_uv() -> void:
 					box_faces.append(i)
 				elif auto_uv_mode == GoBuildFace.UvMode.CYLINDRICAL:
 					cylindrical_faces.append(i)
+				elif auto_uv_mode == GoBuildFace.UvMode.SPHERICAL:
+					spherical_faces.append(i)
 			GoBuildFace.UvMode.PLANAR:
 				planar_faces.append(i)
 			GoBuildFace.UvMode.BOX:
 				box_faces.append(i)
 			GoBuildFace.UvMode.CYLINDRICAL:
 				cylindrical_faces.append(i)
+			GoBuildFace.UvMode.SPHERICAL:
+				spherical_faces.append(i)
 	if not planar_faces.is_empty():
 		PlanarProjection.apply(go_build_mesh, planar_faces, 1.0)
 	if not box_faces.is_empty():
 		BoxProjection.apply(go_build_mesh, box_faces, 1.0, global_transform)
 	if not cylindrical_faces.is_empty():
 		CylindricalProjection.apply(go_build_mesh, cylindrical_faces, 1.0, global_transform)
+	if not spherical_faces.is_empty():
+		SphericalProjection.apply(go_build_mesh, spherical_faces, 1.0, global_transform)
 
 
 ## Returns [code]true[/code] when the current UV setup depends on world-space
@@ -238,12 +246,15 @@ func needs_world_space_uv_refresh() -> bool:
 		return false
 	if auto_uv_mode == GoBuildFace.UvMode.NONE:
 		return false
-	if auto_uv_mode == GoBuildFace.UvMode.BOX or auto_uv_mode == GoBuildFace.UvMode.CYLINDRICAL:
+	if auto_uv_mode == GoBuildFace.UvMode.BOX \
+			or auto_uv_mode == GoBuildFace.UvMode.CYLINDRICAL \
+			or auto_uv_mode == GoBuildFace.UvMode.SPHERICAL:
 		return true
 	# Global mode is planar: still refresh if any face has a world-space manual override.
 	for face: GoBuildFace in go_build_mesh.faces:
 		if face.uv_projection_mode == GoBuildFace.UvMode.BOX \
-				or face.uv_projection_mode == GoBuildFace.UvMode.CYLINDRICAL:
+				or face.uv_projection_mode == GoBuildFace.UvMode.CYLINDRICAL \
+				or face.uv_projection_mode == GoBuildFace.UvMode.SPHERICAL:
 			return true
 	return false
 

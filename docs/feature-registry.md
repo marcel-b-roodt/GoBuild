@@ -35,6 +35,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Arch | ✅ Complete | Outer radius, thickness, angle, segments, depth |
 | Shape insert toolbar | ✅ Complete | One-click creation in GoBuildPanel; full undo/redo |
 | Generator parameter preview (pre-commit) | 🔧 In Progress | Panel-native live preview + Accept/Cancel for Cylinder/Cone/Sphere/Staircase/Torus/Arch with configurable counts (sides/segments/steps/rings) and size params; defaults/schema/build dispatch moved into `ShapeCreationCatalog`; final commit inserts a normal node via undo/redo |
+| Shape placement at 3D cursor / object position | 📋 Planned | Insert at 3D cursor or selected object; param popup persists until Enter/Accept or Escape; Object-mode right-click context menu entry |
 
 ---
 
@@ -75,6 +76,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Shift+drag → Extrude | ✅ Complete | `_should_extrude_drag` + `_begin_extrude_drag` in `selection_input_controller.gd`; extrudes at distance=0 then translates; undo restores pre-extrude state in one step |
 | Shift+drag → Inset | ✅ Complete | `_should_inset_drag` + `_begin_inset_drag` in `selection_input_controller.gd`; `InsetOperation.apply` at distance=0 then `_apply_inset_drag` (screen-space delta → lerp to centroid); undo restores pre-inset state in one step |
 | Right-click context menu | ✅ Complete | `PopupMenu` in `selection_input_controller.gd`; per-mode items (Select All, Extrude, Flip Normals); stub items for planned ops |
+| Rip | 📋 Planned | Split shared vertices or edges apart by duplicating them and leaving an open seam; Vertex and Edge mode; `V` key |
 
 ---
 
@@ -85,7 +87,8 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Auto UV — Planar | ✅ Complete | `PlanarProjection.apply(mesh, face_indices, units_per_tile)`; dominant-axis per-face projection; defaults to 1 unit per texture repeat so checker or metre textures tile with mesh size; panel button in Face section + face context menu; 5 unit tests |
 | Auto UV — Box | ✅ Complete | `BoxProjection.apply(mesh, face_indices, units_per_tile, transform)`; world-space triplanar mapping; seamless tiling across adjacent axis-aligned faces; panel button; 8 unit tests |
 | Auto UV — Cylindrical | ✅ Complete | `CylindricalProjection.apply(mesh, face_indices, units_per_tile, transform)`; wraps U around Y axis (atan2); V scales with height; seam correction for faces straddling the discontinuity; panel button ("Cyl UV"); 11 unit tests |
-| Auto UV — Spherical | 📋 Planned | |
+| Auto UV — Spherical | ✅ Complete | `SphericalProjection.apply(mesh, face_indices, units_per_tile, transform)`; equirectangular (lat/lon) mapping; U = longitude (atan2/TAU), V = latitude (acos/PI); seam correction for faces straddling the ±X seam; pole guard for degenerate vertices at origin; panel button ("Sphere UV") in Face UV section; 10 unit tests |
+| UV projection parameters (scale, offset, seam rotation) | 📋 Planned | Expose `units_per_tile` (scale), UV offset (U/V pan), and seam/longitude rotation via param-preview for all projection buttons; essential for usable spherical/cylindrical without a UV editor |
 | UV editor panel | 📋 Planned | 2D panel; drag/rotate/scale islands |
 | Lightmap UV (UV2) generation | 📋 Planned | Non-overlapping second channel |
 | Per-face material assignment | 📋 Planned | Right-click → Assign Material |
