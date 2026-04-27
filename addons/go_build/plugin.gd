@@ -97,6 +97,7 @@ func _enter_tree() -> void:
 	_panel = _PANEL_SCRIPT.new()
 	_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	_panel_scroll = ScrollContainer.new()
+	_panel_scroll.name = "GoBuild"
 	_panel_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_panel_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_panel_scroll.add_child(_panel)

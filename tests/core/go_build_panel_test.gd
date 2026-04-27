@@ -311,3 +311,110 @@ func test_exactly_one_button_pressed_per_mode() -> void:
 		assert_int(pressed_count).is_equal(1)
 
 
+# ---------------------------------------------------------------------------
+# Create-shape parameter preview config
+# ---------------------------------------------------------------------------
+
+func test_supports_shape_preview_for_configurable_generators() -> void:
+	var panel := _make_panel()
+	assert_bool(panel._supports_shape_preview("Cylinder")).is_true()
+	assert_bool(panel._supports_shape_preview("Cone")).is_true()
+	assert_bool(panel._supports_shape_preview("Sphere")).is_true()
+	assert_bool(panel._supports_shape_preview("Staircase")).is_true()
+	assert_bool(panel._supports_shape_preview("Torus")).is_true()
+	assert_bool(panel._supports_shape_preview("Arch")).is_true()
+
+
+func test_shape_preview_not_enabled_for_one_click_generators() -> void:
+	var panel := _make_panel()
+	assert_bool(panel._supports_shape_preview("Cube")).is_false()
+	assert_bool(panel._supports_shape_preview("Plane")).is_false()
+
+
+func test_default_cylinder_params_include_side_count() -> void:
+	var panel := _make_panel()
+	var p: Dictionary = panel._default_shape_params("Cylinder")
+	assert_int(p.get("sides", -1)).is_equal(16)
+	assert_bool(p.get("cap_top", false)).is_true()
+	assert_bool(p.get("cap_bottom", false)).is_true()
+
+
+func test_default_sphere_params_include_rings_and_segments() -> void:
+	var panel := _make_panel()
+	var p: Dictionary = panel._default_shape_params("Sphere")
+	assert_int(p.get("rings", -1)).is_equal(8)
+	assert_int(p.get("segments", -1)).is_equal(16)
+
+
+func test_default_torus_params_match_generator_names() -> void:
+	var panel := _make_panel()
+	var p: Dictionary = panel._default_shape_params("Torus")
+	assert_bool(p.has("radius_major")).is_true()
+	assert_bool(p.has("radius_minor")).is_true()
+	assert_bool(p.has("rings")).is_true()
+	assert_bool(p.has("tube_segments")).is_true()
+
+
+func test_default_arch_params_include_angle_degrees() -> void:
+	var panel := _make_panel()
+	var p: Dictionary = panel._default_shape_params("Arch")
+	assert_bool(p.has("angle_degrees")).is_true()
+
+
+func test_build_shape_mesh_cylinder_respects_side_count() -> void:
+	# Cylinder with both caps: faces = sides (lateral quads) + sides + sides = 3*sides.
+	var panel := _make_panel()
+	var p: Dictionary = panel._default_shape_params("Cylinder")
+	p["sides"] = 12
+	var mesh: GoBuildMesh = panel._build_shape_mesh("Cylinder", p)
+	assert_int(mesh.faces.size()).is_equal(36)
+
+
+func test_build_shape_mesh_cone_respects_side_count() -> void:
+	# Cone with base cap: faces = sides (lateral) + sides (cap) = 2*sides.
+	var panel := _make_panel()
+	var p: Dictionary = panel._default_shape_params("Cone")
+	p["sides"] = 10
+	p["cap_bottom"] = true
+	var mesh: GoBuildMesh = panel._build_shape_mesh("Cone", p)
+	assert_int(mesh.faces.size()).is_equal(20)
+
+
+func test_build_shape_mesh_sphere_respects_rings_and_segments() -> void:
+	# UV sphere face count = segments * rings.
+	var panel := _make_panel()
+	var p: Dictionary = panel._default_shape_params("Sphere")
+	p["rings"] = 6
+	p["segments"] = 12
+	var mesh: GoBuildMesh = panel._build_shape_mesh("Sphere", p)
+	assert_int(mesh.faces.size()).is_equal(72)
+
+
+func test_build_shape_mesh_staircase_respects_step_count() -> void:
+	# Staircase face count = 2*steps + 4.
+	var panel := _make_panel()
+	var p: Dictionary = panel._default_shape_params("Staircase")
+	p["steps"] = 7
+	var mesh: GoBuildMesh = panel._build_shape_mesh("Staircase", p)
+	assert_int(mesh.faces.size()).is_equal(18)
+
+
+func test_build_shape_mesh_torus_respects_ring_and_tube_counts() -> void:
+	# Torus face count = rings * tube_segments.
+	var panel := _make_panel()
+	var p: Dictionary = panel._default_shape_params("Torus")
+	p["rings"] = 9
+	p["tube_segments"] = 5
+	var mesh: GoBuildMesh = panel._build_shape_mesh("Torus", p)
+	assert_int(mesh.faces.size()).is_equal(45)
+
+
+func test_build_shape_mesh_arch_respects_segment_count() -> void:
+	# Arch generator builds 4 quad strips across the arc, each with `segments` quads.
+	var panel := _make_panel()
+	var p: Dictionary = panel._default_shape_params("Arch")
+	p["segments"] = 11
+	var mesh: GoBuildMesh = panel._build_shape_mesh("Arch", p)
+	assert_int(mesh.faces.size()).is_equal(44)
+
+

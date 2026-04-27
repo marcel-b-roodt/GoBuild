@@ -34,7 +34,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Staircase | ✅ Complete | Steps, rise/run/width; closed solid |
 | Arch | ✅ Complete | Outer radius, thickness, angle, segments, depth |
 | Shape insert toolbar | ✅ Complete | One-click creation in GoBuildPanel; full undo/redo |
-| Generator parameter preview (pre-commit) | 📋 Planned | Before creating a primitive, choose per-shape counts (e.g. cone/cylinder sides, sphere segments, staircase steps) with live preview + Accept/Cancel |
+| Generator parameter preview (pre-commit) | 🔧 In Progress | Panel-native live preview + Accept/Cancel for Cylinder/Cone/Sphere/Staircase/Torus/Arch with configurable counts (sides/segments/steps/rings) and size params; defaults/schema/build dispatch moved into `ShapeCreationCatalog`; final commit inserts a normal node via undo/redo |
 
 ---
 

@@ -74,6 +74,7 @@ The operations designers use every session.
 | Weld / Merge vertices | Merge vertices within a threshold or by explicit selection |
 | Flip normals | Reverse winding order of selected faces |
 | Subdivide | Subdivide selected faces into quads |
+| Rip | Split shared vertices or edges apart, leaving an open seam; works in Vertex and Edge mode (`V` key in Blender) |
 | Modifier-aware toolbar | Panel and viewport overlay update in real-time when `Shift`/`Alt`/`Ctrl` is held to show the active operation context (`Extrude`, `Inset`, `Snap`, etc.) |
 | Shift+drag = Extrude | Hold `Shift` and drag in the viewport (face or edge mode) to extrude interactively |
 | Alt+drag = Inset | Hold `Alt` and drag in face mode to inset interactively |

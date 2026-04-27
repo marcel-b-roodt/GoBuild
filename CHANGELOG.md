@@ -15,6 +15,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   discontinuity.  World-space transform support (same pattern as Box UV).
   Panel button "Cyl UV" in Face section; full undo/redo; 11 unit tests.
 
+### Changed
+- Shape creation flow: expanded panel-native pre-commit parameter preview to
+  Cylinder, Cone, Sphere, Staircase, Torus, and Arch. These shapes open a live
+  preview with configurable parameters (including sides/segments/steps/rings)
+  and explicit Accept/Cancel actions before final insertion.
+- Refactor: moved shape preview defaults, parameter schemas, sanitisation, and
+  mesh-build dispatch into `ShapeCreationCatalog` so generator-specific creation
+  logic is no longer embedded in `GoBuildPanel`.
+
+### Fixed
+- Dock title regression: GoBuild panel tab now keeps the name `GoBuild` when
+  wrapped in a `ScrollContainer` (instead of showing generated names like
+  `@ScrollContainer@...`).
+
 ---
 
 ## [0.5.0-dev2] — 2026-04-26
