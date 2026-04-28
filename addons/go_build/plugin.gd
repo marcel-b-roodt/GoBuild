@@ -109,7 +109,10 @@ func _enter_tree() -> void:
 	_uv_panel = _UV_PANEL_SCRIPT.new()
 	_uv_panel.name = "GoBuild UV"
 	_uv_panel.custom_minimum_size = Vector2(200.0, 180.0)
-	add_control_to_dock(DOCK_SLOT_RIGHT_UL, _uv_panel)
+	# Place alongside the main GoBuild panel so the user can find it as a second
+	# tab in the same left dock.  DOCK_SLOT_RIGHT_UL (Inspector area) was too
+	# hidden; LEFT_BL makes it immediately discoverable.
+	add_control_to_dock(DOCK_SLOT_LEFT_BL, _uv_panel)
 	_uv_panel.set_plugin(self)
 
 	_gizmo_plugin = _GIZMO_PLUGIN_SCRIPT.new()
