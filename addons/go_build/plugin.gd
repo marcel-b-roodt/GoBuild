@@ -17,6 +17,8 @@ extends EditorPlugin
 # ---------------------------------------------------------------------------
 const _DEBUG_SCRIPT         := preload("res://addons/go_build/core/go_build_debug.gd")
 const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _PALETTE_SCRIPT       := preload("res://addons/go_build/core/go_build_material_palette.gd")
+const _SETTINGS_SCRIPT      := preload("res://addons/go_build/core/go_build_project_settings.gd")
 const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
@@ -56,6 +58,7 @@ const _SCALE_SNAP_DEFAULT_IDX: int = 0   # 0.1
 var _panel: GoBuildPanel                         = null
 var _panel_scroll: ScrollContainer               = null
 var _uv_panel: GoBuildUvPanel                    = null
+var _project_settings: GoBuildProjectSettings    = null
 var _edited_node: GoBuildMeshInstance            = null
 var _gizmo_plugin: GoBuildGizmoPlugin            = null
 var _input_controller: SelectionInputController  = null
@@ -96,6 +99,8 @@ func _enter_tree() -> void:
 	)
 	_init_shortcuts()
 
+	_project_settings = GoBuildProjectSettings.load_or_create()
+
 	_panel = _PANEL_SCRIPT.new()
 	_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	_panel_scroll = ScrollContainer.new()
@@ -105,14 +110,14 @@ func _enter_tree() -> void:
 	_panel_scroll.add_child(_panel)
 	add_control_to_dock(DOCK_SLOT_LEFT_BL, _panel_scroll)
 	_panel.set_plugin(self)
+	_panel.set_project_settings(_project_settings)
 
 	_uv_panel = _UV_PANEL_SCRIPT.new()
 	_uv_panel.name = "GoBuild UV"
 	_uv_panel.custom_minimum_size = Vector2(200.0, 180.0)
-	# Place alongside the main GoBuild panel so the user can find it as a second
-	# tab in the same left dock.  DOCK_SLOT_RIGHT_UL (Inspector area) was too
-	# hidden; LEFT_BL makes it immediately discoverable.
-	add_control_to_dock(DOCK_SLOT_LEFT_BL, _uv_panel)
+	# Place in the upper-left dock alongside the Scene and Import tabs so the
+	# UV view is adjacent to the scene tree and feels like a natural workspace.
+	add_control_to_dock(DOCK_SLOT_LEFT_UL, _uv_panel)
 	_uv_panel.set_plugin(self)
 
 	_gizmo_plugin = _GIZMO_PLUGIN_SCRIPT.new()
@@ -196,6 +201,7 @@ func _exit_tree() -> void:
 		_uv_panel.queue_free()
 		_uv_panel = null
 
+	_project_settings = null
 	_disconnect_node_signals()
 	_edited_node = null
 
@@ -533,6 +539,12 @@ func _require_shortcut(es: EditorSettings, setting: String, default_key: Key) ->
 	es.set_setting(setting, sc)
 	es.set_initial_value(setting, sc, false)
 	return sc
+
+
+## Return the shared [GoBuildProjectSettings] resource for this project.
+## Used by the panel and operations to access the global palette library.
+func get_project_settings() -> GoBuildProjectSettings:
+	return _project_settings
 
 
 func switch_mode(mode: SelectionManager.Mode) -> void:

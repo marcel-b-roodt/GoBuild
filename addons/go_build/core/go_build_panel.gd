@@ -58,6 +58,8 @@ const _MAT_ASSIGN_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/material_assign_operation.gd")
 const _PALETTE_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_material_palette.gd")
+const _SETTINGS_SCRIPT := \
+		preload("res://addons/go_build/core/go_build_project_settings.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
@@ -107,7 +109,9 @@ var _assign_material_btn: Button = null
 var _qs_checker_btn: Button = null
 var _qs_white_btn: Button = null
 var _qs_grey_btn: Button = null
-var _apply_palette_btn: Button = null
+var _project_settings: GoBuildProjectSettings = null
+var _palette_option:    OptionButton           = null
+var _apply_palette_btn: Button                 = null
 ## Rebuilt by _rebuild_mat_palette() on every _refresh() call.
 var _mat_palette_vbox: VBoxContainer = null
 var _shape_preview: GoBuildShapePreview = null
@@ -138,6 +142,13 @@ var _plugin: EditorPlugin = null
 ## Required so [method _insert_shape] can access [method EditorPlugin.get_undo_redo].
 func set_plugin(plugin: EditorPlugin) -> void:
 	_plugin = plugin
+
+
+## Called by the owning [EditorPlugin] after project settings are loaded.
+## Populates the palette dropdown from the project-wide palette library.
+func set_project_settings(settings: GoBuildProjectSettings) -> void:
+	_project_settings = settings
+	_rebuild_palette_dropdown()
 
 
 ## Called by the plugin whenever the transform mode or a held modifier changes.
@@ -441,14 +452,38 @@ func _ready() -> void:
 
 	add_child(_section_label("── Materials ──"))
 
-	_apply_palette_btn = _op_button("Apply Palette",
-		"Copy all materials from the assigned GoBuildMaterialPalette into the mesh's\n"
-		+ "material_slots array.  Assign a palette resource to this node in the Inspector\n"
-		+ "(material_palette property) before using this button.\n"
-		+ "Existing face material_index values are unchanged; only the slot objects are replaced.")
+	# Palette row: dropdown + Apply + Refresh
+	var pal_row := HBoxContainer.new()
+	add_child(pal_row)
+
+	var pal_lbl := Label.new()
+	pal_lbl.text = "Palette:"
+	pal_lbl.add_theme_font_size_override("font_size", 11)
+	pal_row.add_child(pal_lbl)
+
+	_palette_option = OptionButton.new()
+	_palette_option.flat = true
+	_palette_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_palette_option.add_theme_font_size_override("font_size", 11)
+	_palette_option.tooltip_text = (
+			"Select a project palette to apply.\n"
+			+ "Add palettes by editing go_build_settings.tres in the FileSystem dock."
+	)
+	pal_row.add_child(_palette_option)
+
+	_apply_palette_btn = _op_button("Apply",
+			"Copy the selected palette's materials into the mesh's material_slots.\n"
+			+ "Existing face material_index values are unchanged; only the slot objects are replaced.")
 	_apply_palette_btn.pressed.connect(_on_apply_palette_pressed)
-	add_child(_apply_palette_btn)
-	_register_op(_apply_palette_btn, _cond_palette_set)
+	pal_row.add_child(_apply_palette_btn)
+	_register_op(_apply_palette_btn, _cond_palette_apply)
+
+	var pal_refresh_btn := Button.new()
+	pal_refresh_btn.text = "↺"
+	pal_refresh_btn.flat = true
+	pal_refresh_btn.tooltip_text = "Reload palettes from go_build_settings.tres."
+	pal_refresh_btn.pressed.connect(_rebuild_palette_dropdown)
+	pal_row.add_child(pal_refresh_btn)
 
 	var mat_grid := GridContainer.new()
 	mat_grid.columns = 2
@@ -968,10 +1003,14 @@ func _cond_face_any() -> bool:
 			and not _target.selection.get_selected_faces().is_empty()
 
 
-## [code]true[/code] when the active [GoBuildMeshInstance] has a non-null
-## [member GoBuildMeshInstance.material_palette] assigned.
-func _cond_palette_set() -> bool:
-	return _target != null and _target.material_palette != null
+## [code]true[/code] when a target mesh is selected, project settings are
+## loaded, at least one palette exists, and a palette is selected.
+func _cond_palette_apply() -> bool:
+	return _target != null \
+			and _project_settings != null \
+			and not _project_settings.palettes.is_empty() \
+			and _palette_option != null \
+			and _palette_option.selected >= 0
 
 
 ## [code]true[/code] when there is at least one selected element in the
@@ -1339,14 +1378,16 @@ func _uv_action_name(mode: GoBuildFace.UvMode) -> String:
 	return "UV"
 
 
-## Apply the assigned [GoBuildMaterialPalette] to the active mesh.
+## Apply the selected project palette to the active mesh.
 ## Copies [member GoBuildMaterialPalette.materials] into
 ## [member GoBuildMesh.material_slots].  Face material_index values are
 ## unchanged; only the slot objects are replaced.
 func _on_apply_palette_pressed() -> void:
-	if _target == null or _plugin == null:
+	if _target == null or _plugin == null or _project_settings == null:
 		return
-	var palette: GoBuildMaterialPalette = _target.material_palette
+	if _palette_option == null or _palette_option.selected < 0:
+		return
+	var palette: GoBuildMaterialPalette = _project_settings.palettes[_palette_option.selected]
 	if palette == null:
 		return
 	var new_slots: Array[Material] = []
@@ -1356,6 +1397,27 @@ func _on_apply_palette_pressed() -> void:
 		func(): _target.go_build_mesh.material_slots = new_slots,
 		false,
 	)
+
+
+## Repopulate [member _palette_option] from the project-wide palette list.
+## Safe to call before [member _project_settings] is assigned (no-ops).
+func _rebuild_palette_dropdown() -> void:
+	if _palette_option == null:
+		return
+	_palette_option.clear()
+	if _project_settings == null:
+		return
+	for pal: GoBuildMaterialPalette in _project_settings.palettes:
+		var display: String
+		if pal == null:
+			display = "(null)"
+		elif pal.palette_name != "":
+			display = pal.palette_name
+		else:
+			var path: String = pal.resource_path
+			display = path.get_file() if path != "" else "(unnamed)"
+		_palette_option.add_item(display)
+	_update_ops_buttons()
 
 
 ## Rebuild the live slot list in the Materials section.
