@@ -1067,7 +1067,6 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 				popup.add_item("Extrude", 30)
 				popup.add_item("Inset", 31)
 				popup.add_item("Subdivide", 33)
-				popup.add_item("Auto UV (Planar)", 34)
 				popup.add_separator()
 				popup.add_item("Flip Normals", 32)
 				popup.add_item("Delete", 10)
@@ -1134,9 +1133,6 @@ func _on_context_menu_pressed(
 		33:  # Subdivide
 			if _panel != null:
 				_panel.trigger_subdivide()
-		34:  # Auto UV (planar)
-			if _panel != null:
-				_panel.trigger_planar_uv()
 
 
 # ---------------------------------------------------------------------------

@@ -27,7 +27,7 @@ const _CONTROLLER_SCRIPT    := preload(
 		"res://addons/go_build/core/selection_input_controller.gd")
 const _TOOL_PINNER_SCRIPT   := preload(
 		"res://addons/go_build/core/node3d_editor_tool_pinner.gd")
-const _ICON                 := preload("res://icon.svg")
+const _ICON                 := preload("res://addons/go_build/go_build.svg")
 
 ## EditorSettings keys for the four mode-switch shortcuts.
 const _SHORTCUT_OBJECT := "gobuild/shortcuts/object_mode"

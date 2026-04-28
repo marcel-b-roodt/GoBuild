@@ -1212,6 +1212,9 @@ func _uv_start_preview(
 	_uv_preview_mode = mode
 	_uv_preview_transform = _target.global_transform
 	_uv_preview_active = true
+	# Enter preview mode so every bake_preview call reuses the same ArrayMesh
+	# without reassigning mesh (avoids per-change inspector notification).
+	_target.begin_preview()
 	# Seed the param box with the first face's existing params when it already
 	# uses the same mode, so the user starts from the last applied values.
 	var first: GoBuildFace = _target.go_build_mesh.faces[sel_faces[0]]
@@ -1233,6 +1236,7 @@ func _uv_cancel_preview() -> void:
 	if _uv_param_box != null:
 		_uv_param_box.hide_box()
 	if _target != null and not _uv_preview_snapshot.is_empty():
+		_target.end_preview()
 		_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
 		_target.bake()
 	_uv_preview_snapshot = {}
@@ -1241,6 +1245,7 @@ func _uv_cancel_preview() -> void:
 
 ## Live-preview handler: restore snapshot, re-project with current params, bake.
 ## Called by [GoBuildUvParamBox] on every spinbox change.
+## Uses [method GoBuildMeshInstance.bake_preview] to avoid full mesh reassignment.
 func _on_uv_params_preview(params: Dictionary) -> void:
 	if not _uv_preview_active or _target == null:
 		return
@@ -1253,7 +1258,7 @@ func _on_uv_params_preview(params: Dictionary) -> void:
 		params.get("seam_rotation", 0.0),
 		_uv_preview_transform,
 	)
-	_target.bake()
+	_target.bake_preview()
 
 
 ## Commit handler: restore snapshot so undo baseline is clean, then run op.
@@ -1262,6 +1267,8 @@ func _on_uv_params_apply(params: Dictionary) -> void:
 	if not _uv_preview_active or _target == null or _plugin == null:
 		return
 	_uv_preview_active = false
+	# End preview mode and restore the original mesh for a clean undo baseline.
+	_target.end_preview()
 	# Restore to pre-preview state so the undo snapshot captures the original mesh.
 	_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
 	var faces: Array[int] = _uv_preview_faces.duplicate()
@@ -1293,6 +1300,7 @@ func _on_uv_params_cancelled() -> void:
 		return
 	_uv_preview_active = false
 	if not _uv_preview_snapshot.is_empty():
+		_target.end_preview()
 		_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
 		_target.bake()
 	_uv_preview_snapshot = {}
