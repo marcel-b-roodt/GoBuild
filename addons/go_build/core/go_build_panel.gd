@@ -114,6 +114,7 @@ var _qs_grey_btn: Button = null
 var _project_settings: GoBuildProjectSettings = null
 var _palette_option:    OptionButton           = null
 var _apply_palette_btn: Button                 = null
+var _settings_picker:   EditorResourcePicker   = null
 ## Rebuilt by _rebuild_mat_palette() on every _refresh() call.
 var _mat_palette_vbox: VBoxContainer = null
 var _shape_preview: GoBuildShapePreview = null
@@ -164,6 +165,8 @@ func set_plugin(plugin: EditorPlugin) -> void:
 ## Populates the palette dropdown from the project-wide palette library.
 func set_project_settings(settings: GoBuildProjectSettings) -> void:
 	_project_settings = settings
+	if _settings_picker != null:
+		_settings_picker.edited_resource = settings
 	_rebuild_palette_dropdown()
 
 
@@ -481,6 +484,30 @@ func _ready() -> void:
 	_auto_smooth_btn.pressed.connect(_on_auto_smooth_pressed)
 	as_row.add_child(_auto_smooth_btn)
 	_register_op(_auto_smooth_btn, _cond_has_mesh)
+
+	# ── Materials ────────────────────────────────────────────────────────
+	_drawer_materials = _make_drawer("Materials", false)
+
+	# Settings resource picker: shows the active GoBuildProjectSettings .tres
+	# and lets the user drag-assign a different one from the FileSystem dock.
+	var settings_row := HBoxContainer.new()
+	_drawer_materials[1].add_child(settings_row)
+
+	var settings_lbl := Label.new()
+	settings_lbl.text = "Settings:"
+	settings_lbl.add_theme_font_size_override("font_size", 11)
+	settings_row.add_child(settings_lbl)
+
+	_settings_picker = EditorResourcePicker.new()
+	_settings_picker.base_type = "GoBuildProjectSettings"
+	_settings_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_settings_picker.tooltip_text = (
+			"The active GoBuildProjectSettings resource.\n"
+			+ "Drag a .tres from the FileSystem to use a different settings file.\n"
+			+ "Defaults to res://go_build_settings.tres (created automatically)."
+	)
+	_settings_picker.resource_changed.connect(_on_settings_resource_changed)
+	settings_row.add_child(_settings_picker)
 
 	# Palette row: dropdown + Apply + Refresh
 	var pal_row := HBoxContainer.new()
@@ -1533,6 +1560,17 @@ func _on_apply_palette_pressed() -> void:
 		func(): _target.go_build_mesh.material_slots = new_slots,
 		false,
 	)
+
+
+## Called when the user assigns a different resource via [member _settings_picker].
+func _on_settings_resource_changed(resource: Resource) -> void:
+	if resource is GoBuildProjectSettings:
+		_project_settings = resource as GoBuildProjectSettings
+	elif resource == null:
+		_project_settings = GoBuildProjectSettings.load_or_create()
+		if _settings_picker != null:
+			_settings_picker.edited_resource = _project_settings
+	_rebuild_palette_dropdown()
 
 
 ## Repopulate [member _palette_option] from the project-wide palette list.
