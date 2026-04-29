@@ -112,7 +112,9 @@ func _enter_tree() -> void:
 	_panel_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_panel_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_panel_scroll.add_child(_panel)
-	add_control_to_dock(DOCK_SLOT_LEFT_BL, _panel_scroll)
+	# Place in the upper-left dock alongside Scene, Import, and GoBuild UV so
+	# all GoBuild panels live in the same dock group.
+	add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel_scroll)
 	_panel.set_plugin(self)
 	_panel.set_project_settings(_project_settings)
 
@@ -304,8 +306,10 @@ func _handles(object: Object) -> bool:
 
 
 func _edit(object: Object) -> void:
-	# Clear the back-face override on the previously edited node before switching.
+	# Capture the current edit mode so we can carry it to the new node.
+	var carry_mode: int = SelectionManager.Mode.OBJECT
 	if _edited_node != null and is_instance_valid(_edited_node):
+		carry_mode = _edited_node.selection.get_mode()
 		_edited_node.set_edit_cull_override(false)
 	_disconnect_node_signals()
 
@@ -327,6 +331,9 @@ func _edit(object: Object) -> void:
 			remove_node_3d_gizmo_plugin(_gizmo_plugin)
 			add_node_3d_gizmo_plugin(_gizmo_plugin)
 		_edited_node.update_gizmos()
+		# Carry the previous edit mode to the new node (if not OBJECT already).
+		if carry_mode != SelectionManager.Mode.OBJECT:
+			_edited_node.selection.set_mode(carry_mode as SelectionManager.Mode)
 		if _edited_node.selection.mode != SelectionManager.Mode.OBJECT:
 			call_deferred("_suppress_native_gizmo")
 

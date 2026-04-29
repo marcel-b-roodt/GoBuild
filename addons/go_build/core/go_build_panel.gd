@@ -955,6 +955,11 @@ func _insert_shape(mesh_callable: Callable, node_name: String) -> void:
 	var node := GoBuildMeshInstance.new()
 	node.name = node_name
 	node.go_build_mesh = mesh_callable.call()
+	# Seed slot 0 with the default GoBuild metre material so new shapes
+	# render with the standard look rather than an unshaded surface.
+	var _default_mat: Material = load("res://addons/go_build/go_build_material.tres")
+	if _default_mat != null and node.go_build_mesh != null:
+		node.go_build_mesh.material_slots = [_default_mat]
 
 	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
 	ur.create_action("Insert " + node_name)
@@ -1628,17 +1633,25 @@ func _rebuild_mat_palette() -> void:
 		idx_lbl.add_theme_font_size_override("font_size", 10)
 		row.add_child(idx_lbl)
 
-		# Colour swatch — albedo for BaseMaterial3D, grey placeholder otherwise.
-		var swatch := ColorRect.new()
-		swatch.custom_minimum_size = Vector2(14, 14)
-		swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		if mat is BaseMaterial3D:
-			swatch.color = (mat as BaseMaterial3D).albedo_color
-		elif mat == null:
-			swatch.color = Color(0.25, 0.25, 0.25)
+		# Swatch: show albedo texture thumbnail when available, albedo colour otherwise.
+		if mat is BaseMaterial3D and (mat as BaseMaterial3D).albedo_texture != null:
+			var tex_rect := TextureRect.new()
+			tex_rect.texture = (mat as BaseMaterial3D).albedo_texture
+			tex_rect.custom_minimum_size = Vector2(14, 14)
+			tex_rect.stretch_mode = TextureRect.STRETCH_SCALE
+			tex_rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row.add_child(tex_rect)
 		else:
-			swatch.color = Color(0.5, 0.5, 0.5)
-		row.add_child(swatch)
+			var swatch := ColorRect.new()
+			swatch.custom_minimum_size = Vector2(14, 14)
+			swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			if mat is BaseMaterial3D:
+				swatch.color = (mat as BaseMaterial3D).albedo_color
+			elif mat == null:
+				swatch.color = Color(0.25, 0.25, 0.25)
+			else:
+				swatch.color = Color(0.5, 0.5, 0.5)
+			row.add_child(swatch)
 
 		var mat_name: String
 		if mat == null:
