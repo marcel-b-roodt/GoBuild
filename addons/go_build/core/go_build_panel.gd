@@ -164,9 +164,15 @@ func set_plugin(plugin: EditorPlugin) -> void:
 ## Called by the owning [EditorPlugin] after project settings are loaded.
 ## Populates the palette dropdown from the project-wide palette library.
 func set_project_settings(settings: GoBuildProjectSettings) -> void:
+	# Disconnect from the old resource so we don't get stale callbacks.
+	if _project_settings != null \
+			and _project_settings.changed.is_connected(_rebuild_palette_dropdown):
+		_project_settings.changed.disconnect(_rebuild_palette_dropdown)
 	_project_settings = settings
 	if _settings_picker != null:
 		_settings_picker.edited_resource = settings
+	if settings != null:
+		settings.changed.connect(_rebuild_palette_dropdown)
 	_rebuild_palette_dropdown()
 
 
@@ -1622,13 +1628,27 @@ func _rebuild_mat_palette() -> void:
 		idx_lbl.add_theme_font_size_override("font_size", 10)
 		row.add_child(idx_lbl)
 
+		# Colour swatch — albedo for BaseMaterial3D, grey placeholder otherwise.
+		var swatch := ColorRect.new()
+		swatch.custom_minimum_size = Vector2(14, 14)
+		swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if mat is BaseMaterial3D:
+			swatch.color = (mat as BaseMaterial3D).albedo_color
+		elif mat == null:
+			swatch.color = Color(0.25, 0.25, 0.25)
+		else:
+			swatch.color = Color(0.5, 0.5, 0.5)
+		row.add_child(swatch)
+
 		var mat_name: String
 		if mat == null:
 			mat_name = "(null)"
 		elif mat.resource_name != "":
 			mat_name = mat.resource_name
+		elif mat.resource_path != "":
+			mat_name = mat.resource_path.get_file()
 		else:
-			mat_name = "(unnamed)"
+			mat_name = mat.get_class()
 		var name_lbl := Label.new()
 		name_lbl.text = mat_name
 		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL

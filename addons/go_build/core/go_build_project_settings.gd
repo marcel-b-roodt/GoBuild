@@ -1,8 +1,8 @@
 ## Plugin-wide project settings for GoBuild.
 ##
 ## Saved as a [code].tres[/code] resource at
-## [code]res://go_build_settings.tres[/code].  The plugin loads this file on
-## startup (creating it when absent) and exposes it via
+## [code]res://addons/go_build/go_build_settings.tres[/code].  The plugin loads
+## this file on startup (creating it when absent) and exposes it via
 ## [method GoBuildPlugin.get_project_settings] so every panel and operation
 ## can access it without knowing the storage details.
 ##
@@ -14,7 +14,11 @@ extends Resource
 
 ## Path used to load and save the project settings file.
 ## Exposed so [GoBuildPlugin] can notify the editor filesystem after creation.
-const SETTINGS_PATH := "res://go_build_settings.tres"
+const SETTINGS_PATH := "res://addons/go_build/go_build_settings.tres"
+
+## Legacy path from earlier versions. Checked during [method load_or_create]
+## so existing projects are migrated automatically on next plugin load.
+const _LEGACY_PATH := "res://go_build_settings.tres"
 
 ## Ordered list of [GoBuildMaterialPalette] resources available to all meshes
 ## in this project.  Indices have no semantic meaning; the panel shows palettes
@@ -31,10 +35,23 @@ const SETTINGS_PATH := "res://go_build_settings.tres"
 ## The fresh default includes one "Default" palette so new users see the
 ## dropdown populated immediately.
 static func load_or_create() -> GoBuildProjectSettings:
+	# Try the canonical path first.
 	if ResourceLoader.exists(SETTINGS_PATH, "GoBuildProjectSettings"):
 		var res := ResourceLoader.load(SETTINGS_PATH, "GoBuildProjectSettings")
 		if res is GoBuildProjectSettings:
 			return res as GoBuildProjectSettings
+	# Migrate from the legacy root-level path if present.
+	if ResourceLoader.exists(_LEGACY_PATH):
+		var legacy := ResourceLoader.load(_LEGACY_PATH)
+		if legacy is GoBuildProjectSettings:
+			var migrated := legacy as GoBuildProjectSettings
+			migrated.resource_path = SETTINGS_PATH
+			ResourceSaver.save(migrated, SETTINGS_PATH)
+			push_warning(
+					"GoBuild: migrated settings from '%s' to '%s'. "
+					+ "You may delete the old file from res://."
+					% [_LEGACY_PATH, SETTINGS_PATH])
+			return migrated
 	# File absent or wrong type — create a fresh one with a default palette
 	# and persist it so the user can find and edit it in the FileSystem dock.
 	var fresh := GoBuildProjectSettings.new()
