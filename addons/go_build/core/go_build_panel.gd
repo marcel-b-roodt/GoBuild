@@ -961,19 +961,37 @@ func _on_mode_button_pressed(mode_index: int) -> void:
 
 
 ## Called when the target's [SelectionManager] emits [signal SelectionManager.mode_changed].
-## Keeps the panel buttons in sync and auto-expands the relevant section drawer.
+## Keeps the panel buttons in sync and syncs drawers to the new mode:
+## opens the relevant sections and closes the irrelevant ones so the user
+## always sees what is useful without manual scrolling.
 func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 	_sync_mode_buttons(new_mode)
 	_update_ops_buttons()
-	# Auto-expand the drawer most relevant to the new mode.
+	# Drawers to open vs. close per mode.
+	# All mode-specific drawers are collected here so we can close the ones
+	# that are not relevant without touching always-visible drawers.
+	var open_set: Array = []
+	var close_set: Array = []
 	match new_mode:
+		SelectionManager.Mode.OBJECT:
+			open_set  = [_drawer_create]
+			close_set = [_drawer_vertex, _drawer_edge, _drawer_face,
+						_drawer_face_uv, _drawer_surface]
 		SelectionManager.Mode.VERTEX:
-			_open_drawer(_drawer_vertex)
+			open_set  = [_drawer_vertex]
+			close_set = [_drawer_edge, _drawer_face,
+						_drawer_face_uv, _drawer_surface]
 		SelectionManager.Mode.EDGE:
-			_open_drawer(_drawer_edge)
+			open_set  = [_drawer_edge]
+			close_set = [_drawer_vertex, _drawer_face,
+						_drawer_face_uv, _drawer_surface]
 		SelectionManager.Mode.FACE:
-			_open_drawer(_drawer_face)
-			_open_drawer(_drawer_surface)
+			open_set  = [_drawer_face, _drawer_surface]
+			close_set = [_drawer_vertex, _drawer_edge, _drawer_face_uv]
+	for d: Array in open_set:
+		_open_drawer(d)
+	for d: Array in close_set:
+		_close_drawer(d)
 
 
 ## Press exactly the button that corresponds to [param active_mode] and
@@ -1012,13 +1030,28 @@ func _make_drawer(title: String, open: bool = false) -> Array:
 func _open_drawer(drawer: Array) -> void:
 	if drawer.is_empty() or drawer[0] == null:
 		return
-	var btn: Button     = drawer[0]
+	var btn: Button        = drawer[0]
 	var ctn: VBoxContainer = drawer[1]
 	if ctn.visible:
 		return
 	ctn.visible = true
 	btn.set_pressed_no_signal(true)
+	# Replace leading arrow character.
 	btn.text = btn.text.replace("\u25b6  ", "\u25bc  ")
+
+
+## Collapse [param drawer] if it is currently expanded (no-op when already closed).
+## [param drawer] must be the [Array] returned by [method _make_drawer].
+func _close_drawer(drawer: Array) -> void:
+	if drawer.is_empty() or drawer[0] == null:
+		return
+	var btn: Button        = drawer[0]
+	var ctn: VBoxContainer = drawer[1]
+	if not ctn.visible:
+		return
+	ctn.visible = false
+	btn.set_pressed_no_signal(false)
+	btn.text = btn.text.replace("\u25bc  ", "\u25b6  ")
 
 
 ## Create a standard disabled operation [Button] with tooltip.
