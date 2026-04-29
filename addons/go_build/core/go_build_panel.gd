@@ -1611,7 +1611,8 @@ func _rebuild_palette_dropdown() -> void:
 ## slots exist.
 func _rebuild_mat_palette() -> void:
 	for child in _mat_palette_vbox.get_children():
-		child.free()
+		_mat_palette_vbox.remove_child(child)
+		child.queue_free()
 	if _target == null or _target.go_build_mesh == null:
 		return
 	var slots: Array[Material] = _target.go_build_mesh.material_slots
@@ -1637,8 +1638,10 @@ func _rebuild_mat_palette() -> void:
 		if mat is BaseMaterial3D and (mat as BaseMaterial3D).albedo_texture != null:
 			var tex_rect := TextureRect.new()
 			tex_rect.texture = (mat as BaseMaterial3D).albedo_texture
-			tex_rect.custom_minimum_size = Vector2(14, 14)
-			tex_rect.stretch_mode = TextureRect.STRETCH_SCALE
+			tex_rect.custom_minimum_size = Vector2(16, 16)
+			tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			tex_rect.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 			tex_rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			row.add_child(tex_rect)
 		else:

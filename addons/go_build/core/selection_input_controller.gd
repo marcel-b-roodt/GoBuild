@@ -849,6 +849,38 @@ func _find_scale_handle(
 
 
 # ---------------------------------------------------------------------------
+# Cross-mesh selection helper
+# ---------------------------------------------------------------------------
+
+## Walk the edited scene for a [GoBuildMeshInstance] other than [param exclude]
+## that the camera ray through [param click_pos] intersects.  Returns the first
+## hit (closest is not guaranteed — first in tree order) or [code]null[/code].
+func _find_gobuild_at(
+		camera: Camera3D,
+		click_pos: Vector2,
+		exclude: Node3D,
+) -> GoBuildMeshInstance:
+	var scene_root := EditorInterface.get_edited_scene_root()
+	if scene_root == null:
+		return null
+	var ray_from: Vector3 = camera.project_ray_origin(click_pos)
+	var ray_dir:  Vector3 = camera.project_ray_normal(click_pos)
+	for node: Node in scene_root.find_children("*", "Node3D", true, false):
+		if node == exclude or not (node is GoBuildMeshInstance):
+			continue
+		var mi := node as GoBuildMeshInstance
+		if mi.mesh == null:
+			continue
+		# Transform ray to local space for AABB test.
+		var inv: Transform3D = mi.global_transform.affine_inverse()
+		var local_from: Vector3 = inv * ray_from
+		var local_dir:  Vector3 = inv.basis * ray_dir
+		if mi.get_aabb().intersects_ray(local_from, local_dir) != null:
+			return mi
+	return null
+
+
+# ---------------------------------------------------------------------------
 # Element picking
 # ---------------------------------------------------------------------------
 
@@ -879,6 +911,15 @@ func _handle_pick(
 
 	if hit_idx == -1:
 		if not additive and not toggle:
+			# Miss — check if a different GoBuildMeshInstance is under the click.
+			# If one is found, switch the editor selection to it.  edit() in
+			# plugin.gd will carry the current mode across automatically.
+			var other := _find_gobuild_at(camera, click_pos, edited_node)
+			if other != null:
+				var es := EditorInterface.get_selection()
+				es.clear()
+				es.add_node(other)
+				return 1
 			sel.clear()
 		return 1
 
