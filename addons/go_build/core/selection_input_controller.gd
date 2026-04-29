@@ -848,6 +848,16 @@ func _find_scale_handle(
 	return -1
 
 
+## Deferred hop: called the frame after the click event is fully processed
+## so gizmo plugin removal/re-add in _edit() never happens mid-event.
+func _hop_to_mesh(other: GoBuildMeshInstance) -> void:
+	if not is_instance_valid(other):
+		return
+	var es := EditorInterface.get_selection()
+	es.clear()
+	es.add_node(other)
+
+
 # ---------------------------------------------------------------------------
 # Cross-mesh selection helper
 # ---------------------------------------------------------------------------
@@ -912,13 +922,13 @@ func _handle_pick(
 	if hit_idx == -1:
 		if not additive and not toggle:
 			# Miss — check if a different GoBuildMeshInstance is under the click.
-			# If one is found, switch the editor selection to it.  edit() in
-			# plugin.gd will carry the current mode across automatically.
+			# Defer the selection change: calling es.add_node() synchronously
+			# inside _forward_3d_gui_input triggers _edit() mid-event which
+			# removes+re-adds the gizmo plugin and causes Godot to attempt
+			# redraw on gizmo instances with a null spatial_node.
 			var other := _find_gobuild_at(camera, click_pos, edited_node)
 			if other != null:
-				var es := EditorInterface.get_selection()
-				es.clear()
-				es.add_node(other)
+				call_deferred("_hop_to_mesh", other)
 				return 1
 			sel.clear()
 		return 1
