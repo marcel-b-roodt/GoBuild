@@ -634,7 +634,7 @@ func _ready() -> void:
 	dbg_toggle.button_pressed = GoBuildDebug.enabled
 	dbg_toggle.add_theme_font_size_override("font_size", 11)
 	dbg_toggle.toggled.connect(func(on: bool) -> void: GoBuildDebug.enabled = on)
-	add_child(dbg_toggle)
+	_drawer_general[1].add_child(dbg_toggle)
 
 	# ── Back-face toggle ──────────────────────────────────────────────────
 	# Disables culling on the active mesh while editing so both sides of every
@@ -649,14 +649,14 @@ func _ready() -> void:
 		+ "Has no effect outside the editor."
 	)
 	_cull_check.toggled.connect(_on_cull_check_toggled)
-	add_child(_cull_check)
+	_drawer_general[1].add_child(_cull_check)
 
 	# ── Auto UV mode selector ─────────────────────────────────────────────
 	# Replaces the old boolean checkbox with a per-projection-type dropdown.
 	# "None" disables automatic re-projection after every operation.
 	# "Planar" and "Box" project all unoverridden faces after each operation.
 	var uv_row := HBoxContainer.new()
-	add_child(uv_row)
+	_drawer_general[1].add_child(uv_row)
 
 	var uv_lbl := Label.new()
 	uv_lbl.text = "Auto UV:"
