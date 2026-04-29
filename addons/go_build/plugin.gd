@@ -310,6 +310,8 @@ func _edit(object: Object) -> void:
 	var carry_mode: int = SelectionManager.Mode.OBJECT
 	if _edited_node != null and is_instance_valid(_edited_node):
 		carry_mode = _edited_node.selection.get_mode()
+		_edited_node.selection.clear()
+		_edited_node.update_gizmos()
 		_edited_node.set_edit_cull_override(false)
 	_disconnect_node_signals()
 

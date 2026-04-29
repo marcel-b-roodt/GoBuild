@@ -164,7 +164,7 @@ func test_planar_uv_button_disabled_without_face_selection() -> void:
 	var node  := _make_node_with_quad()
 	panel.set_target(node)
 	node.selection.set_mode(SelectionManager.Mode.FACE)
-	assert_bool(panel._planar_uv_btn.disabled).is_true()
+	assert_bool(panel._uv_drawer._planar_uv_btn.disabled).is_true()
 
 
 func test_planar_uv_button_enabled_with_face_selection() -> void:
@@ -173,7 +173,7 @@ func test_planar_uv_button_enabled_with_face_selection() -> void:
 	panel.set_target(node)
 	node.selection.set_mode(SelectionManager.Mode.FACE)
 	node.selection.select_face(0)
-	assert_bool(panel._planar_uv_btn.disabled).is_false()
+	assert_bool(panel._uv_drawer._planar_uv_btn.disabled).is_false()
 
 
 # ---------------------------------------------------------------------------

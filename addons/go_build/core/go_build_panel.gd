@@ -36,14 +36,6 @@ const _LOOP_CUT_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/loop_cut_operation.gd")
 const _INSET_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/inset_operation.gd")
-const _PLANAR_UV_SCRIPT := \
-		preload("res://addons/go_build/uv/planar_projection.gd")
-const _BOX_UV_SCRIPT := \
-		preload("res://addons/go_build/uv/box_projection.gd")
-const _CYLINDRICAL_UV_SCRIPT := \
-		preload("res://addons/go_build/uv/cylindrical_projection.gd")
-const _SPHERICAL_UV_SCRIPT := \
-		preload("res://addons/go_build/uv/spherical_projection.gd")
 const _FACE_SCRIPT := \
 		preload("res://addons/go_build/mesh/go_build_face.gd")
 const _SHAPE_CATALOG_SCRIPT := \
@@ -52,16 +44,12 @@ const _PARAM_PREVIEW_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_param_preview.gd")
 const _SHAPE_PREVIEW_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_shape_preview.gd")
-const _UV_PARAM_BOX_SCRIPT := \
-		preload("res://addons/go_build/core/go_build_uv_param_box.gd")
-const _MATERIALS_SCRIPT := \
-		preload("res://addons/go_build/core/go_build_materials.gd")
-const _MAT_ASSIGN_SCRIPT := \
-		preload("res://addons/go_build/mesh/operations/material_assign_operation.gd")
-const _PALETTE_SCRIPT := \
-		preload("res://addons/go_build/core/go_build_material_palette.gd")
 const _SETTINGS_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_project_settings.gd")
+const _MATERIALS_DRAWER_SCRIPT := \
+		preload("res://addons/go_build/core/go_build_materials_drawer.gd")
+const _UV_DRAWER_SCRIPT := \
+		preload("res://addons/go_build/core/go_build_uv_drawer.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
@@ -76,9 +64,6 @@ const _BEVEL_DEFAULT_WIDTH: float = 0.01
 
 ## Default inset amount (0–1 blend toward centroid).
 const _INSET_DEFAULT_AMOUNT: float = 0.1
-
-## Default size of one tiled UV repeat in mesh units.
-const _PLANAR_UV_UNITS_PER_TILE: float = 1.0
 
 var _status_label: Label
 var _stats_label: Label
@@ -96,55 +81,29 @@ var _bridge_btn: Button        = null
 var _subdivide_btn: Button     = null
 var _hard_edge_btn: Button     = null
 var _soft_edge_btn: Button     = null
-var _planar_uv_btn: Button     = null
-var _box_uv_btn: Button        = null
-var _cylindrical_uv_btn: Button = null
-var _spherical_uv_btn: Button   = null
 var _loop_cut_btn: Button      = null
 var _delete_btn: Button        = null
 var _merge_btn: Button         = null
 var _weld_btn: Button          = null
 var _cull_check: CheckBox      = null
 var _auto_uv_option: OptionButton = null
-var _material_slot_spin: SpinBox = null
-var _assign_material_btn: Button = null
-var _qs_checker_btn: Button = null
-var _qs_white_btn: Button = null
-var _qs_grey_btn: Button = null
-var _project_settings: GoBuildProjectSettings = null
-var _palette_option:    OptionButton           = null
-var _apply_palette_btn: Button                 = null
-var _settings_picker:   EditorResourcePicker   = null
-## Rebuilt by _rebuild_mat_palette() on every _refresh() call.
-var _mat_palette_vbox: VBoxContainer = null
 var _shape_preview: GoBuildShapePreview = null
 
 ## Collapsible section drawers. [0] = header Button, [1] = content VBoxContainer.
-var _drawer_create:    Array = []
-var _drawer_vertex:    Array = []
-var _drawer_edge:      Array = []
-var _drawer_face:      Array = []
-var _drawer_face_uv:   Array = []
-var _drawer_surface:   Array = []
-var _drawer_materials: Array = []
-var _drawer_general:   Array = []
+var _drawer_create:  Array = []
+var _drawer_vertex:  Array = []
+var _drawer_edge:    Array = []
+var _drawer_face:    Array = []
+var _drawer_surface: Array = []
+var _drawer_general: Array = []
+
+## Extracted subcomponent drawers.
+var _materials_drawer: GoBuildMaterialsDrawer = null
+var _uv_drawer:        GoBuildUvDrawer        = null
 
 ## Auto Smooth controls (Surface drawer).
 var _auto_smooth_angle_spin: SpinBox = null
 var _auto_smooth_btn:        Button  = null
-
-## Param box shown for all UV projection operations.
-var _uv_param_box: GoBuildUvParamBox = null
-## Snapshot captured when a UV param preview starts; used to restore on cancel.
-var _uv_preview_snapshot: Dictionary = {}
-## Face indices captured when a UV param preview starts.
-var _uv_preview_faces: Array[int] = []
-## Which UV mode is being previewed.
-var _uv_preview_mode: GoBuildFace.UvMode = GoBuildFace.UvMode.NONE
-## Node world transform captured at UV preview start (for world-space projections).
-var _uv_preview_transform: Transform3D = Transform3D.IDENTITY
-## True while a UV param preview is active.
-var _uv_preview_active: bool = false
 
 ## Registry of all operation buttons and their enable-condition callables.
 ## Populated by [method _register_op] during [method _ready].
@@ -159,21 +118,17 @@ var _plugin: EditorPlugin = null
 ## Required so [method _insert_shape] can access [method EditorPlugin.get_undo_redo].
 func set_plugin(plugin: EditorPlugin) -> void:
 	_plugin = plugin
+	if _materials_drawer != null:
+		_materials_drawer.set_plugin(plugin)
+	if _uv_drawer != null:
+		_uv_drawer.set_plugin(plugin)
 
 
 ## Called by the owning [EditorPlugin] after project settings are loaded.
 ## Populates the palette dropdown from the project-wide palette library.
 func set_project_settings(settings: GoBuildProjectSettings) -> void:
-	# Disconnect from the old resource so we don't get stale callbacks.
-	if _project_settings != null \
-			and _project_settings.changed.is_connected(_rebuild_palette_dropdown):
-		_project_settings.changed.disconnect(_rebuild_palette_dropdown)
-	_project_settings = settings
-	if _settings_picker != null:
-		_settings_picker.edited_resource = settings
-	if settings != null:
-		settings.changed.connect(_rebuild_palette_dropdown)
-	_rebuild_palette_dropdown()
+	if _materials_drawer != null:
+		_materials_drawer.set_project_settings(settings)
 
 
 ## Called by the plugin whenever the transform mode or a held modifier changes.
@@ -360,53 +315,8 @@ func _ready() -> void:
 	face_grid.add_child(_flip_btn)
 	_register_op(_flip_btn, _cond_face_any)
 
-	_drawer_face_uv = _make_drawer("Face UV")
-	var face_uv_grid := GridContainer.new()
-	face_uv_grid.columns = 2
-	_drawer_face_uv[1].add_child(face_uv_grid)
-
-	_planar_uv_btn = _op_button("Planar UV",
-		"Project selected face(s) onto their dominant axis using %.1f unit tiles.\n"
-		% _PLANAR_UV_UNITS_PER_TILE
-		+ "Useful for checker or metre textures during blockout.\n"
-		+ "Requires Face mode with ≥1 face selected.")
-	_planar_uv_btn.pressed.connect(_on_planar_uv_pressed)
-	face_uv_grid.add_child(_planar_uv_btn)
-	_register_op(_planar_uv_btn, _cond_face_any)
-
-	_box_uv_btn = _op_button("Box UV",
-		"Project selected face(s) using world-space box mapping (%.1f unit tiles).\n"
-		% _PLANAR_UV_UNITS_PER_TILE
-		+ "Adjacent same-axis faces share UV coordinates — no seam at shared edges.\n"
-		+ "Requires Face mode with ≥1 face selected.")
-	_box_uv_btn.pressed.connect(_on_box_uv_pressed)
-	face_uv_grid.add_child(_box_uv_btn)
-	_register_op(_box_uv_btn, _cond_face_any)
-
-	_cylindrical_uv_btn = _op_button("Cyl UV",
-		"Project selected face(s) using cylindrical mapping around the Y axis (%.1f unit tiles).\n"
-		% _PLANAR_UV_UNITS_PER_TILE
-		+ "U wraps 0-1 around the Y axis; V scales with height.\n"
-		+ "Requires Face mode with \u22651 face selected.")
-	_cylindrical_uv_btn.pressed.connect(_on_cylindrical_uv_pressed)
-	face_uv_grid.add_child(_cylindrical_uv_btn)
-	_register_op(_cylindrical_uv_btn, _cond_face_any)
-
-	_spherical_uv_btn = _op_button("Sphere UV",
-		"Project selected face(s) using spherical (equirectangular) mapping (%.1f unit tiles).\n"
-		% _PLANAR_UV_UNITS_PER_TILE
-		+ "U = longitude (0-1 around Y axis); V = latitude (0 = north / +Y, 1 = south / -Y).\n"
-		+ "Requires Face mode with \u22651 face selected.")
-	_spherical_uv_btn.pressed.connect(_on_spherical_uv_pressed)
-	face_uv_grid.add_child(_spherical_uv_btn)
-	_register_op(_spherical_uv_btn, _cond_face_any)
-
-	# UV parameter box — shown below the UV buttons during a live param preview.
-	_uv_param_box = GoBuildUvParamBox.new()
-	_uv_param_box.params_changed.connect(_on_uv_params_preview)
-	_uv_param_box.apply_requested.connect(_on_uv_params_apply)
-	_uv_param_box.cancelled.connect(_on_uv_params_cancelled)
-	_drawer_face_uv[1].add_child(_uv_param_box)
+	_uv_drawer = GoBuildUvDrawer.new()
+	add_child(_uv_drawer)
 
 	_drawer_surface = _make_drawer("Surface")
 
@@ -490,135 +400,8 @@ func _ready() -> void:
 	_auto_smooth_btn.pressed.connect(_on_auto_smooth_pressed)
 	as_row.add_child(_auto_smooth_btn)
 	_register_op(_auto_smooth_btn, _cond_has_mesh)
-
-	# ── Materials ────────────────────────────────────────────────────────
-	_drawer_materials = _make_drawer("Materials", false)
-
-	# Settings resource picker: shows the active GoBuildProjectSettings .tres
-	# and lets the user drag-assign a different one from the FileSystem dock.
-	var settings_row := HBoxContainer.new()
-	_drawer_materials[1].add_child(settings_row)
-
-	var settings_lbl := Label.new()
-	settings_lbl.text = "Settings:"
-	settings_lbl.add_theme_font_size_override("font_size", 11)
-	settings_row.add_child(settings_lbl)
-
-	_settings_picker = EditorResourcePicker.new()
-	_settings_picker.base_type = "GoBuildProjectSettings"
-	_settings_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_settings_picker.tooltip_text = (
-			"The active GoBuildProjectSettings resource.\n"
-			+ "Drag a .tres from the FileSystem to use a different settings file.\n"
-			+ "Defaults to res://go_build_settings.tres (created automatically)."
-	)
-	_settings_picker.resource_changed.connect(_on_settings_resource_changed)
-	settings_row.add_child(_settings_picker)
-
-	# Palette row: dropdown + Apply + Refresh
-	var pal_row := HBoxContainer.new()
-	_drawer_materials[1].add_child(pal_row)
-
-	var pal_lbl := Label.new()
-	pal_lbl.text = "Palette:"
-	pal_lbl.add_theme_font_size_override("font_size", 11)
-	pal_row.add_child(pal_lbl)
-
-	_palette_option = OptionButton.new()
-	_palette_option.flat = true
-	_palette_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_palette_option.add_theme_font_size_override("font_size", 11)
-	_palette_option.tooltip_text = (
-			"Select a project palette to apply.\n"
-			+ "Add palettes by editing go_build_settings.tres in the FileSystem dock."
-	)
-	pal_row.add_child(_palette_option)
-
-	_apply_palette_btn = _op_button("Apply",
-			"Copy the selected palette's materials into the mesh's material_slots.\n"
-			+ "Existing face material_index values are unchanged; only the slot objects are replaced.")
-	_apply_palette_btn.pressed.connect(_on_apply_palette_pressed)
-	pal_row.add_child(_apply_palette_btn)
-	_register_op(_apply_palette_btn, _cond_palette_apply)
-
-	var pal_refresh_btn := Button.new()
-	pal_refresh_btn.text = "↺"
-	pal_refresh_btn.flat = true
-	pal_refresh_btn.tooltip_text = "Reload palettes from go_build_settings.tres."
-	pal_refresh_btn.pressed.connect(_rebuild_palette_dropdown)
-	pal_row.add_child(pal_refresh_btn)
-
-	var mat_grid := GridContainer.new()
-	mat_grid.columns = 2
-	_drawer_materials[1].add_child(mat_grid)
-
-	var slot_lbl := Label.new()
-	slot_lbl.text = "Slot:"
-	slot_lbl.add_theme_font_size_override("font_size", 11)
-	mat_grid.add_child(slot_lbl)
-
-	_material_slot_spin = SpinBox.new()
-	_material_slot_spin.min_value = 0
-	_material_slot_spin.max_value = 15
-	_material_slot_spin.step = 1
-	_material_slot_spin.rounded = true
-	_material_slot_spin.value = 0
-	_material_slot_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mat_grid.add_child(_material_slot_spin)
-
-	_assign_material_btn = _op_button("Assign to Faces",
-		"Assign selected face(s) to the chosen material slot.\n"
-		+ "Add materials to slots via the Inspector (go_build_mesh → material_slots).\n"
-		+ "Requires Face mode with ≥1 face selected.")
-	_assign_material_btn.pressed.connect(_on_assign_material_pressed)
-	mat_grid.add_child(_assign_material_btn)
-	_register_op(_assign_material_btn, _cond_face_any)
-
-	# Spacer so the button is 2-wide in the grid.
-	mat_grid.add_child(Control.new())
-
-	var qs_lbl := Label.new()
-	qs_lbl.text = "Quicksets:"
-	qs_lbl.add_theme_font_size_override("font_size", 11)
-	qs_lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	_drawer_materials[1].add_child(qs_lbl)
-
-	var qs_grid := GridContainer.new()
-	qs_grid.columns = 3
-	_drawer_materials[1].add_child(qs_grid)
-
-	_qs_checker_btn = _op_button("Checker",
-		"Apply a procedural B&W checker material to selected faces.\n"
-		+ "One tile = one mesh unit, matching UV scale 1.0 for instant scale feedback.\n"
-		+ "Requires Face mode with ≥1 face selected.")
-	_qs_checker_btn.pressed.connect(_on_quickset_pressed.bind(0, GoBuildMaterials.checker_material))
-	qs_grid.add_child(_qs_checker_btn)
-	_register_op(_qs_checker_btn, _cond_face_any)
-
-	_qs_white_btn = _op_button("White",
-		"Apply a solid-white prototype material to selected faces.\n"
-		+ "Requires Face mode with ≥1 face selected.")
-	_qs_white_btn.pressed.connect(_on_quickset_pressed.bind(1, GoBuildMaterials.white_material))
-	qs_grid.add_child(_qs_white_btn)
-	_register_op(_qs_white_btn, _cond_face_any)
-
-	_qs_grey_btn = _op_button("Grey",
-		"Apply a mid-grey prototype material to selected faces.\n"
-		+ "Requires Face mode with ≥1 face selected.")
-	_qs_grey_btn.pressed.connect(_on_quickset_pressed.bind(2, GoBuildMaterials.grey_material))
-	qs_grid.add_child(_qs_grey_btn)
-	_register_op(_qs_grey_btn, _cond_face_any)
-
-	# Live slot list — rebuilt in _rebuild_mat_palette() on every refresh.
-	var slots_hdr := Label.new()
-	slots_hdr.text = "Slots:"
-	slots_hdr.add_theme_font_size_override("font_size", 11)
-	slots_hdr.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	_drawer_materials[1].add_child(slots_hdr)
-
-	_mat_palette_vbox = VBoxContainer.new()
-	_mat_palette_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_drawer_materials[1].add_child(_mat_palette_vbox)
+	_materials_drawer = GoBuildMaterialsDrawer.new()
+	add_child(_materials_drawer)
 
 	_drawer_general = _make_drawer("General", true)
 
@@ -725,7 +508,8 @@ func _ready() -> void:
 ## Pass [code]null[/code] to clear the selection display.
 func set_target(target: GoBuildMeshInstance) -> void:
 	# Cancel any active UV param preview before switching targets.
-	_uv_cancel_preview()
+	if _uv_drawer != null:
+		_uv_drawer.cancel_preview()
 
 	# Clear the back-face override on the old target before switching.
 	if _target != null and is_instance_valid(_target):
@@ -740,6 +524,10 @@ func set_target(target: GoBuildMeshInstance) -> void:
 		_target.mesh_changed.disconnect(_refresh)
 
 	_target = target
+	if _materials_drawer != null:
+		_materials_drawer.set_target(target)
+	if _uv_drawer != null:
+		_uv_drawer.set_target(target)
 
 	if _target != null:
 		_target.selection.mode_changed.connect(_on_target_mode_changed)
@@ -819,25 +607,29 @@ func trigger_subdivide() -> void:
 ## Called by external code (e.g. the face context menu)
 ## to project planar UVs onto the current face selection.
 func trigger_planar_uv() -> void:
-	_on_planar_uv_pressed()
+	if _uv_drawer != null:
+		_uv_drawer.trigger_planar_uv()
 
 
 ## Called by external code (e.g. the right-click context menu)
 ## to apply box UV projection onto the current face selection.
 func trigger_box_uv() -> void:
-	_on_box_uv_pressed()
+	if _uv_drawer != null:
+		_uv_drawer.trigger_box_uv()
 
 
 ## Called by external code (e.g. the right-click context menu)
 ## to apply cylindrical UV projection onto the current face selection.
 func trigger_cylindrical_uv() -> void:
-	_on_cylindrical_uv_pressed()
+	if _uv_drawer != null:
+		_uv_drawer.trigger_cylindrical_uv()
 
 
 ## Called by external code (e.g. the right-click context menu)
 ## to apply spherical UV projection onto the current face selection.
 func trigger_spherical_uv() -> void:
-	_on_spherical_uv_pressed()
+	if _uv_drawer != null:
+		_uv_drawer.trigger_spherical_uv()
 
 
 ## Called by external code (e.g. the right-click context menu)
@@ -875,7 +667,8 @@ func trigger_auto_smooth() -> void:
 # ---------------------------------------------------------------------------
 
 func _refresh() -> void:
-	_rebuild_mat_palette()
+	if _materials_drawer != null:
+		_materials_drawer.refresh()
 	if _target == null or _target.go_build_mesh == null:
 		_status_label.text = "No mesh selected."
 		_stats_label.text = ""
@@ -1013,19 +806,16 @@ func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 	match new_mode:
 		SelectionManager.Mode.OBJECT:
 			open_set  = [_drawer_create]
-			close_set = [_drawer_vertex, _drawer_edge, _drawer_face,
-						_drawer_face_uv, _drawer_surface]
+			close_set = [_drawer_vertex, _drawer_edge, _drawer_face, _drawer_surface]
 		SelectionManager.Mode.VERTEX:
 			open_set  = [_drawer_vertex]
-			close_set = [_drawer_edge, _drawer_face,
-						_drawer_face_uv, _drawer_surface]
+			close_set = [_drawer_edge, _drawer_face, _drawer_surface]
 		SelectionManager.Mode.EDGE:
 			open_set  = [_drawer_edge]
-			close_set = [_drawer_vertex, _drawer_face,
-						_drawer_face_uv, _drawer_surface]
+			close_set = [_drawer_vertex, _drawer_face, _drawer_surface]
 		SelectionManager.Mode.FACE:
 			open_set  = [_drawer_face, _drawer_surface]
-			close_set = [_drawer_vertex, _drawer_edge, _drawer_face_uv]
+			close_set = [_drawer_vertex, _drawer_edge]
 	for d: Array in open_set:
 		_open_drawer(d)
 	for d: Array in close_set:
@@ -1171,15 +961,6 @@ func _cond_face_any() -> bool:
 			and not _target.selection.get_selected_faces().is_empty()
 
 
-## [code]true[/code] when a target mesh is selected, project settings are
-## loaded, at least one palette exists, and a palette is selected.
-func _cond_palette_apply() -> bool:
-	return _target != null \
-			and _project_settings != null \
-			and not _project_settings.palettes.is_empty() \
-			and _palette_option != null \
-			and _palette_option.selected >= 0
-
 
 ## [code]true[/code] when a mesh instance is targeted and its mesh is non-null.
 ## Used for whole-mesh operations (e.g. Auto Smooth) that require no selection.
@@ -1213,7 +994,10 @@ func _cond_any_selection() -> bool:
 func _update_ops_buttons() -> void:
 	for entry in _op_entries:
 		entry.button.disabled = not entry.condition.call()
-
+	if _materials_drawer != null:
+		_materials_drawer.refresh_buttons()
+	if _uv_drawer != null:
+		_uv_drawer.refresh_buttons()
 
 
 ## Apply [param op_callable] as a single undo/redo [param action_name] on the
@@ -1382,366 +1166,6 @@ func _on_subdivide_pressed() -> void:
 	faces_to_subdivide.assign(sel_faces)
 	_run_op("Subdivide Face",
 			func(): SubdivideOperation.apply(_target.go_build_mesh, faces_to_subdivide))
-
-
-## Reproject the currently selected faces with dominant-axis planar UVs.
-func _on_planar_uv_pressed() -> void:
-	_uv_start_preview(GoBuildFace.UvMode.PLANAR, "Planar UV", false)
-
-
-func _on_box_uv_pressed() -> void:
-	_uv_start_preview(GoBuildFace.UvMode.BOX, "Box UV", false)
-
-
-func _on_cylindrical_uv_pressed() -> void:
-	_uv_start_preview(GoBuildFace.UvMode.CYLINDRICAL, "Cyl UV", true)
-
-
-func _on_spherical_uv_pressed() -> void:
-	_uv_start_preview(GoBuildFace.UvMode.SPHERICAL, "Sphere UV", true)
-
-
-## Begin a UV param-preview for [param mode].
-## Takes a mesh snapshot, populates [member _uv_param_box] with the first selected
-## face's existing params (if it uses the same mode) and shows the param box.
-func _uv_start_preview(
-		mode: GoBuildFace.UvMode,
-		action_name: String,
-		has_seam: bool,
-) -> void:
-	if _target == null or _plugin == null:
-		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
-	if sel_faces.is_empty():
-		return
-	# Cancel any previous preview cleanly before starting a new one.
-	if _uv_preview_active:
-		_uv_cancel_preview()
-	# Capture the pre-preview state.
-	_uv_preview_snapshot = _target.go_build_mesh.take_snapshot()
-	_uv_preview_faces.assign(sel_faces)
-	_uv_preview_mode = mode
-	_uv_preview_transform = _target.global_transform
-	_uv_preview_active = true
-	# Enter preview mode so every bake_preview call reuses the same ArrayMesh
-	# without reassigning mesh (avoids per-change inspector notification).
-	_target.begin_preview()
-	# Seed the param box with the first face's existing params when it already
-	# uses the same mode, so the user starts from the last applied values.
-	var first: GoBuildFace = _target.go_build_mesh.faces[sel_faces[0]]
-	var initial_scale: float = 1.0
-	var initial_offset := Vector2.ZERO
-	var initial_seam_rot: float = 0.0
-	if first.uv_projection_mode == mode:
-		initial_scale   = first.uv_scale
-		initial_offset  = first.uv_offset
-		initial_seam_rot = first.uv_seam_rotation
-	_uv_param_box.setup(action_name, has_seam, initial_scale, initial_offset, initial_seam_rot)
-
-
-## Cancel the active UV param preview and restore the mesh to its pre-preview state.
-func _uv_cancel_preview() -> void:
-	if not _uv_preview_active:
-		return
-	_uv_preview_active = false
-	if _uv_param_box != null:
-		_uv_param_box.hide_box()
-	if _target != null and not _uv_preview_snapshot.is_empty():
-		_target.end_preview()
-		_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
-		_target.bake()
-	_uv_preview_snapshot = {}
-	_uv_preview_faces = []
-
-
-## Live-preview handler: restore snapshot, re-project with current params, bake.
-## Called by [GoBuildUvParamBox] on every spinbox change.
-## Uses [method GoBuildMeshInstance.bake_preview] to avoid full mesh reassignment.
-func _on_uv_params_preview(params: Dictionary) -> void:
-	if not _uv_preview_active or _target == null:
-		return
-	_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
-	_uv_project_batch(
-		_uv_preview_mode,
-		_uv_preview_faces,
-		params.get("scale", 1.0),
-		Vector2(params.get("u_offset", 0.0), params.get("v_offset", 0.0)),
-		params.get("seam_rotation", 0.0),
-		_uv_preview_transform,
-	)
-	_target.bake_preview()
-
-
-## Commit handler: restore snapshot so undo baseline is clean, then run op.
-## Called by [GoBuildUvParamBox] when the user clicks Accept.
-func _on_uv_params_apply(params: Dictionary) -> void:
-	if not _uv_preview_active or _target == null or _plugin == null:
-		return
-	_uv_preview_active = false
-	# End preview mode and restore the original mesh for a clean undo baseline.
-	_target.end_preview()
-	# Restore to pre-preview state so the undo snapshot captures the original mesh.
-	_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
-	var faces: Array[int] = _uv_preview_faces.duplicate()
-	var mode: GoBuildFace.UvMode = _uv_preview_mode
-	var xform: Transform3D = _uv_preview_transform
-	var scale: float = float(params.get("scale", 1.0))
-	var offset := Vector2(float(params.get("u_offset", 0.0)), float(params.get("v_offset", 0.0)))
-	var seam_rot: float = float(params.get("seam_rotation", 0.0))
-	_uv_preview_snapshot = {}
-	_uv_preview_faces = []
-	_run_op(
-		_uv_action_name(mode),
-		func():
-			for fi: int in faces:
-				var face: GoBuildFace = _target.go_build_mesh.faces[fi]
-				face.uv_projection_mode = mode
-				face.uv_scale = scale
-				face.uv_offset = offset
-				face.uv_seam_rotation = seam_rot
-			_uv_project_batch(mode, faces, scale, offset, seam_rot, xform),
-		false,
-	)
-
-
-## Cancel handler: restore snapshot and bake.
-## Called by [GoBuildUvParamBox] when the user clicks Cancel.
-func _on_uv_params_cancelled() -> void:
-	if not _uv_preview_active or _target == null:
-		return
-	_uv_preview_active = false
-	if not _uv_preview_snapshot.is_empty():
-		_target.end_preview()
-		_target.go_build_mesh.restore_snapshot(_uv_preview_snapshot)
-		_target.bake()
-	_uv_preview_snapshot = {}
-	_uv_preview_faces = []
-
-
-## Dispatch a UV projection onto [param faces] without creating an undo entry.
-func _uv_project_batch(
-		mode: GoBuildFace.UvMode,
-		faces: Array[int],
-		scale: float,
-		offset: Vector2,
-		seam_rot: float,
-		xform: Transform3D,
-) -> void:
-	match mode:
-		GoBuildFace.UvMode.PLANAR:
-			PlanarProjection.apply(_target.go_build_mesh, faces, scale, offset)
-		GoBuildFace.UvMode.BOX:
-			BoxProjection.apply(_target.go_build_mesh, faces, scale, xform, offset)
-		GoBuildFace.UvMode.CYLINDRICAL:
-			CylindricalProjection.apply(
-				_target.go_build_mesh, faces, scale, xform, offset, seam_rot)
-		GoBuildFace.UvMode.SPHERICAL:
-			SphericalProjection.apply(
-				_target.go_build_mesh, faces, scale, xform, offset, seam_rot)
-
-
-## Return the action name string for [param mode], used in undo history.
-func _uv_action_name(mode: GoBuildFace.UvMode) -> String:
-	match mode:
-		GoBuildFace.UvMode.PLANAR:      return "Planar UV"
-		GoBuildFace.UvMode.BOX:         return "Box UV"
-		GoBuildFace.UvMode.CYLINDRICAL: return "Cylindrical UV"
-		GoBuildFace.UvMode.SPHERICAL:   return "Spherical UV"
-	return "UV"
-
-
-## Apply the selected project palette to the active mesh.
-## Copies [member GoBuildMaterialPalette.materials] into
-## [member GoBuildMesh.material_slots].  Face material_index values are
-## unchanged; only the slot objects are replaced.
-func _on_apply_palette_pressed() -> void:
-	if _target == null or _plugin == null or _project_settings == null:
-		return
-	if _palette_option == null or _palette_option.selected < 0:
-		return
-	var palette: GoBuildMaterialPalette = _project_settings.palettes[_palette_option.selected]
-	if palette == null:
-		return
-	var new_slots: Array[Material] = []
-	new_slots.assign(palette.materials)
-	_run_op(
-		"Apply Material Palette",
-		func(): _target.go_build_mesh.material_slots = new_slots,
-		false,
-	)
-
-
-## Called when the user assigns a different resource via [member _settings_picker].
-func _on_settings_resource_changed(resource: Resource) -> void:
-	if resource is GoBuildProjectSettings:
-		_project_settings = resource as GoBuildProjectSettings
-	elif resource == null:
-		_project_settings = GoBuildProjectSettings.load_or_create()
-		if _settings_picker != null:
-			_settings_picker.edited_resource = _project_settings
-	_rebuild_palette_dropdown()
-
-
-## Repopulate [member _palette_option] from the project-wide palette list.
-## Safe to call before [member _project_settings] is assigned (no-ops).
-func _rebuild_palette_dropdown() -> void:
-	if _palette_option == null:
-		return
-	_palette_option.clear()
-	if _project_settings == null:
-		return
-	for pal: GoBuildMaterialPalette in _project_settings.palettes:
-		var display: String
-		if pal == null:
-			display = "(null)"
-		elif pal.palette_name != "":
-			display = pal.palette_name
-		else:
-			var path: String = pal.resource_path
-			display = path.get_file() if path != "" else "(unnamed)"
-		_palette_option.add_item(display)
-	_update_ops_buttons()
-
-
-## Rebuild the live slot list in the Materials section.
-## Called by _refresh().  Clears and repopulates _mat_palette_vbox with one
-## row per entry in mesh.material_slots.  Shows an empty-state label when no
-## slots exist.
-func _rebuild_mat_palette() -> void:
-	for child in _mat_palette_vbox.get_children():
-		_mat_palette_vbox.remove_child(child)
-		child.queue_free()
-	if _target == null or _target.go_build_mesh == null:
-		return
-	var slots: Array[Material] = _target.go_build_mesh.material_slots
-	if slots.is_empty():
-		var empty_lbl := Label.new()
-		empty_lbl.text = "  (no slots — assign via Inspector)"
-		empty_lbl.add_theme_color_override("font_color", Color(0.45, 0.45, 0.45))
-		empty_lbl.add_theme_font_size_override("font_size", 10)
-		_mat_palette_vbox.add_child(empty_lbl)
-		return
-	for i in slots.size():
-		var mat: Material = slots[i]
-		var row := HBoxContainer.new()
-		_mat_palette_vbox.add_child(row)
-
-		var idx_lbl := Label.new()
-		idx_lbl.text = "[%d]" % i
-		idx_lbl.custom_minimum_size.x = 26
-		idx_lbl.add_theme_font_size_override("font_size", 10)
-		row.add_child(idx_lbl)
-
-		# Swatch: show albedo texture thumbnail when available, albedo colour otherwise.
-		if mat is BaseMaterial3D and (mat as BaseMaterial3D).albedo_texture != null:
-			var tex_rect := TextureRect.new()
-			tex_rect.texture = (mat as BaseMaterial3D).albedo_texture
-			tex_rect.custom_minimum_size = Vector2(16, 16)
-			tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			tex_rect.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-			tex_rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			row.add_child(tex_rect)
-		else:
-			var swatch := ColorRect.new()
-			swatch.custom_minimum_size = Vector2(14, 14)
-			swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			if mat is BaseMaterial3D:
-				swatch.color = (mat as BaseMaterial3D).albedo_color
-			elif mat == null:
-				swatch.color = Color(0.25, 0.25, 0.25)
-			else:
-				swatch.color = Color(0.5, 0.5, 0.5)
-			row.add_child(swatch)
-
-		var mat_name: String
-		if mat == null:
-			mat_name = "(null)"
-		elif mat.resource_name != "":
-			mat_name = mat.resource_name
-		elif mat.resource_path != "":
-			mat_name = mat.resource_path.get_file()
-		else:
-			mat_name = mat.get_class()
-		var name_lbl := Label.new()
-		name_lbl.text = mat_name
-		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		name_lbl.clip_text = true
-		name_lbl.add_theme_font_size_override("font_size", 10)
-		name_lbl.add_theme_color_override("font_color", Color(0.65, 0.65, 0.65))
-		row.add_child(name_lbl)
-
-		var use_btn := Button.new()
-		use_btn.text = "Use"
-		use_btn.tooltip_text = (
-			"Assign selected face(s) to material slot %d.\nRequires Face mode with ≥1 face selected." % i
-		)
-		use_btn.custom_minimum_size.x = 34
-		use_btn.pressed.connect(_on_palette_slot_assign_pressed.bind(i))
-		row.add_child(use_btn)
-
-
-## Assign all selected faces to [param slot_index] via the live palette.
-func _on_palette_slot_assign_pressed(slot_index: int) -> void:
-	if _target == null or _plugin == null:
-		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
-	if sel_faces.is_empty():
-		return
-	var faces: Array[int] = []
-	faces.assign(sel_faces)
-	_run_op(
-		"Assign Material Slot %d" % slot_index,
-		func(): MaterialAssignOperation.apply(_target.go_build_mesh, faces, slot_index),
-		false,
-	)
-
-
-## Assign the material slot from the slot spinner to all selected faces.
-## Pushes a single undo/redo action.
-func _on_assign_material_pressed() -> void:
-	if _target == null or _plugin == null:
-		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
-	if sel_faces.is_empty():
-		return
-	var faces: Array[int] = []
-	faces.assign(sel_faces)
-	var slot: int = int(_material_slot_spin.value)
-	_run_op(
-		"Assign Material Slot %d" % slot,
-		func(): MaterialAssignOperation.apply(_target.go_build_mesh, faces, slot),
-		false,
-	)
-
-
-## Apply a prototype quickset material to the selected faces.
-##
-## [param slot_index] is the material slot to use (different quicksets use
-## different slots so multiple prototype materials coexist on one mesh).
-## [param material_factory] is a [Callable] that returns the [Material] to assign.
-func _on_quickset_pressed(slot_index: int, material_factory: Callable) -> void:
-	if _target == null or _plugin == null:
-		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
-	if sel_faces.is_empty():
-		return
-	var faces: Array[int] = []
-	faces.assign(sel_faces)
-	var mat: Material = material_factory.call()
-	_run_op(
-		"Assign Quickset Material",
-		func(): MaterialAssignOperation.apply(_target.go_build_mesh, faces, slot_index, mat),
-		false,
-	)
 
 
 ## Flip the outward normals of the currently selected faces.
