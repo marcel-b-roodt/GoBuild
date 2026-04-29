@@ -1,0 +1,7 @@
+[gd_resource type="Resource" script_class="GoBuildProjectSettings" format=3 uid="uid://nmj5pa4l286"]
+
+[ext_resource type="Script" uid="uid://djcpef37rrnlt" path="res://addons/go_build/core/go_build_material_palette.gd" id="1_q2b6q"]
+[ext_resource type="Script" uid="uid://bjm4c4ttn0vim" path="res://addons/go_build/core/go_build_project_settings.gd" id="2_cin7l"]
+
+[resource]
+script = ExtResource("2_cin7l")

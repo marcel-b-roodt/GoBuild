@@ -100,6 +100,10 @@ func _enter_tree() -> void:
 	_init_shortcuts()
 
 	_project_settings = GoBuildProjectSettings.load_or_create()
+	# Notify the editor filesystem so the file appears in the dock immediately
+	# (necessary when the file was just created on this run).
+	EditorInterface.get_resource_filesystem().update_file(
+			GoBuildProjectSettings.SETTINGS_PATH)
 
 	_panel = _PANEL_SCRIPT.new()
 	_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN

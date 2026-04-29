@@ -12,7 +12,9 @@
 class_name GoBuildProjectSettings
 extends Resource
 
-const _SAVE_PATH := "res://go_build_settings.tres"
+## Path used to load and save the project settings file.
+## Exposed so [GoBuildPlugin] can notify the editor filesystem after creation.
+const SETTINGS_PATH := "res://go_build_settings.tres"
 
 ## Ordered list of [GoBuildMaterialPalette] resources available to all meshes
 ## in this project.  Indices have no semantic meaning; the panel shows palettes
@@ -24,24 +26,29 @@ const _SAVE_PATH := "res://go_build_settings.tres"
 # Static helpers
 # ---------------------------------------------------------------------------
 
-## Load the settings resource from [constant _SAVE_PATH], creating and saving
-## a fresh one when the file does not yet exist.
+## Load the settings resource from [constant SETTINGS_PATH], creating and saving
+## a fresh default when the file does not yet exist.
+## The fresh default includes one "Default" palette so new users see the
+## dropdown populated immediately.
 static func load_or_create() -> GoBuildProjectSettings:
-	if ResourceLoader.exists(_SAVE_PATH, "GoBuildProjectSettings"):
-		var res := ResourceLoader.load(_SAVE_PATH, "GoBuildProjectSettings")
+	if ResourceLoader.exists(SETTINGS_PATH, "GoBuildProjectSettings"):
+		var res := ResourceLoader.load(SETTINGS_PATH, "GoBuildProjectSettings")
 		if res is GoBuildProjectSettings:
 			return res as GoBuildProjectSettings
-	# File absent or wrong type — create a fresh one and persist it immediately
-	# so the user can find and edit it in the FileSystem dock.
+	# File absent or wrong type — create a fresh one with a default palette
+	# and persist it so the user can find and edit it in the FileSystem dock.
 	var fresh := GoBuildProjectSettings.new()
-	fresh.resource_path = _SAVE_PATH
-	ResourceSaver.save(fresh, _SAVE_PATH)
+	var default_pal := GoBuildMaterialPalette.new()
+	default_pal.palette_name = "Default"
+	fresh.palettes.append(default_pal)
+	fresh.resource_path = SETTINGS_PATH
+	ResourceSaver.save(fresh, SETTINGS_PATH)
 	return fresh
 
 
-## Persist any in-memory changes back to [constant _SAVE_PATH].
+## Persist any in-memory changes back to [constant SETTINGS_PATH].
 func save() -> void:
-	ResourceSaver.save(self, _SAVE_PATH)
+	ResourceSaver.save(self, SETTINGS_PATH)
 
 
 ## Return the index of [param palette] in [member palettes], or [code]-1[/code]

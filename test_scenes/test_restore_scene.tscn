@@ -1,64 +1,220 @@
 [gd_scene format=4 uid="uid://bp6xghd6hw8f4"]
 
 [ext_resource type="Script" uid="uid://bvosyej4rvoc5" path="res://addons/go_build/core/go_build_mesh_instance.gd" id="1_4gi1e"]
-[ext_resource type="Texture2D" uid="uid://bjn5unawt5lge" path="res://icon.svg" id="1_km2o0"]
 [ext_resource type="Script" uid="uid://c3gp2asodfhen" path="res://addons/go_build/mesh/go_build_mesh.gd" id="2_f08cm"]
 [ext_resource type="Script" uid="uid://buk0bt51ksd2b" path="res://addons/go_build/mesh/go_build_face.gd" id="2_phtbm"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_5ph87"]
-albedo_texture = ExtResource("1_km2o0")
+[sub_resource type="PlaceholderMaterial" id="PlaceholderMaterial_xtxp4"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_32d3x"]
+albedo_color = Color(0.12830663, 0.78489226, 0, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_vh132"]
+albedo_color = Color(1, 0.5568628, 0.45882353, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1dhnw"]
+albedo_color = Color(0.43997404, 0.56822485, 0.9365281, 1)
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_0flsy"]
+_surfaces = [{
+"aabb": AABB(-0.5, -0.5, -0.5, 1, 1, 1),
+"attribute_data": PackedByteArray("AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAA"),
+"format": 34359738423,
+"material": SubResource("PlaceholderMaterial_xtxp4"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 24,
+"vertex_data": PackedByteArray("AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAAAAAAAPwAAAL8AAAC/AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAL8AAAAAAAAAvwAAAL8AAAC/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAAAAAAC/AAAAPwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAA//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+///////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCAAAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/")
+}, {
+"aabb": AABB(-0.5, -0.5, 0.5, 1, 1, 1e-05),
+"attribute_data": PackedByteArray("AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAA"),
+"format": 34359738423,
+"material": SubResource("StandardMaterial3D_32d3x"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 9,
+"vertex_data": PackedByteArray("AAAAvwAAAL8AAAA/AAAAPwAAAAAAAAA/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAAAAAAA/AAAAvwAAAL8AAAA/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAA//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/+/VFWpqv9//3//fwCA/3//f/9/AID/f/+/VFWpqv9//79UVamq")
+}, {
+"aabb": AABB(0.5, -0.5, -0.5, 0.34635675, 1, 1),
+"attribute_data": PackedByteArray("AAAAPwAAAAAAAAAAAAAAAAAAAAAAAAA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPwAAAAAAAAAAAAAAAAAAAD8AAAA/AAAAAAAAAAAAAAAAAAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD8AAAA/AAAAAAAAAAAAAAAAAAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAAAAAAAAAAAA/AAAAPwAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAAAAAAD8AAAAAAAAAAAAAAAAAAAA/AAAAPwAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/AAAAAAAAAAAAAAAAAAAAPwAAAD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/AAAAAAAAAAAAAAAAAAAAPwAAAD8AAAAAAAAAAAAAAAAAAAA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+"format": 34359738423,
+"material": SubResource("StandardMaterial3D_vh132"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 24,
+"vertex_data": PackedByteArray("AAAAPwAAAL8AAAA/1qpYPwAAAAAAAAAAAAAAPwAAAL8AAAAAAAAAPwAAAL8AAAA/AAAAPwAAAAAAAAA/1qpYPwAAAAAAAAAAAAAAPwAAAL8AAAC/1qpYPwAAAAAAAAAAAAAAPwAAAAAAAAC/AAAAPwAAAL8AAAC/AAAAPwAAAL8AAAAA1qpYPwAAAAAAAAAAAAAAPwAAAD8AAAC/1qpYPwAAAAAAAAAAAAAAPwAAAD8AAAAAAAAAPwAAAD8AAAC/AAAAPwAAAAAAAAC/1qpYPwAAAAAAAAAAAAAAPwAAAD8AAAA/1qpYPwAAAAAAAAAAAAAAPwAAAAAAAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAAA1qpYPwAAAAAAAAAAncvOZRFfiK////9//3//vxHfEV+GdeGwncvOZRFfiK8R3/9/w2HCuv///3//f/+/zuWdS/uPiK////9//3//v///7aA7nsK6zuWdS/uPiK8R3xFfhnXhsP///3//f/+/zuVhtL2V3sr///9//3//vxHf7aCGdR3PzuVhtL2V3sr//+2gO57Cuv///3//f/+/ncswmhFf/cf///9//3//vxHf/3/DYcK6ncswmhFf/ccR3+2ghnUdz////3//f/+/")
+}, {
+"aabb": AABB(-0.5, 0.5, -0.5, 1, 1e-05, 1),
+"attribute_data": PackedByteArray("AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAA"),
+"format": 34359738423,
+"material": SubResource("StandardMaterial3D_1dhnw"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 9,
+"vertex_data": PackedByteArray("AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAAAAAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAPwAAAD8AAAAAAAAAvwAAAD8AAAA/AAAAvwAAAD8AAAC/AAAAPwAAAD8AAAC//3//v1RVqar/f///AAD/v/9//79UVamq/3//v1RVqar/f///AAD/v/9///8AAP+//3//v1RVqar/f///AAD/v/9///8AAP+/")
+}]
+
+[sub_resource type="Resource" id="Resource_wbdyi"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([0, 1, 10, 3, 2])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 0.5), Vector2(1, 1), Vector2(0, 1)])
+material_index = 3
+smooth_group = 2
+
+[sub_resource type="Resource" id="Resource_gr644"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([4, 5, 8, 7, 6])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 0.5), Vector2(1, 1), Vector2(0, 1)])
+
+[sub_resource type="Resource" id="Resource_ux70q"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([6, 7, 11, 1, 0])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 0.5), Vector2(1, 1), Vector2(0, 1)])
+material_index = 1
+smooth_group = 2
+
+[sub_resource type="Resource" id="Resource_vbxf4"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([5, 4, 2, 3, 9])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1), Vector2(0, 0.5)])
+
+[sub_resource type="Resource" id="Resource_2vbv8"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([7, 8, 12, 11])
+uvs = Array[Vector2]([Vector2(0.5, 0), Vector2(0, 0), Vector2(0, 0.5), Vector2(0.5, 0.5)])
+material_index = 2
+smooth_group = 1
+
+[sub_resource type="Resource" id="Resource_w4av3"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([4, 6, 0, 2])
+uvs = Array[Vector2]([Vector2(1, 0), Vector2(0, 0), Vector2(0, 1), Vector2(1, 1)])
+
+[sub_resource type="Resource" id="Resource_gm6lg"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([5, 9, 12, 8])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(0, 0.5), Vector2(0.5, 0.5), Vector2(0.5, 0)])
+material_index = 2
+smooth_group = 1
+
+[sub_resource type="Resource" id="Resource_ahkdr"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([3, 10, 12, 9])
+uvs = Array[Vector2]([Vector2(0, 0.5), Vector2(0.5, 0.5), Vector2(0.5, 0), Vector2(0, 0)])
+material_index = 2
+smooth_group = 1
+
+[sub_resource type="Resource" id="Resource_63yow"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([1, 11, 12, 10])
+uvs = Array[Vector2]([Vector2(0.5, 0.5), Vector2(0.5, 0), Vector2(0, 0), Vector2(0, 0.5)])
+material_index = 2
+smooth_group = 1
+
+[sub_resource type="Resource" id="Resource_1nejd"]
+script = ExtResource("2_f08cm")
+vertices = Array[Vector3]([Vector3(-0.5, 0.5, 0.5), Vector3(0.5, 0.5, 0.5), Vector3(-0.5, 0.5, -0.5), Vector3(0.5, 0.5, -0.5), Vector3(-0.5, -0.5, -0.5), Vector3(0.5, -0.5, -0.5), Vector3(-0.5, -0.5, 0.5), Vector3(0.5, -0.5, 0.5), Vector3(0.5, -0.5, 0), Vector3(0.5, 0, -0.5), Vector3(0.5, 0.5, 0), Vector3(0.5, 0, 0.5), Vector3(0.84635675, 0, 0)])
+faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_wbdyi"), SubResource("Resource_gr644"), SubResource("Resource_ux70q"), SubResource("Resource_vbxf4"), SubResource("Resource_2vbv8"), SubResource("Resource_w4av3"), SubResource("Resource_gm6lg"), SubResource("Resource_ahkdr"), SubResource("Resource_63yow")])
+material_slots = Array[Material]([SubResource("PlaceholderMaterial_xtxp4"), SubResource("StandardMaterial3D_32d3x"), SubResource("StandardMaterial3D_vh132"), SubResource("StandardMaterial3D_1dhnw")])
 
 [sub_resource type="ArrayMesh" id="ArrayMesh_km2o0"]
 _surfaces = [{
 "aabb": AABB(-0.5, -0.5, -0.5, 1, 1, 1),
-"attribute_data": PackedByteArray("AAAAvwAAAL8AAAAAAAAAAAAAAD8AAAA/AAAAAAAAAAAAAAA/AAAAvwAAAAAAAAAAAAAAvwAAAL8AAAAAAAAAAAAAAL8AAAA/AAAAAAAAAAAAAAA/AAAAPwAAAAAAAAAAAAAAvwAAAL8AAAAAAAAAAAAAAD8AAAA/AAAAAAAAAAAAAAA/AAAAvwAAAAAAAAAAAAAAvwAAAL8AAAAAAAAAAAAAAL8AAAA/AAAAAAAAAAAAAAA/AAAAPwAAAAAAAAAAAAAAvwAAAL8AAAAAAAAAAAAAAD8AAAA/AAAAAAAAAAAAAAA/AAAAvwAAAAAAAAAAAAAAvwAAAL8AAAAAAAAAAAAAAL8AAAA/AAAAAAAAAAAAAAA/AAAAPwAAAAAAAAAAAAAAvwAAAL8AAAAAAAAAAAAAAD8AAAA/AAAAAAAAAAAAAAA/AAAAvwAAAAAAAAAAAAAAvwAAAL8AAAAAAAAAAAAAAL8AAAA/AAAAAAAAAAAAAAA/AAAAPwAAAAAAAAAAAAAAPwAAAL8AAAAAAAAAAAAAAL8AAAA/AAAAAAAAAAAAAAC/AAAAvwAAAAAAAAAAAAAAPwAAAL8AAAAAAAAAAAAAAD8AAAA/AAAAAAAAAAAAAAC/AAAAPwAAAAAAAAAAAAAAPwAAAL8AAAAAAAAAAAAAAL8AAAA/AAAAAAAAAAAAAAC/AAAAvwAAAAAAAAAAAAAAPwAAAL8AAAAAAAAAAAAAAD8AAAA/AAAAAAAAAAAAAAC/AAAAPwAAAAAAAAAA"),
+"attribute_data": PackedByteArray("AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
 "format": 34359738423,
+"material": SubResource("PlaceholderMaterial_xtxp4"),
 "primitive": 3,
 "uv_scale": Vector4(0, 0, 0, 0),
-"vertex_count": 36,
-"vertex_data": PackedByteArray("AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAL8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAA//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/")
+"vertex_count": 84,
+"vertex_data": PackedByteArray("AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAL8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAA/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAPwAAAD8AAAC/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAPwAAAD8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAA//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+/")
 }]
 
-[sub_resource type="Resource" id="Resource_5ph87"]
+[sub_resource type="Resource" id="Resource_dwmxf"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([0, 1, 3, 2])
-uvs = Array[Vector2]([Vector2(-0.5, -0.5), Vector2(0.5, -0.5), Vector2(0.5, 0.5), Vector2(-0.5, 0.5)])
+vertex_indices = Array[int]([12, 13, 14, 15])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
 
-[sub_resource type="Resource" id="Resource_rsqht"]
+[sub_resource type="Resource" id="Resource_yeslf"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([4, 5, 7, 6])
-uvs = Array[Vector2]([Vector2(-0.5, -0.5), Vector2(0.5, -0.5), Vector2(0.5, 0.5), Vector2(-0.5, 0.5)])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
 
-[sub_resource type="Resource" id="Resource_wbdyi"]
+[sub_resource type="Resource" id="Resource_woo0c"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([6, 7, 1, 0])
-uvs = Array[Vector2]([Vector2(-0.5, -0.5), Vector2(0.5, -0.5), Vector2(0.5, 0.5), Vector2(-0.5, 0.5)])
+vertex_indices = Array[int]([8, 9, 10, 11])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
 
-[sub_resource type="Resource" id="Resource_gr644"]
+[sub_resource type="Resource" id="Resource_uvhrb"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([5, 4, 2, 3])
-uvs = Array[Vector2]([Vector2(-0.5, -0.5), Vector2(0.5, -0.5), Vector2(0.5, 0.5), Vector2(-0.5, 0.5)])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
 
-[sub_resource type="Resource" id="Resource_ux70q"]
+[sub_resource type="Resource" id="Resource_v60yw"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([7, 5, 3, 1])
-uvs = Array[Vector2]([Vector2(0.5, -0.5), Vector2(-0.5, -0.5), Vector2(-0.5, 0.5), Vector2(0.5, 0.5)])
+uvs = Array[Vector2]([Vector2(1, 0), Vector2(0, 0), Vector2(0, 1), Vector2(1, 1)])
 
-[sub_resource type="Resource" id="Resource_vbxf4"]
+[sub_resource type="Resource" id="Resource_6iwl6"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([4, 6, 0, 2])
-uvs = Array[Vector2]([Vector2(0.5, -0.5), Vector2(-0.5, -0.5), Vector2(-0.5, 0.5), Vector2(0.5, 0.5)])
+uvs = Array[Vector2]([Vector2(1, 0), Vector2(0, 0), Vector2(0, 1), Vector2(1, 1)])
 
-[sub_resource type="Resource" id="Resource_1nejd"]
+[sub_resource type="Resource" id="Resource_s1swc"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([6, 7, 9, 8])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 0), Vector2(0, 0)])
+
+[sub_resource type="Resource" id="Resource_fuyob"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([7, 1, 10, 9])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(0, 0), Vector2(0, 0), Vector2(0, 0)])
+
+[sub_resource type="Resource" id="Resource_skaro"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([1, 0, 11, 10])
+uvs = Array[Vector2]([Vector2(1, 0), Vector2(0, 0), Vector2(0, 0), Vector2(1, 0)])
+
+[sub_resource type="Resource" id="Resource_de37e"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([0, 6, 8, 11])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(0, 0), Vector2(0, 0), Vector2(0, 0)])
+
+[sub_resource type="Resource" id="Resource_k8e7t"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([0, 1, 13, 12])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1, 0), Vector2(1, 0), Vector2(0, 0)])
+
+[sub_resource type="Resource" id="Resource_b33ih"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([1, 3, 14, 13])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(0, 1), Vector2(0, 1), Vector2(0, 0)])
+
+[sub_resource type="Resource" id="Resource_ho3k4"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([3, 2, 15, 14])
+uvs = Array[Vector2]([Vector2(1, 0), Vector2(0, 0), Vector2(0, 0), Vector2(1, 0)])
+
+[sub_resource type="Resource" id="Resource_n6rs5"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([2, 0, 12, 15])
+uvs = Array[Vector2]([Vector2(0, 1), Vector2(0, 0), Vector2(0, 0), Vector2(0, 1)])
+
+[sub_resource type="Resource" id="Resource_guw8v"]
 script = ExtResource("2_f08cm")
-vertices = Array[Vector3]([Vector3(-0.5, 0.5, 0.5), Vector3(0.5, 0.5, 0.5), Vector3(-0.5, 0.5, -0.5), Vector3(0.5, 0.5, -0.5), Vector3(-0.5, -0.5, -0.5), Vector3(0.5, -0.5, -0.5), Vector3(-0.5, -0.5, 0.5), Vector3(0.5, -0.5, 0.5)])
-faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_5ph87"), SubResource("Resource_rsqht"), SubResource("Resource_wbdyi"), SubResource("Resource_gr644"), SubResource("Resource_ux70q"), SubResource("Resource_vbxf4")])
+vertices = Array[Vector3]([Vector3(-0.5, 0.5, 0.5), Vector3(0.5, 0.5, 0.5), Vector3(-0.5, 0.5, -0.5), Vector3(0.5, 0.5, -0.5), Vector3(-0.5, -0.5, -0.5), Vector3(0.5, -0.5, -0.5), Vector3(-0.5, -0.5, 0.5), Vector3(0.5, -0.5, 0.5), Vector3(-0.5, -0.5, 0.5), Vector3(0.5, -0.5, 0.5), Vector3(0.5, 0.5, 0.5), Vector3(-0.5, 0.5, 0.5), Vector3(-0.5, 0.5, 0.5), Vector3(0.5, 0.5, 0.5), Vector3(0.5, 0.5, -0.5), Vector3(-0.5, 0.5, -0.5)])
+faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_dwmxf"), SubResource("Resource_yeslf"), SubResource("Resource_woo0c"), SubResource("Resource_uvhrb"), SubResource("Resource_v60yw"), SubResource("Resource_6iwl6"), SubResource("Resource_s1swc"), SubResource("Resource_fuyob"), SubResource("Resource_skaro"), SubResource("Resource_de37e"), SubResource("Resource_k8e7t"), SubResource("Resource_b33ih"), SubResource("Resource_ho3k4"), SubResource("Resource_n6rs5")])
+material_slots = Array[Material]([SubResource("PlaceholderMaterial_xtxp4"), SubResource("StandardMaterial3D_32d3x"), SubResource("StandardMaterial3D_vh132"), SubResource("StandardMaterial3D_1dhnw")])
 
 [node name="Node3D" type="Node3D" unique_id=825975108]
 
 [node name="GoBuildCube" type="MeshInstance3D" parent="." unique_id=1389045781]
-material_override = SubResource("StandardMaterial3D_5ph87")
-mesh = SubResource("ArrayMesh_km2o0")
+mesh = SubResource("ArrayMesh_0flsy")
 script = ExtResource("1_4gi1e")
 go_build_mesh = SubResource("Resource_1nejd")
 auto_uv_mode = 2
+
+[node name="GoBuildCube2" type="MeshInstance3D" parent="." unique_id=1091224893]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6971842, 0, -1.1205158)
+mesh = SubResource("ArrayMesh_km2o0")
+script = ExtResource("1_4gi1e")
+go_build_mesh = SubResource("Resource_guw8v")

@@ -18,6 +18,8 @@ const _EXTRUDE_SCRIPT  := preload("res://addons/go_build/mesh/operations/extrude
 const _FNORMALS_SCRIPT := preload("res://addons/go_build/mesh/operations/flip_normals_operation.gd")
 const _SMOOTH_GRP_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/smooth_group_operation.gd")
+const _AUTO_SMOOTH_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/auto_smooth_operation.gd")
 const _HARD_EDGE_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/hard_edge_operation.gd")
 const _DELETE_SCRIPT   := preload("res://addons/go_build/mesh/operations/delete_operation.gd")
@@ -115,6 +117,20 @@ var _apply_palette_btn: Button                 = null
 ## Rebuilt by _rebuild_mat_palette() on every _refresh() call.
 var _mat_palette_vbox: VBoxContainer = null
 var _shape_preview: GoBuildShapePreview = null
+
+## Collapsible section drawers. [0] = header Button, [1] = content VBoxContainer.
+var _drawer_create:    Array = []
+var _drawer_vertex:    Array = []
+var _drawer_edge:      Array = []
+var _drawer_face:      Array = []
+var _drawer_face_uv:   Array = []
+var _drawer_surface:   Array = []
+var _drawer_materials: Array = []
+var _drawer_general:   Array = []
+
+## Auto Smooth controls (Surface drawer).
+var _auto_smooth_angle_spin: SpinBox = null
+var _auto_smooth_btn:        Button  = null
 
 ## Param box shown for all UV projection operations.
 var _uv_param_box: GoBuildUvParamBox = null
@@ -215,16 +231,10 @@ func _ready() -> void:
 	add_child(HSeparator.new())
 
 	# ── Create Shape ─────────────────────────────────────────────────────
-	var create_label := Label.new()
-	create_label.text = "── Create Shape ──"
-	create_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	create_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	create_label.add_theme_font_size_override("font_size", 11)
-	add_child(create_label)
-
+	_drawer_create = _make_drawer("Create Shape", true)
 	var grid := GridContainer.new()
 	grid.columns = 2
-	add_child(grid)
+	_drawer_create[1].add_child(grid)
 
 	for shape_name: String in ShapeCreationCatalog.all_shapes():
 		var btn := Button.new()
@@ -236,17 +246,14 @@ func _ready() -> void:
 	_shape_preview = GoBuildShapePreview.new()
 	_shape_preview.accepted.connect(_on_shape_preview_accepted)
 	_shape_preview.cancelled.connect(_on_shape_preview_cancelled)
-	add_child(_shape_preview)
-
-	add_child(HSeparator.new())
+	_drawer_create[1].add_child(_shape_preview)
 
 	# ── Modelling Operations ──────────────────────────────────────────────
 	# Operations are grouped by the edit mode they require.
-	add_child(_section_label("── Vertex ──"))
-
+	_drawer_vertex = _make_drawer("Vertex")
 	var vert_grid := GridContainer.new()
 	vert_grid.columns = 2
-	add_child(vert_grid)
+	_drawer_vertex[1].add_child(vert_grid)
 
 	_merge_btn = _op_button("Merge",
 		"Merge selected vertices to their centroid (M).\n"
@@ -262,11 +269,10 @@ func _ready() -> void:
 	vert_grid.add_child(_weld_btn)
 	_register_op(_weld_btn, _cond_vertex_any)
 
-	add_child(_section_label("── Edge ──"))
-
+	_drawer_edge = _make_drawer("Edge")
 	var edge_grid := GridContainer.new()
 	edge_grid.columns = 2
-	add_child(edge_grid)
+	_drawer_edge[1].add_child(edge_grid)
 
 	_extrude_edge_btn = _op_button("Extrude",
 		"Extrude selected boundary edge(s) into new quad faces (Shift+drag).\n"
@@ -312,11 +318,10 @@ func _ready() -> void:
 	edge_grid.add_child(_soft_edge_btn)
 	_register_op(_soft_edge_btn, _cond_edge_any)
 
-	add_child(_section_label("── Face ──"))
-
+	_drawer_face = _make_drawer("Face")
 	var face_grid := GridContainer.new()
 	face_grid.columns = 2
-	add_child(face_grid)
+	_drawer_face[1].add_child(face_grid)
 
 	_extrude_btn = _op_button("Extrude",
 		"Extrude selected face(s) by %.2f units along their normal.\n" % _EXTRUDE_DEFAULT_DISTANCE
@@ -346,11 +351,10 @@ func _ready() -> void:
 	face_grid.add_child(_flip_btn)
 	_register_op(_flip_btn, _cond_face_any)
 
-	add_child(_section_label("── Face UV ──"))
-
+	_drawer_face_uv = _make_drawer("Face UV")
 	var face_uv_grid := GridContainer.new()
 	face_uv_grid.columns = 2
-	add_child(face_uv_grid)
+	_drawer_face_uv[1].add_child(face_uv_grid)
 
 	_planar_uv_btn = _op_button("Planar UV",
 		"Project selected face(s) onto their dominant axis using %.1f unit tiles.\n"
@@ -393,13 +397,13 @@ func _ready() -> void:
 	_uv_param_box.params_changed.connect(_on_uv_params_preview)
 	_uv_param_box.apply_requested.connect(_on_uv_params_apply)
 	_uv_param_box.cancelled.connect(_on_uv_params_cancelled)
-	add_child(_uv_param_box)
+	_drawer_face_uv[1].add_child(_uv_param_box)
 
-	add_child(_section_label("── Surface ──"))
+	_drawer_surface = _make_drawer("Surface")
 
 	var surface_grid := GridContainer.new()
 	surface_grid.columns = 2
-	add_child(surface_grid)
+	_drawer_surface[1].add_child(surface_grid)
 
 	var sg_lbl := Label.new()
 	sg_lbl.text = "Group:"
@@ -432,7 +436,7 @@ func _ready() -> void:
 
 	var sg_quick_grid := GridContainer.new()
 	sg_quick_grid.columns = 2
-	add_child(sg_quick_grid)
+	_drawer_surface[1].add_child(sg_quick_grid)
 
 	_flat_btn = _op_button("Flat",
 		"Set selected face(s) to smooth group 0 (flat shading — each face uses\n"
@@ -450,11 +454,37 @@ func _ready() -> void:
 	sg_quick_grid.add_child(_smooth_btn)
 	_register_op(_smooth_btn, _cond_face_any)
 
-	add_child(_section_label("── Materials ──"))
+	# Auto Smooth row — angle threshold spinner + button.
+	var as_row := HBoxContainer.new()
+	_drawer_surface[1].add_child(as_row)
+
+	_auto_smooth_angle_spin = SpinBox.new()
+	_auto_smooth_angle_spin.min_value = 1.0
+	_auto_smooth_angle_spin.max_value = 180.0
+	_auto_smooth_angle_spin.step = 1.0
+	_auto_smooth_angle_spin.value = 30.0
+	_auto_smooth_angle_spin.suffix = "\u00b0"
+	_auto_smooth_angle_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_auto_smooth_angle_spin.tooltip_text = (
+			"Angle threshold for Auto Smooth.\n"
+			+ "Adjacent faces below this angle share averaged normals;\n"
+			+ "wider angles form hard creases.  30\u00b0 matches Blender's default."
+	)
+	as_row.add_child(_auto_smooth_angle_spin)
+
+	_auto_smooth_btn = _op_button("Auto Smooth",
+			"Assign smooth groups to ALL faces based on the dihedral angle threshold.\n"
+			+ "No face selection needed — the entire mesh is processed at once.\n"
+			+ "Pairs of adjacent faces below the threshold share averaged normals;\n"
+			+ "faces at or above the threshold get a hard crease.\n"
+			+ "Requires a mesh to be selected.")
+	_auto_smooth_btn.pressed.connect(_on_auto_smooth_pressed)
+	as_row.add_child(_auto_smooth_btn)
+	_register_op(_auto_smooth_btn, _cond_has_mesh)
 
 	# Palette row: dropdown + Apply + Refresh
 	var pal_row := HBoxContainer.new()
-	add_child(pal_row)
+	_drawer_materials[1].add_child(pal_row)
 
 	var pal_lbl := Label.new()
 	pal_lbl.text = "Palette:"
@@ -487,7 +517,7 @@ func _ready() -> void:
 
 	var mat_grid := GridContainer.new()
 	mat_grid.columns = 2
-	add_child(mat_grid)
+	_drawer_materials[1].add_child(mat_grid)
 
 	var slot_lbl := Label.new()
 	slot_lbl.text = "Slot:"
@@ -518,11 +548,11 @@ func _ready() -> void:
 	qs_lbl.text = "Quicksets:"
 	qs_lbl.add_theme_font_size_override("font_size", 11)
 	qs_lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	add_child(qs_lbl)
+	_drawer_materials[1].add_child(qs_lbl)
 
 	var qs_grid := GridContainer.new()
 	qs_grid.columns = 3
-	add_child(qs_grid)
+	_drawer_materials[1].add_child(qs_grid)
 
 	_qs_checker_btn = _op_button("Checker",
 		"Apply a procedural B&W checker material to selected faces.\n"
@@ -551,17 +581,17 @@ func _ready() -> void:
 	slots_hdr.text = "Slots:"
 	slots_hdr.add_theme_font_size_override("font_size", 11)
 	slots_hdr.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	add_child(slots_hdr)
+	_drawer_materials[1].add_child(slots_hdr)
 
 	_mat_palette_vbox = VBoxContainer.new()
 	_mat_palette_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_child(_mat_palette_vbox)
+	_drawer_materials[1].add_child(_mat_palette_vbox)
 
-	add_child(_section_label("── General ──"))
+	_drawer_general = _make_drawer("General", true)
 
 	var general_grid := GridContainer.new()
 	general_grid.columns = 2
-	add_child(general_grid)
+	_drawer_general[1].add_child(general_grid)
 
 	_delete_btn = _op_button("Delete",
 		"Delete selected vertices, edges, or faces (Del / X).\n"
@@ -777,6 +807,36 @@ func trigger_spherical_uv() -> void:
 	_on_spherical_uv_pressed()
 
 
+## Called by external code (e.g. the right-click context menu)
+## to mark the current edge selection as hard.
+func trigger_hard_edge() -> void:
+	_on_hard_edge_pressed()
+
+
+## Called by external code (e.g. the right-click context menu)
+## to clear the hard-edge flag on the current edge selection.
+func trigger_soft_edge() -> void:
+	_on_soft_edge_pressed()
+
+
+## Called by external code (e.g. the right-click context menu)
+## to flat-shade the current face selection (smooth_group = 0).
+func trigger_flat() -> void:
+	_on_flat_shading_pressed()
+
+
+## Called by external code (e.g. the right-click context menu)
+## to smooth-shade the current face selection (smooth_group = 1).
+func trigger_smooth() -> void:
+	_on_smooth_shading_pressed()
+
+
+## Called by external code (e.g. the right-click context menu)
+## to auto-smooth the whole mesh at the panel's current angle threshold.
+func trigger_auto_smooth() -> void:
+	_on_auto_smooth_pressed()
+
+
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------
@@ -901,10 +961,19 @@ func _on_mode_button_pressed(mode_index: int) -> void:
 
 
 ## Called when the target's [SelectionManager] emits [signal SelectionManager.mode_changed].
-## Keeps the panel buttons in sync when the plugin changes mode via keyboard shortcut.
+## Keeps the panel buttons in sync and auto-expands the relevant section drawer.
 func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 	_sync_mode_buttons(new_mode)
 	_update_ops_buttons()
+	# Auto-expand the drawer most relevant to the new mode.
+	match new_mode:
+		SelectionManager.Mode.VERTEX:
+			_open_drawer(_drawer_vertex)
+		SelectionManager.Mode.EDGE:
+			_open_drawer(_drawer_edge)
+		SelectionManager.Mode.FACE:
+			_open_drawer(_drawer_face)
+			_open_drawer(_drawer_surface)
 
 
 ## Press exactly the button that corresponds to [param active_mode] and
@@ -914,14 +983,42 @@ func _sync_mode_buttons(active_mode: SelectionManager.Mode) -> void:
 		_mode_buttons[i].set_pressed_no_signal(i == active_mode as int)
 
 
-## Create a styled section-header [Label] for the operations area.
-func _section_label(text: String) -> Label:
-	var lbl := Label.new()
-	lbl.text = text
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	lbl.add_theme_font_size_override("font_size", 11)
-	return lbl
+## Create a collapsible drawer section and add it to [code]self[/code].
+##
+## Returns [code][header_button, content_vbox][/code]. Add all child controls
+## to [code]result[1][/code]. [param open] sets the initial expanded state.
+func _make_drawer(title: String, open: bool = false) -> Array:
+	var btn := Button.new()
+	btn.text = ("\u25bc  " if open else "\u25b6  ") + title
+	btn.toggle_mode = true
+	btn.button_pressed = open
+	btn.flat = true
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.add_theme_font_size_override("font_size", 11)
+	add_child(btn)
+	var ctn := VBoxContainer.new()
+	ctn.visible = open
+	add_child(ctn)
+	btn.toggled.connect(func(pressed: bool) -> void:
+		ctn.visible = pressed
+		btn.text = ("\u25bc  " if pressed else "\u25b6  ") + title
+	)
+	return [btn, ctn]
+
+
+## Expand [param drawer] if it is currently collapsed (no-op when already open).
+## [param drawer] must be the [Array] returned by [method _make_drawer].
+func _open_drawer(drawer: Array) -> void:
+	if drawer.is_empty() or drawer[0] == null:
+		return
+	var btn: Button     = drawer[0]
+	var ctn: VBoxContainer = drawer[1]
+	if ctn.visible:
+		return
+	ctn.visible = true
+	btn.set_pressed_no_signal(true)
+	btn.text = btn.text.replace("\u25b6  ", "\u25bc  ")
 
 
 ## Create a standard disabled operation [Button] with tooltip.
@@ -1011,6 +1108,12 @@ func _cond_palette_apply() -> bool:
 			and not _project_settings.palettes.is_empty() \
 			and _palette_option != null \
 			and _palette_option.selected >= 0
+
+
+## [code]true[/code] when a mesh instance is targeted and its mesh is non-null.
+## Used for whole-mesh operations (e.g. Auto Smooth) that require no selection.
+func _cond_has_mesh() -> bool:
+	return _target != null and _target.go_build_mesh != null
 
 
 ## [code]true[/code] when there is at least one selected element in the
@@ -1604,6 +1707,18 @@ func _on_smooth_shading_pressed() -> void:
 		"Smooth Shading",
 		func(): SmoothGroupOperation.apply(_target.go_build_mesh, faces, 1),
 		false,
+	)
+
+
+## Apply auto smooth to the whole mesh with the angle set in the spinner.
+func _on_auto_smooth_pressed() -> void:
+	if _target == null or _plugin == null or _target.go_build_mesh == null:
+		return
+	var angle_deg: float = _auto_smooth_angle_spin.value if _auto_smooth_angle_spin != null else 30.0
+	_run_op(
+			"Auto Smooth",
+			func(): AutoSmoothOperation.apply(_target.go_build_mesh, angle_deg),
+			false,
 	)
 
 

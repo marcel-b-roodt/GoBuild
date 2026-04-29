@@ -1060,6 +1060,10 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 				popup.add_item("Loop Cut", 23)
 				popup.add_item("Bridge  (F)", 22)
 				popup.add_item("Extrude Edge", 21)
+				popup.add_separator()
+				popup.add_item("Hard Edge", 24)
+				popup.add_item("Soft Edge", 25)
+				popup.add_separator()
 				popup.add_item("Delete", 10)
 		SelectionManager.Mode.FACE:
 			if not sel.get_selected_faces().is_empty():
@@ -1069,6 +1073,11 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 				popup.add_item("Subdivide", 33)
 				popup.add_separator()
 				popup.add_item("Flip Normals", 32)
+				popup.add_separator()
+				popup.add_item("Flat Shading", 34)
+				popup.add_item("Smooth Shading", 35)
+				popup.add_item("Auto Smooth", 36)
+				popup.add_separator()
 				popup.add_item("Delete", 10)
 
 	var mode_int: int = mode as int
@@ -1133,6 +1142,21 @@ func _on_context_menu_pressed(
 		33:  # Subdivide
 			if _panel != null:
 				_panel.trigger_subdivide()
+		24:  # Hard edge
+			if _panel != null:
+				_panel.trigger_hard_edge()
+		25:  # Soft edge
+			if _panel != null:
+				_panel.trigger_soft_edge()
+		34:  # Flat shading
+			if _panel != null:
+				_panel.trigger_flat()
+		35:  # Smooth shading
+			if _panel != null:
+				_panel.trigger_smooth()
+		36:  # Auto smooth
+			if _panel != null:
+				_panel.trigger_auto_smooth()
 
 
 # ---------------------------------------------------------------------------
