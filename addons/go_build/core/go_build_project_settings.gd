@@ -48,9 +48,9 @@ static func load_or_create() -> GoBuildProjectSettings:
 			migrated.resource_path = SETTINGS_PATH
 			ResourceSaver.save(migrated, SETTINGS_PATH)
 			push_warning(
-					"GoBuild: migrated settings from '%s' to '%s'. "
-					+ "You may delete the old file from res://."
-					% [_LEGACY_PATH, SETTINGS_PATH])
+					"GoBuild: migrated settings from '%s' to '%s'."
+					% [_LEGACY_PATH, SETTINGS_PATH]
+					+ " You may delete the old file from res://.")
 			return migrated
 	# File absent or wrong type — create a fresh one with a default palette
 	# and persist it so the user can find and edit it in the FileSystem dock.

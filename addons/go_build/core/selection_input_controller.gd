@@ -859,6 +859,72 @@ func _hop_to_mesh(other: GoBuildMeshInstance) -> void:
 
 
 # ---------------------------------------------------------------------------
+# Occlusion helper
+# ---------------------------------------------------------------------------
+
+## Return the [GoBuildMeshInstance] (other than [param edited_node]) whose face
+## is closest to the camera at [param click_pos] and is nearer to the camera
+## than the centroid of [param face_idx] on [param edited_node].
+##
+## Returns [code]null[/code] when no closer mesh is found.
+## Used to prevent picking a face that is geometrically occluded by another
+## GoBuildMesh in the scene.
+func _find_occluding_mesh(
+		camera: Camera3D,
+		click_pos: Vector2,
+		edited_node: GoBuildMeshInstance,
+		face_idx: int,
+) -> GoBuildMeshInstance:
+	var gbm: GoBuildMesh = edited_node.go_build_mesh
+	if gbm == null or face_idx < 0 or face_idx >= gbm.faces.size():
+		return null
+
+	# Approximate hit depth: world-space centroid of the hit face.
+	var face: GoBuildFace = gbm.faces[face_idx]
+	var gt: Transform3D   = edited_node.global_transform
+	var centroid: Vector3 = Vector3.ZERO
+	for vi: int in face.vertex_indices:
+		centroid += gt * gbm.vertices[vi]
+	centroid /= float(face.vertex_indices.size())
+	var hit_dist_sq: float = camera.global_position.distance_squared_to(centroid)
+
+	var ray_from: Vector3  = camera.project_ray_origin(click_pos)
+	var ray_dir: Vector3   = camera.project_ray_normal(click_pos)
+	var scene_root: Node   = EditorInterface.get_edited_scene_root()
+	if scene_root == null:
+		return null
+
+	for node: Node in scene_root.find_children("*", "Node3D", true, false):
+		if node == edited_node or not (node is GoBuildMeshInstance):
+			continue
+		var mi: GoBuildMeshInstance = node as GoBuildMeshInstance
+		if mi.mesh == null or mi.go_build_mesh == null:
+			continue
+		# Quick AABB rejection — skip meshes the ray clearly misses.
+		var inv: Transform3D = mi.global_transform.affine_inverse()
+		var lf: Vector3      = inv * ray_from
+		var ld: Vector3      = inv.basis * ray_dir
+		if mi.get_aabb().intersects_ray(lf, ld) == null:
+			continue
+		# Face-level intersection against potential occluder.
+		var other_idx: int = PickingHelper.find_nearest_face(
+				camera, click_pos, mi, mi.go_build_mesh)
+		if other_idx == -1:
+			continue
+		# Compare centroids as depth proxies.
+		var of: GoBuildFace    = mi.go_build_mesh.faces[other_idx]
+		var ogt: Transform3D   = mi.global_transform
+		var other_c: Vector3   = Vector3.ZERO
+		for vi: int in of.vertex_indices:
+			other_c += ogt * mi.go_build_mesh.vertices[vi]
+		other_c /= float(of.vertex_indices.size())
+		if camera.global_position.distance_squared_to(other_c) < hit_dist_sq:
+			return mi
+
+	return null
+
+
+# ---------------------------------------------------------------------------
 # Cross-mesh selection helper
 # ---------------------------------------------------------------------------
 
@@ -932,6 +998,17 @@ func _handle_pick(
 				return 1
 			sel.clear()
 		return 1
+
+	# Occlusion check — only for face picking.
+	# If another GoBuildMeshInstance has a face closer to the camera at this
+	# click position, the hit is considered occluded.  Hop to the occluding mesh
+	# (non-additive click only) so the user can edit it directly.
+	if mode == SelectionManager.Mode.FACE:
+		var occluder := _find_occluding_mesh(camera, click_pos, edited_node, hit_idx)
+		if occluder != null:
+			if not additive and not toggle:
+				call_deferred("_hop_to_mesh", occluder)
+			return 1
 
 	_apply_pick(sel, mode, hit_idx, additive, toggle)
 	return 1
