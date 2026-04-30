@@ -20,6 +20,8 @@ const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face
 const _PALETTE_SCRIPT       := preload("res://addons/go_build/core/go_build_material_palette.gd")
 const _SETTINGS_SCRIPT      := preload("res://addons/go_build/core/go_build_project_settings.gd")
 const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
+const _OVERLAY_HINT_SCRIPT  := preload("res://addons/go_build/core/overlay_hint_helper.gd")
+const _SEL_DIMS_SCRIPT      := preload("res://addons/go_build/core/selection_dims_helper.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
 const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
@@ -614,63 +616,11 @@ func _draw_param_preview_hint(overlay: Control) -> void:
 func _build_overlay_hint() -> String:
 	if _edited_node == null or _gizmo_plugin == null:
 		return ""
-	var mode: SelectionManager.Mode = _edited_node.selection.get_mode()
-	if mode == SelectionManager.Mode.OBJECT:
-		return ""
-	var shift: bool = Input.is_key_pressed(KEY_SHIFT)
-	var ctrl:  bool = Input.is_key_pressed(KEY_CTRL)
-	var tmode := _gizmo_plugin.transform_mode
-
-	var mode_label: String
-	match mode:
-		SelectionManager.Mode.VERTEX: mode_label = "Vertex"
-		SelectionManager.Mode.EDGE:   mode_label = "Edge"
-		_:                            mode_label = "Face"
-
-	# Determine the active operation name given current gizmo + modifiers.
-	var op: String
-	match tmode:
-		GoBuildGizmoPlugin.TransformMode.ROTATE:
-			op = "Rotate"
-		GoBuildGizmoPlugin.TransformMode.SCALE:
-			if shift and mode == SelectionManager.Mode.FACE:
-				op = "■ INSET"
-			elif ctrl:
-				op = "■ SNAP"
-			else:
-				op = "Scale    Shift+Centre: Uniform"
-		_:  # TRANSLATE
-			if shift:
-				match mode:
-					SelectionManager.Mode.FACE: op = "■ EXTRUDE"
-					SelectionManager.Mode.EDGE: op = "■ EXTRUDE EDGE"
-					_:                          op = "Move"
-			elif ctrl:
-				op = "■ SNAP"
-			else:
-				op = "Move"
-
-	# Build available-shortcut hints when no overriding modifier is held.
-	var hints: Array[String] = []
-	if not shift and not ctrl:
-		match tmode:
-			GoBuildGizmoPlugin.TransformMode.TRANSLATE:
-				if mode == SelectionManager.Mode.FACE:
-					hints.append("Shift: Extrude")
-				elif mode == SelectionManager.Mode.EDGE:
-					hints.append("Shift: Extrude Edge")
-				hints.append("Ctrl: Snap")
-				hints.append("Alt: Vertex Snap")
-			GoBuildGizmoPlugin.TransformMode.SCALE:
-				if mode == SelectionManager.Mode.FACE:
-					hints.append("Shift: Inset")
-				hints.append("Ctrl: Snap")
-	elif shift:
-		hints.append("+Ctrl: Snap")
-
-	if hints.is_empty():
-		return "%s  ·  %s" % [mode_label, op]
-	return "%s  ·  %s    %s" % [mode_label, op, "  ".join(hints)]
+	return OverlayHintHelper.build_hint(
+			_edited_node.selection.get_mode(),
+			_gizmo_plugin.transform_mode,
+			Input.is_key_pressed(KEY_SHIFT),
+			Input.is_key_pressed(KEY_CTRL))
 
 
 ## Draw the selection dimensions label in the bottom-right of the overlay.
@@ -697,117 +647,10 @@ func _draw_selection_dims(overlay: Control) -> void:
 func _build_selection_dims() -> String:
 	if _edited_node == null or _edited_node.go_build_mesh == null:
 		return ""
-	var gbm: GoBuildMesh = _edited_node.go_build_mesh
-	var sel: SelectionManager = _edited_node.selection
-	var xform: Transform3D = _edited_node.global_transform
-	var result := ""
-
-	match sel.get_mode():
-
-		SelectionManager.Mode.VERTEX:
-			var idxs: Array[int] = sel.get_selected_vertices()
-			if not idxs.is_empty():
-				if idxs.size() == 1:
-					# Single vertex: just show world position.
-					var p: Vector3 = xform * gbm.vertices[idxs[0]]
-					result = "X: %s  Y: %s  Z: %s" % [_fmt_m(p.x), _fmt_m(p.y), _fmt_m(p.z)]
-				elif idxs.size() == 2:
-					# Two vertices: per-axis distances + total length.
-					var a: Vector3 = xform * gbm.vertices[idxs[0]]
-					var b: Vector3 = xform * gbm.vertices[idxs[1]]
-					var d: Vector3 = (b - a).abs()
-					result = "X: %s  Y: %s  Z: %s  (%s)" % \
-						[_fmt_m(d.x), _fmt_m(d.y), _fmt_m(d.z), _fmt_m(a.distance_to(b))]
-				else:
-					# 3+ vertices: bounding box.
-					result = _bbox_text(gbm, idxs, xform)
-
-		SelectionManager.Mode.EDGE:
-			var idxs: Array[int] = sel.get_selected_edges()
-			if not idxs.is_empty():
-				if idxs.size() == 1:
-					var e: GoBuildEdge = gbm.edges[idxs[0]]
-					var a: Vector3 = xform * gbm.vertices[e.vertex_a]
-					var b: Vector3 = xform * gbm.vertices[e.vertex_b]
-					result = "L: %s" % _fmt_m(a.distance_to(b))
-				else:
-					# Multiple edges: collect all unique vertex indices and show bbox.
-					var vert_set: Dictionary = {}
-					for ei: int in idxs:
-						vert_set[gbm.edges[ei].vertex_a] = true
-						vert_set[gbm.edges[ei].vertex_b] = true
-					var verts: Array[int] = []
-					verts.assign(vert_set.keys())
-					result = _bbox_text(gbm, verts, xform)
-
-		SelectionManager.Mode.FACE:
-			var idxs: Array[int] = sel.get_selected_faces()
-			if not idxs.is_empty():
-				if idxs.size() == 1:
-					# Single face: flat geometry, show W and H only (no depth).
-					result = _single_face_dims_text(gbm, idxs[0], xform)
-				else:
-					# Multiple faces: collect all unique vertex indices and show bbox.
-					var vert_set: Dictionary = {}
-					for fi: int in idxs:
-						for vi: int in gbm.faces[fi].vertex_indices:
-							vert_set[vi] = true
-					var verts: Array[int] = []
-					verts.assign(vert_set.keys())
-					result = _bbox_text(gbm, verts, xform)
-
-	return result
-
-
-## Format [param v] as a compact metre string: up to 3 decimal places,
-## trailing zeros stripped. E.g. 1.0 → "1m", 1.5 → "1.5m", 1.234 → "1.234m".
-func _fmt_m(v: float) -> String:
-	var s := "%.3f" % absf(v)
-	var parts := s.split(".")
-	var frac: String = parts[1].rstrip("0")
-	var r: String = ("-" if v < 0.0 else "") + parts[0]
-	if frac.length() > 0:
-		r += "." + frac
-	return r + "m"
-
-
-## Compute the world-space AABB of [param vert_indices] and return a
-## formatted "W: Xm  H: Ym  D: Zm" string.
-func _bbox_text(gbm: GoBuildMesh, vert_indices: Array[int], xform: Transform3D) -> String:
-	var mn := Vector3( INF,  INF,  INF)
-	var mx := Vector3(-INF, -INF, -INF)
-	for vi: int in vert_indices:
-		var p: Vector3 = xform * gbm.vertices[vi]
-		mn = mn.min(p)
-		mx = mx.max(p)
-	var s: Vector3 = mx - mn
-	return "W: %s  H: %s  D: %s" % [_fmt_m(s.x), _fmt_m(s.y), _fmt_m(s.z)]
-
-
-## Compute W/H for a single face. Drops the near-zero axis-aligned extent so
-## only the two in-plane extents are shown, largest first as W then H.
-## Falls back to W/H/D if all three extents are significant (diagonal face).
-func _single_face_dims_text(gbm: GoBuildMesh, face_idx: int, xform: Transform3D) -> String:
-	var mn := Vector3( INF,  INF,  INF)
-	var mx := Vector3(-INF, -INF, -INF)
-	for vi: int in gbm.faces[face_idx].vertex_indices:
-		var p: Vector3 = xform * gbm.vertices[vi]
-		mn = mn.min(p)
-		mx = mx.max(p)
-	var s: Vector3 = mx - mn
-	const FLAT_THRESHOLD := 0.0001
-	var sig: Array[float] = []
-	if s.x > FLAT_THRESHOLD:
-		sig.append(s.x)
-	if s.y > FLAT_THRESHOLD:
-		sig.append(s.y)
-	if s.z > FLAT_THRESHOLD:
-		sig.append(s.z)
-	sig.sort()
-	sig.reverse()
-	if sig.size() == 2:
-		return "W: %s  H: %s" % [_fmt_m(sig[0]), _fmt_m(sig[1])]
-	return "W: %s  H: %s  D: %s" % [_fmt_m(s.x), _fmt_m(s.y), _fmt_m(s.z)]
+	return SelectionDimsHelper.build(
+			_edited_node.go_build_mesh,
+			_edited_node.selection,
+			_edited_node.global_transform)
 
 
 ## Return a short operation name for the panel context label.
@@ -816,37 +659,12 @@ func _single_face_dims_text(gbm: GoBuildMesh, face_idx: int, xform: Transform3D)
 func _build_panel_context() -> String:
 	if _edited_node == null or _gizmo_plugin == null:
 		return ""
-	var mode: SelectionManager.Mode = _edited_node.selection.get_mode()
-	if mode == SelectionManager.Mode.OBJECT:
-		return ""
-	var shift: bool = Input.is_key_pressed(KEY_SHIFT)
-	var ctrl:  bool = Input.is_key_pressed(KEY_CTRL)
-	var alt_key: bool = Input.is_key_pressed(KEY_ALT)
-	var tmode := _gizmo_plugin.transform_mode
-	var result: String
-	match tmode:
-		GoBuildGizmoPlugin.TransformMode.ROTATE:
-			result = "■ Snap" if ctrl else "Rotate"
-		GoBuildGizmoPlugin.TransformMode.SCALE:
-			if shift and mode == SelectionManager.Mode.FACE:
-				result = "■ Inset"
-			elif ctrl:
-				result = "■ Snap"
-			else:
-				result = "Scale"
-		_:  # TRANSLATE
-			if alt_key:
-				result = "■ Alt Vertex Snap"
-			elif ctrl:
-				result = "■ Snap"
-			elif shift:
-				match mode:
-					SelectionManager.Mode.FACE: result = "■ Extrude"
-					SelectionManager.Mode.EDGE: result = "■ Extrude Edge"
-					_:                          result = "Move"
-			else:
-				result = "Move"
-	return result
+	return OverlayHintHelper.build_panel_context(
+			_edited_node.selection.get_mode(),
+			_gizmo_plugin.transform_mode,
+			Input.is_key_pressed(KEY_SHIFT),
+			Input.is_key_pressed(KEY_CTRL),
+			Input.is_key_pressed(KEY_ALT))
 
 
 ## Push the current panel context label text to the panel.
