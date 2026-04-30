@@ -710,13 +710,14 @@ func _build_selection_dims() -> String:
 				if idxs.size() == 1:
 					# Single vertex: just show world position.
 					var p: Vector3 = xform * gbm.vertices[idxs[0]]
-					result = "X: %.3fm  Y: %.3fm  Z: %.3fm" % [p.x, p.y, p.z]
+					result = "X: %s  Y: %s  Z: %s" % [_fmt_m(p.x), _fmt_m(p.y), _fmt_m(p.z)]
 				elif idxs.size() == 2:
 					# Two vertices: per-axis distances + total length.
 					var a: Vector3 = xform * gbm.vertices[idxs[0]]
 					var b: Vector3 = xform * gbm.vertices[idxs[1]]
 					var d: Vector3 = (b - a).abs()
-					result = "X: %.3fm  Y: %.3fm  Z: %.3fm  (%.3fm)" % [d.x, d.y, d.z, a.distance_to(b)]
+					result = "X: %s  Y: %s  Z: %s  (%s)" % \
+						[_fmt_m(d.x), _fmt_m(d.y), _fmt_m(d.z), _fmt_m(a.distance_to(b))]
 				else:
 					# 3+ vertices: bounding box.
 					result = _bbox_text(gbm, idxs, xform)
@@ -728,7 +729,7 @@ func _build_selection_dims() -> String:
 					var e: GoBuildEdge = gbm.edges[idxs[0]]
 					var a: Vector3 = xform * gbm.vertices[e.vertex_a]
 					var b: Vector3 = xform * gbm.vertices[e.vertex_b]
-					result = "L: %.3fm" % a.distance_to(b)
+					result = "L: %s" % _fmt_m(a.distance_to(b))
 				else:
 					# Multiple edges: collect all unique vertex indices and show bbox.
 					var vert_set: Dictionary = {}
@@ -742,20 +743,36 @@ func _build_selection_dims() -> String:
 		SelectionManager.Mode.FACE:
 			var idxs: Array[int] = sel.get_selected_faces()
 			if not idxs.is_empty():
-				# Collect all unique vertex indices across selected faces.
-				var vert_set: Dictionary = {}
-				for fi: int in idxs:
-					for vi: int in gbm.faces[fi].vertex_indices:
-						vert_set[vi] = true
-				var verts: Array[int] = []
-				verts.assign(vert_set.keys())
-				result = _bbox_text(gbm, verts, xform)
+				if idxs.size() == 1:
+					# Single face: flat geometry, show W and H only (no depth).
+					result = _single_face_dims_text(gbm, idxs[0], xform)
+				else:
+					# Multiple faces: collect all unique vertex indices and show bbox.
+					var vert_set: Dictionary = {}
+					for fi: int in idxs:
+						for vi: int in gbm.faces[fi].vertex_indices:
+							vert_set[vi] = true
+					var verts: Array[int] = []
+					verts.assign(vert_set.keys())
+					result = _bbox_text(gbm, verts, xform)
 
 	return result
 
 
-## Compute the world-space axis-aligned bounding box of [param vert_indices]
-## and return a formatted "W %.3f  H %.3f  D %.3f" string.
+## Format [param v] as a compact metre string: up to 3 decimal places,
+## trailing zeros stripped. E.g. 1.0 → "1m", 1.5 → "1.5m", 1.234 → "1.234m".
+func _fmt_m(v: float) -> String:
+	var s := "%.3f" % absf(v)
+	var parts := s.split(".")
+	var frac: String = parts[1].rstrip("0")
+	var r: String = ("-" if v < 0.0 else "") + parts[0]
+	if frac.length() > 0:
+		r += "." + frac
+	return r + "m"
+
+
+## Compute the world-space AABB of [param vert_indices] and return a
+## formatted "W: Xm  H: Ym  D: Zm" string.
 func _bbox_text(gbm: GoBuildMesh, vert_indices: Array[int], xform: Transform3D) -> String:
 	var mn := Vector3( INF,  INF,  INF)
 	var mx := Vector3(-INF, -INF, -INF)
@@ -764,7 +781,33 @@ func _bbox_text(gbm: GoBuildMesh, vert_indices: Array[int], xform: Transform3D) 
 		mn = mn.min(p)
 		mx = mx.max(p)
 	var s: Vector3 = mx - mn
-	return "W: %.3fm  H: %.3fm  D: %.3fm" % [s.x, s.y, s.z]
+	return "W: %s  H: %s  D: %s" % [_fmt_m(s.x), _fmt_m(s.y), _fmt_m(s.z)]
+
+
+## Compute W/H for a single face. Drops the near-zero axis-aligned extent so
+## only the two in-plane extents are shown, largest first as W then H.
+## Falls back to W/H/D if all three extents are significant (diagonal face).
+func _single_face_dims_text(gbm: GoBuildMesh, face_idx: int, xform: Transform3D) -> String:
+	var mn := Vector3( INF,  INF,  INF)
+	var mx := Vector3(-INF, -INF, -INF)
+	for vi: int in gbm.faces[face_idx].vertex_indices:
+		var p: Vector3 = xform * gbm.vertices[vi]
+		mn = mn.min(p)
+		mx = mx.max(p)
+	var s: Vector3 = mx - mn
+	const FLAT_THRESHOLD := 0.0001
+	var sig: Array[float] = []
+	if s.x > FLAT_THRESHOLD:
+		sig.append(s.x)
+	if s.y > FLAT_THRESHOLD:
+		sig.append(s.y)
+	if s.z > FLAT_THRESHOLD:
+		sig.append(s.z)
+	sig.sort()
+	sig.reverse()
+	if sig.size() == 2:
+		return "W: %s  H: %s" % [_fmt_m(sig[0]), _fmt_m(sig[1])]
+	return "W: %s  H: %s  D: %s" % [_fmt_m(s.x), _fmt_m(s.y), _fmt_m(s.z)]
 
 
 ## Return a short operation name for the panel context label.
