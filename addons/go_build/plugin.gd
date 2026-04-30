@@ -654,7 +654,9 @@ func _draw_selection_dims(overlay: Control) -> void:
 ## Build a human-readable dimension string for the current selection.
 ## Returns an empty string when in Object mode or nothing is selected.
 func _build_selection_dims() -> String:
-	if _edited_node == null or _edited_node.go_build_mesh == null:
+	if _edited_node == null or not is_instance_valid(_edited_node):
+		return ""
+	if _edited_node.go_build_mesh == null:
 		return ""
 	return SelectionDimsHelper.build(
 			_edited_node.go_build_mesh,

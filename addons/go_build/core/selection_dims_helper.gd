@@ -32,8 +32,12 @@ const FLAT_THRESHOLD: float = 0.0001
 ## places, trailing zeros stripped.
 ## Examples: 1.0 → "1m", 1.5 → "1.5m", 1.234 → "1.234m", -0.5 → "-0.5m".
 static func fmt_m(v: float) -> String:
+	if not is_finite(v):
+		return "?m"
 	var s := "%.3f" % absf(v)
 	var parts := s.split(".")
+	if parts.size() < 2:
+		return str(absf(v)) + "m"
 	var frac: String = parts[1].rstrip("0")
 	var r: String = ("-" if v < 0.0 else "") + parts[0]
 	if frac.length() > 0:
@@ -50,12 +54,18 @@ static func bbox_extents(
 		gbm: GoBuildMesh,
 		vert_indices: Array[int],
 		xform: Transform3D) -> Vector3:
+	if vert_indices.is_empty():
+		return Vector3.ZERO
 	var mn := Vector3( INF,  INF,  INF)
 	var mx := Vector3(-INF, -INF, -INF)
 	for vi: int in vert_indices:
+		if vi < 0 or vi >= gbm.vertices.size():
+			continue
 		var p: Vector3 = xform * gbm.vertices[vi]
 		mn = mn.min(p)
 		mx = mx.max(p)
+	if mn.x == INF:
+		return Vector3.ZERO
 	return mx - mn
 
 
@@ -101,10 +111,14 @@ static func single_face_dims_text(
 
 ## Build a human-readable dimension string for the current selection.
 ## Returns an empty string when nothing is selected or the mode is OBJECT.
+## Safe to call with stale selection indices — out-of-bounds accesses are
+## silently skipped and an empty string is returned.
 static func build(
 		gbm: GoBuildMesh,
 		sel: SelectionManager,
 		xform: Transform3D) -> String:
+	if gbm == null or sel == null:
+		return ""
 	var result := ""
 
 	match sel.get_mode():
@@ -113,9 +127,13 @@ static func build(
 			var idxs: Array[int] = sel.get_selected_vertices()
 			if not idxs.is_empty():
 				if idxs.size() == 1:
+					if idxs[0] >= gbm.vertices.size():
+						return ""
 					var p: Vector3 = xform * gbm.vertices[idxs[0]]
 					result = "X: %s  Y: %s  Z: %s" % [fmt_m(p.x), fmt_m(p.y), fmt_m(p.z)]
 				elif idxs.size() == 2:
+					if idxs[0] >= gbm.vertices.size() or idxs[1] >= gbm.vertices.size():
+						return ""
 					var a: Vector3 = xform * gbm.vertices[idxs[0]]
 					var b: Vector3 = xform * gbm.vertices[idxs[1]]
 					var d: Vector3 = (b - a).abs()
@@ -128,7 +146,11 @@ static func build(
 			var idxs: Array[int] = sel.get_selected_edges()
 			if not idxs.is_empty():
 				if idxs.size() == 1:
+					if idxs[0] >= gbm.edges.size():
+						return ""
 					var e: GoBuildEdge = gbm.edges[idxs[0]]
+					if e.vertex_a >= gbm.vertices.size() or e.vertex_b >= gbm.vertices.size():
+						return ""
 					var a: Vector3 = xform * gbm.vertices[e.vertex_a]
 					var b: Vector3 = xform * gbm.vertices[e.vertex_b]
 					result = "L: %s" % fmt_m(a.distance_to(b))
@@ -145,6 +167,8 @@ static func build(
 			var idxs: Array[int] = sel.get_selected_faces()
 			if not idxs.is_empty():
 				if idxs.size() == 1:
+					if idxs[0] >= gbm.faces.size():
+						return ""
 					result = single_face_dims_text(gbm, idxs[0], xform)
 				else:
 					var vert_set: Dictionary = {}
