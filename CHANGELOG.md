@@ -9,11 +9,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+---
+
+## [0.5.0] — 2026-04-30
+
+### Added
 - Auto UV — Cylindrical projection (`CylindricalProjection`): wraps U around
   the Y axis (0-1 using atan2), V scales with height / units_per_tile.
   Seam correction prevents cross-seam smear on faces that straddle the atan2
   discontinuity.  World-space transform support (same pattern as Box UV).
   Panel button "Cyl UV" in Face section; full undo/redo; 11 unit tests.
+- Auto UV — Spherical projection (`SphericalProjection`): equirectangular
+  lat/lon mapping with seam correction and world-space transform support;
+  panel button "Sphere UV"; 10 unit tests.
+- Selection dimensions overlay in the 3D viewport: live edge length, face
+  width/height, mixed-selection bounding extents, and vertex world-position/
+  delta readouts.
 
 ### Changed
 - Shape creation flow: expanded panel-native pre-commit parameter preview to
@@ -23,11 +39,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Refactor: moved shape preview defaults, parameter schemas, sanitisation, and
   mesh-build dispatch into `ShapeCreationCatalog` so generator-specific creation
   logic is no longer embedded in `GoBuildPanel`.
+- Panel UX refresh: collapsible operation sections fixed and normalized,
+  GoBuild/UV panel flow tightened, material slots show swatches or thumbnails,
+  and new shapes seed slot 0 with the default metre-grid material.
+- Edit flow consistency: switching between GoBuild meshes now preserves active
+  edit mode instead of dropping back to Object mode.
 
 ### Fixed
 - Dock title regression: GoBuild panel tab now keeps the name `GoBuild` when
   wrapped in a `ScrollContainer` (instead of showing generated names like
   `@ScrollContainer@...`).
+- Selection correctness: face picking now respects front-mesh occlusion, which
+  prevents selecting faces through geometry behind the clicked mesh.
+- Gizmo cleanup: stale selection overlays no longer remain on a previously
+  edited mesh when switching to a different target.
+- Material-slot tooltip formatting crash fixed (GDScript `%` precedence bug).
+- Panel tests: restored compatibility shims for legacy panel helper methods and
+  moved settings selection flow to a headless-safe button path.
 
 ---
 
