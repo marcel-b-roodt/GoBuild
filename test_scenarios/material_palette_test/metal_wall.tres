@@ -1,0 +1,6 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://ck57phxhhyl85"]
+
+[ext_resource type="Texture2D" uid="uid://ddhgk66spfxcf" path="res://test_scenarios/material_palette_test/metal_wall.png" id="1_i5lwa"]
+
+[resource]
+albedo_texture = ExtResource("1_i5lwa")

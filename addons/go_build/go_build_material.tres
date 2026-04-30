@@ -1,0 +1,6 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://cntqkyfsxy3lm"]
+
+[ext_resource type="Texture2D" uid="uid://feioe34cxp8f" path="res://addons/go_build/go_build_metre_texture.png" id="1_ot1av"]
+
+[resource]
+albedo_texture = ExtResource("1_ot1av")
