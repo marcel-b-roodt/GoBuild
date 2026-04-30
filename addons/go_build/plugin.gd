@@ -330,6 +330,7 @@ func _edit(object: Object) -> void:
 		_edited_node.selection.selection_changed.connect(_on_selection_changed)
 		_edited_node.selection.mode_changed.connect(_on_mode_changed)
 		_edited_node.tree_exiting.connect(_on_edited_node_removed)
+		_edited_node.mesh_changed.connect(_on_mesh_changed)
 		_force_gizmo_redraw_deferred(_edited_node)
 		if _gizmo_plugin:
 			remove_node_3d_gizmo_plugin(_gizmo_plugin)
@@ -709,6 +710,10 @@ func _on_selection_changed() -> void:
 		_uv_panel.refresh()
 
 
+func _on_mesh_changed() -> void:
+	update_overlays()
+
+
 func _on_snap_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
@@ -761,6 +766,8 @@ func _disconnect_node_signals() -> void:
 		_edited_node.selection.mode_changed.disconnect(_on_mode_changed)
 	if _edited_node.tree_exiting.is_connected(_on_edited_node_removed):
 		_edited_node.tree_exiting.disconnect(_on_edited_node_removed)
+	if _edited_node.mesh_changed.is_connected(_on_mesh_changed):
+		_edited_node.mesh_changed.disconnect(_on_mesh_changed)
 
 
 # ---------------------------------------------------------------------------

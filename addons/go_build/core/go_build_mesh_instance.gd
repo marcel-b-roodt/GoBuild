@@ -163,6 +163,7 @@ func bake_vertex_positions() -> void:
 		return
 	for si: int in buffers.size():
 		am.surface_update_vertex_region(si, 0, buffers[si])
+	mesh_changed.emit()
 
 
 ## Apply [param operation] (a [Callable] that mutates [member go_build_mesh]),
