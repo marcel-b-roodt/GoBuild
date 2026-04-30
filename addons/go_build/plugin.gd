@@ -710,13 +710,13 @@ func _build_selection_dims() -> String:
 				if idxs.size() == 1:
 					# Single vertex: just show world position.
 					var p: Vector3 = xform * gbm.vertices[idxs[0]]
-					result = "%.3f, %.3f, %.3f" % [p.x, p.y, p.z]
+					result = "X: %.3fm  Y: %.3fm  Z: %.3fm" % [p.x, p.y, p.z]
 				elif idxs.size() == 2:
 					# Two vertices: per-axis distances + total length.
 					var a: Vector3 = xform * gbm.vertices[idxs[0]]
 					var b: Vector3 = xform * gbm.vertices[idxs[1]]
 					var d: Vector3 = (b - a).abs()
-					result = "dx %.3f  dy %.3f  dz %.3f  (%.3f)" % [d.x, d.y, d.z, a.distance_to(b)]
+					result = "X: %.3fm  Y: %.3fm  Z: %.3fm  (%.3fm)" % [d.x, d.y, d.z, a.distance_to(b)]
 				else:
 					# 3+ vertices: bounding box.
 					result = _bbox_text(gbm, idxs, xform)
@@ -728,7 +728,7 @@ func _build_selection_dims() -> String:
 					var e: GoBuildEdge = gbm.edges[idxs[0]]
 					var a: Vector3 = xform * gbm.vertices[e.vertex_a]
 					var b: Vector3 = xform * gbm.vertices[e.vertex_b]
-					result = "L %.3f" % a.distance_to(b)
+					result = "L: %.3fm" % a.distance_to(b)
 				else:
 					# Multiple edges: collect all unique vertex indices and show bbox.
 					var vert_set: Dictionary = {}
@@ -764,7 +764,7 @@ func _bbox_text(gbm: GoBuildMesh, vert_indices: Array[int], xform: Transform3D) 
 		mn = mn.min(p)
 		mx = mx.max(p)
 	var s: Vector3 = mx - mn
-	return "W %.3f  H %.3f  D %.3f" % [s.x, s.y, s.z]
+	return "W: %.3fm  H: %.3fm  D: %.3fm" % [s.x, s.y, s.z]
 
 
 ## Return a short operation name for the panel context label.
