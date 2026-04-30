@@ -348,24 +348,28 @@ func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 			if _vertex_drawer  != null: _vertex_drawer.set_open(false)
 			if _edge_drawer    != null: _edge_drawer.set_open(false)
 			if _face_drawer    != null: _face_drawer.set_open(false)
+			if _uv_drawer	   != null: _uv_drawer.set_open(false)
 			if _surface_drawer != null: _surface_drawer.set_open(false)
 		SelectionManager.Mode.VERTEX:
 			if _create_drawer  != null: _create_drawer.set_open(false)
 			if _vertex_drawer  != null: _vertex_drawer.set_open(true)
 			if _edge_drawer    != null: _edge_drawer.set_open(false)
 			if _face_drawer    != null: _face_drawer.set_open(false)
+			if _uv_drawer	   != null: _uv_drawer.set_open(false)
 			if _surface_drawer != null: _surface_drawer.set_open(false)
 		SelectionManager.Mode.EDGE:
 			if _create_drawer  != null: _create_drawer.set_open(false)
 			if _vertex_drawer  != null: _vertex_drawer.set_open(false)
 			if _edge_drawer    != null: _edge_drawer.set_open(true)
 			if _face_drawer    != null: _face_drawer.set_open(false)
+			if _uv_drawer	   != null: _uv_drawer.set_open(false)
 			if _surface_drawer != null: _surface_drawer.set_open(false)
 		SelectionManager.Mode.FACE:
 			if _create_drawer  != null: _create_drawer.set_open(false)
 			if _vertex_drawer  != null: _vertex_drawer.set_open(false)
 			if _edge_drawer    != null: _edge_drawer.set_open(false)
 			if _face_drawer    != null: _face_drawer.set_open(true)
+			if _uv_drawer	   != null: _uv_drawer.set_open(true)
 			if _surface_drawer != null: _surface_drawer.set_open(true)
 
 

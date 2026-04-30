@@ -407,6 +407,7 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 		_draw_param_preview_hint(overlay)
 	else:
 		_draw_mode_hint(overlay)
+	_draw_selection_dims(overlay)
 
 
 func _handle_keyboard(event: InputEvent) -> int:
@@ -670,6 +671,100 @@ func _build_overlay_hint() -> String:
 	if hints.is_empty():
 		return "%s  ·  %s" % [mode_label, op]
 	return "%s  ·  %s    %s" % [mode_label, op, "  ".join(hints)]
+
+
+## Draw the selection dimensions label in the bottom-right of the overlay.
+## Shows edge length (single edge), or bounding-box extents (multi-select or faces),
+## or vertex distance / bounding-box extents (vertex selection).
+func _draw_selection_dims(overlay: Control) -> void:
+	var text: String = _build_selection_dims()
+	if text.is_empty():
+		return
+	var font: Font = ThemeDB.fallback_font
+	var fsize: int = 12
+	var m: float   = 8.0
+	# Measure width so we can right-align without a RichTextLabel node.
+	var w: float = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
+	var pos := Vector2(overlay.size.x - w - m, overlay.size.y - m)
+	overlay.draw_string(font, pos + Vector2(1.0, 1.0), text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+	overlay.draw_string(font, pos, text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 1.0, 0.65, 0.90))
+
+
+## Build a human-readable dimension string for the current selection.
+## Returns an empty string when in Object mode or nothing is selected.
+func _build_selection_dims() -> String:
+	if _edited_node == null or _edited_node.go_build_mesh == null:
+		return ""
+	var gbm: GoBuildMesh = _edited_node.go_build_mesh
+	var sel: SelectionManager = _edited_node.selection
+	var xform: Transform3D = _edited_node.global_transform
+	var result := ""
+
+	match sel.get_mode():
+
+		SelectionManager.Mode.VERTEX:
+			var idxs: Array[int] = sel.get_selected_vertices()
+			if not idxs.is_empty():
+				if idxs.size() == 1:
+					# Single vertex: just show world position.
+					var p: Vector3 = xform * gbm.vertices[idxs[0]]
+					result = "%.3f, %.3f, %.3f" % [p.x, p.y, p.z]
+				elif idxs.size() == 2:
+					# Two vertices: per-axis distances + total length.
+					var a: Vector3 = xform * gbm.vertices[idxs[0]]
+					var b: Vector3 = xform * gbm.vertices[idxs[1]]
+					var d: Vector3 = (b - a).abs()
+					result = "dx %.3f  dy %.3f  dz %.3f  (%.3f)" % [d.x, d.y, d.z, a.distance_to(b)]
+				else:
+					# 3+ vertices: bounding box.
+					result = _bbox_text(gbm, idxs, xform)
+
+		SelectionManager.Mode.EDGE:
+			var idxs: Array[int] = sel.get_selected_edges()
+			if not idxs.is_empty():
+				if idxs.size() == 1:
+					var e: GoBuildEdge = gbm.edges[idxs[0]]
+					var a: Vector3 = xform * gbm.vertices[e.vertex_a]
+					var b: Vector3 = xform * gbm.vertices[e.vertex_b]
+					result = "L %.3f" % a.distance_to(b)
+				else:
+					# Multiple edges: collect all unique vertex indices and show bbox.
+					var vert_set: Dictionary = {}
+					for ei: int in idxs:
+						vert_set[gbm.edges[ei].vertex_a] = true
+						vert_set[gbm.edges[ei].vertex_b] = true
+					var verts: Array[int] = []
+					verts.assign(vert_set.keys())
+					result = _bbox_text(gbm, verts, xform)
+
+		SelectionManager.Mode.FACE:
+			var idxs: Array[int] = sel.get_selected_faces()
+			if not idxs.is_empty():
+				# Collect all unique vertex indices across selected faces.
+				var vert_set: Dictionary = {}
+				for fi: int in idxs:
+					for vi: int in gbm.faces[fi].vertex_indices:
+						vert_set[vi] = true
+				var verts: Array[int] = []
+				verts.assign(vert_set.keys())
+				result = _bbox_text(gbm, verts, xform)
+
+	return result
+
+
+## Compute the world-space axis-aligned bounding box of [param vert_indices]
+## and return a formatted "W %.3f  H %.3f  D %.3f" string.
+func _bbox_text(gbm: GoBuildMesh, vert_indices: Array[int], xform: Transform3D) -> String:
+	var mn := Vector3( INF,  INF,  INF)
+	var mx := Vector3(-INF, -INF, -INF)
+	for vi: int in vert_indices:
+		var p: Vector3 = xform * gbm.vertices[vi]
+		mn = mn.min(p)
+		mx = mx.max(p)
+	var s: Vector3 = mx - mn
+	return "W %.3f  H %.3f  D %.3f" % [s.x, s.y, s.z]
 
 
 ## Return a short operation name for the panel context label.

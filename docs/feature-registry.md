@@ -121,6 +121,8 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Surface snap | 📋 Planned | Snap to other mesh surfaces |
 | World vertex snap | 📋 Planned | Snap selected elements to vertices on other meshes in the scene (extends V-modifier snap which targets the active mesh only) |
 | Pivot tool | 📋 Planned | Reposition mesh origin |
+| Mesh split / separate | 📋 Planned | Extract selected faces into a new GoBuildMeshInstance; original loses those faces; full undo/redo |
+| Mesh cut / seam split | 📋 Planned | Split mesh at seam edges so disconnected geometry becomes separate objects |
 
 ---
 
