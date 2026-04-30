@@ -23,7 +23,6 @@ const _AUTO_SMOOTH_SCRIPT := \
 const _HARD_EDGE_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/hard_edge_operation.gd")
 const _DELETE_SCRIPT   := preload("res://addons/go_build/mesh/operations/delete_operation.gd")
-const _WELD_SCRIPT          := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
 const _EDGE_EXTRUDE_SCRIPT := \
 		preload("res://addons/go_build/mesh/operations/edge_extrude_operation.gd")
 const _BEVEL_SCRIPT := \
@@ -50,6 +49,8 @@ const _MATERIALS_DRAWER_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_materials_drawer.gd")
 const _UV_DRAWER_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_uv_drawer.gd")
+const _VERTEX_DRAWER_SCRIPT := \
+		preload("res://addons/go_build/core/go_build_vertex_drawer.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
@@ -83,21 +84,19 @@ var _hard_edge_btn: Button     = null
 var _soft_edge_btn: Button     = null
 var _loop_cut_btn: Button      = null
 var _delete_btn: Button        = null
-var _merge_btn: Button         = null
-var _weld_btn: Button          = null
 var _cull_check: CheckBox      = null
 var _auto_uv_option: OptionButton = null
 var _shape_preview: GoBuildShapePreview = null
 
-## Collapsible section drawers. [0] = header Button, [1] = content VBoxContainer.
+## Collapsible section drawers (Array-style). [0] = header Button, [1] = content VBoxContainer.
 var _drawer_create:  Array = []
-var _drawer_vertex:  Array = []
 var _drawer_edge:    Array = []
 var _drawer_face:    Array = []
 var _drawer_surface: Array = []
 var _drawer_general: Array = []
 
 ## Extracted subcomponent drawers.
+var _vertex_drawer:    GoBuildVertexDrawer    = null
 var _materials_drawer: GoBuildMaterialsDrawer = null
 var _uv_drawer:        GoBuildUvDrawer        = null
 
@@ -118,6 +117,8 @@ var _plugin: EditorPlugin = null
 ## Required so [method _insert_shape] can access [method EditorPlugin.get_undo_redo].
 func set_plugin(plugin: EditorPlugin) -> void:
 	_plugin = plugin
+	if _vertex_drawer != null:
+		_vertex_drawer.set_plugin(plugin)
 	if _materials_drawer != null:
 		_materials_drawer.set_plugin(plugin)
 	if _uv_drawer != null:
@@ -213,25 +214,9 @@ func _ready() -> void:
 	_drawer_create[1].add_child(_shape_preview)
 
 	# ── Modelling Operations ──────────────────────────────────────────────
-	# Operations are grouped by the edit mode they require.
-	_drawer_vertex = _make_drawer("Vertex")
-	var vert_grid := GridContainer.new()
-	vert_grid.columns = 2
-	_drawer_vertex[1].add_child(vert_grid)
-
-	_merge_btn = _op_button("Merge",
-		"Merge selected vertices to their centroid (M).\n"
-		+ "Requires Vertex mode with ≥2 vertices selected.")
-	_merge_btn.pressed.connect(_on_merge_pressed)
-	vert_grid.add_child(_merge_btn)
-	_register_op(_merge_btn, _cond_vertex_merge)
-
-	_weld_btn = _op_button("Weld",
-		"Merge all vertices within 0.0001 units (Merge by Distance).\n"
-		+ "Requires Vertex mode.")
-	_weld_btn.pressed.connect(_on_weld_pressed)
-	vert_grid.add_child(_weld_btn)
-	_register_op(_weld_btn, _cond_vertex_any)
+	# Vertex
+	_vertex_drawer = GoBuildVertexDrawer.new()
+	add_child(_vertex_drawer)
 
 	_drawer_edge = _make_drawer("Edge")
 	var edge_grid := GridContainer.new()
@@ -524,6 +509,8 @@ func set_target(target: GoBuildMeshInstance) -> void:
 		_target.mesh_changed.disconnect(_refresh)
 
 	_target = target
+	if _vertex_drawer != null:
+		_vertex_drawer.set_target(target)
 	if _materials_drawer != null:
 		_materials_drawer.set_target(target)
 	if _uv_drawer != null:
@@ -580,14 +567,16 @@ func trigger_delete() -> void:
 ## context menu) to merge the current vertex selection.
 ## Equivalent to pressing the Merge panel button.
 func trigger_merge() -> void:
-	_on_merge_pressed()
+	if _vertex_drawer != null:
+		_vertex_drawer.trigger_merge()
 
 
 ## Called by external code (e.g. the right-click context menu)
 ## to weld (merge by distance) vertices in the current mesh.
 ## Equivalent to pressing the Weld panel button.
 func trigger_weld() -> void:
-	_on_weld_pressed()
+	if _vertex_drawer != null:
+		_vertex_drawer.trigger_weld()
 
 
 ## Called by external code (e.g. the right-click context menu)
@@ -806,16 +795,19 @@ func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 	match new_mode:
 		SelectionManager.Mode.OBJECT:
 			open_set  = [_drawer_create]
-			close_set = [_drawer_vertex, _drawer_edge, _drawer_face, _drawer_surface]
+			close_set = [_drawer_edge, _drawer_face, _drawer_surface]
+			if _vertex_drawer != null: _vertex_drawer.set_open(false)
 		SelectionManager.Mode.VERTEX:
-			open_set  = [_drawer_vertex]
+			if _vertex_drawer != null: _vertex_drawer.set_open(true)
 			close_set = [_drawer_edge, _drawer_face, _drawer_surface]
 		SelectionManager.Mode.EDGE:
 			open_set  = [_drawer_edge]
-			close_set = [_drawer_vertex, _drawer_face, _drawer_surface]
+			close_set = [_drawer_face, _drawer_surface]
+			if _vertex_drawer != null: _vertex_drawer.set_open(false)
 		SelectionManager.Mode.FACE:
 			open_set  = [_drawer_face, _drawer_surface]
-			close_set = [_drawer_vertex, _drawer_edge]
+			close_set = [_drawer_edge]
+			if _vertex_drawer != null: _vertex_drawer.set_open(false)
 	for d: Array in open_set:
 		_open_drawer(d)
 	for d: Array in close_set:
@@ -905,19 +897,6 @@ func _register_op(btn: Button, condition: Callable) -> void:
 	_op_entries.append({"button": btn, "condition": condition})
 
 
-## [code]true[/code] when Vertex mode is active and ≥2 vertices are selected.
-func _cond_vertex_merge() -> bool:
-	return _target != null \
-			and _target.selection.get_mode() == SelectionManager.Mode.VERTEX \
-			and _target.selection.get_selected_vertices().size() >= 2
-
-
-## [code]true[/code] when Vertex mode is active (selection may be empty).
-func _cond_vertex_any() -> bool:
-	return _target != null \
-			and _target.selection.get_mode() == SelectionManager.Mode.VERTEX
-
-
 ## [code]true[/code] when Edge mode is active and ≥1 edge is selected.
 func _cond_edge_any() -> bool:
 	return _target != null \
@@ -994,6 +973,8 @@ func _cond_any_selection() -> bool:
 func _update_ops_buttons() -> void:
 	for entry in _op_entries:
 		entry.button.disabled = not entry.condition.call()
+	if _vertex_drawer != null:
+		_vertex_drawer.refresh_buttons()
 	if _materials_drawer != null:
 		_materials_drawer.refresh_buttons()
 	if _uv_drawer != null:
@@ -1339,34 +1320,6 @@ func _get_plugin_version() -> String:
 	var version: Variant = cfg.get_value("plugin", "version", "unknown")
 	return str(version)
 
-
-## Merge selected vertices to their centroid.
-## Requires Vertex mode and at least 2 selected vertices.
-## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
-func _on_merge_pressed() -> void:
-	if _target == null or _plugin == null:
-		return
-	if _target.selection.get_mode() != SelectionManager.Mode.VERTEX:
-		return
-	var sel_verts: Array[int] = _target.selection.get_selected_vertices()
-	if sel_verts.size() < 2:
-		return
-	var to_merge: Array[int] = []
-	to_merge.assign(sel_verts)
-	_run_op("Merge Vertices",
-			func(): WeldOperation.apply_merge(_target.go_build_mesh, to_merge))
-
-
-## Weld all vertices within 0.0001 units of each other (Merge by Distance).
-## Requires Vertex mode.
-## Pushes a single undo/redo action via [method GoBuildMeshInstance.apply_operation].
-func _on_weld_pressed() -> void:
-	if _target == null or _plugin == null:
-		return
-	if _target.selection.get_mode() != SelectionManager.Mode.VERTEX:
-		return
-	_run_op("Weld Vertices",
-			func(): WeldOperation.apply_weld_by_threshold(_target.go_build_mesh))
 
 
 ## Public entry-point for keyboard shortcut or context-menu trigger.

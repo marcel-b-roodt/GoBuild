@@ -4,32 +4,35 @@
 ## materials, and the live slot preview list.
 ##
 ## Drop it into any VBoxContainer with [method add_child].  After adding, call
-## [method set_plugin] and [method set_project_settings] once, then call
-## [method set_target] whenever the selected [GoBuildMeshInstance] changes.
+## [method GoBuildDrawer.set_plugin] and [method set_project_settings] once,
+## then call [method GoBuildDrawer.set_target] whenever the selected
+## [GoBuildMeshInstance] changes.
 ##
 ## The owning panel is responsible for calling [method refresh] on
-## mesh-changed events and [method refresh_buttons] on selection-changed events.
+## mesh-changed events and [method GoBuildDrawer.refresh_buttons] on
+## selection-changed events.
 @tool
 class_name GoBuildMaterialsDrawer
-extends VBoxContainer
+extends GoBuildDrawer
 
 # Self-preloads — dependency order.
-const _SEL_MGR_SCRIPT    := preload("res://addons/go_build/core/selection_manager.gd")
-const _MESH_INST_SCRIPT  := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
-const _MATERIALS_SCRIPT  := preload("res://addons/go_build/core/go_build_materials.gd")
-const _MAT_ASSIGN_SCRIPT := \
+# GoBuildDrawer already preloads SelectionManager and GoBuildMeshInstance, but
+# both are required here too since this file is compiled independently.
+const _SEL_MGR_SCRIPT_M   := preload("res://addons/go_build/core/selection_manager.gd")
+const _MESH_INST_SCRIPT_M := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+const _DRAWER_SCRIPT_M    := preload("res://addons/go_build/core/go_build_drawer.gd")
+const _MATERIALS_SCRIPT   := preload("res://addons/go_build/core/go_build_materials.gd")
+const _MAT_ASSIGN_SCRIPT  := \
 		preload("res://addons/go_build/mesh/operations/material_assign_operation.gd")
-const _PALETTE_SCRIPT    := \
+const _PALETTE_SCRIPT     := \
 		preload("res://addons/go_build/core/go_build_material_palette.gd")
-const _SETTINGS_SCRIPT   := \
+const _SETTINGS_SCRIPT    := \
 		preload("res://addons/go_build/core/go_build_project_settings.gd")
 
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 
-var _plugin: EditorPlugin                  = null
-var _target: GoBuildMeshInstance           = null
 var _project_settings: GoBuildProjectSettings = null
 
 # UI widgets
@@ -43,9 +46,6 @@ var _qs_checker_btn:      Button               = null
 var _qs_white_btn:        Button               = null
 var _qs_grey_btn:         Button               = null
 
-## Registry of [Button] → [Callable] condition pairs.
-var _op_entries: Array = []
-
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -53,12 +53,12 @@ var _op_entries: Array = []
 
 ## Provide the owning [EditorPlugin] so operations can access [method EditorPlugin.get_undo_redo].
 func set_plugin(plugin: EditorPlugin) -> void:
-	_plugin = plugin
+	super.set_plugin(plugin)
 
 
 ## Point the drawer at a new mesh instance (or [code]null[/code] to clear).
 func set_target(target: GoBuildMeshInstance) -> void:
-	_target = target
+	super.set_target(target)
 
 
 ## Update the active project settings and reconnect change signals.
@@ -82,41 +82,16 @@ func refresh() -> void:
 	_rebuild_mat_palette()
 
 
-## Lightweight refresh: update button enabled/disabled states only.
-## Call this on selection-changed events where the slot list has not changed.
-func refresh_buttons() -> void:
-	for entry in _op_entries:
-		entry.button.disabled = not entry.condition.call()
-
-
 # ---------------------------------------------------------------------------
 # UI construction
 # ---------------------------------------------------------------------------
 
 func _ready() -> void:
-	# Drawer header — mirrors _make_drawer() on GoBuildPanel exactly.
-	var btn := Button.new()
-	btn.text = "\u25b6  Materials"
-	btn.toggle_mode = true
-	btn.button_pressed = false
-	btn.flat = true
-	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.add_theme_font_size_override("font_size", 11)
-	add_child(btn)
-
-	var ctn := VBoxContainer.new()
-	ctn.visible = false
-	add_child(ctn)
-
-	btn.toggled.connect(func(pressed: bool) -> void:
-		ctn.visible = pressed
-		btn.text = ("\u25bc  " if pressed else "\u25b6  ") + "Materials"
-	)
+	_setup_drawer("Materials")
 
 	# ── Settings resource picker ─────────────────────────────────────────
 	var settings_row := HBoxContainer.new()
-	ctn.add_child(settings_row)
+	_content.add_child(settings_row)
 
 	var settings_lbl := Label.new()
 	settings_lbl.text = "Settings:"
@@ -136,7 +111,7 @@ func _ready() -> void:
 
 	# ── Palette row ──────────────────────────────────────────────────────
 	var pal_row := HBoxContainer.new()
-	ctn.add_child(pal_row)
+	_content.add_child(pal_row)
 
 	var pal_lbl := Label.new()
 	pal_lbl.text = "Palette:"
@@ -171,7 +146,7 @@ func _ready() -> void:
 	# ── Slot assignment ──────────────────────────────────────────────────
 	var mat_grid := GridContainer.new()
 	mat_grid.columns = 2
-	ctn.add_child(mat_grid)
+	_content.add_child(mat_grid)
 
 	var slot_lbl := Label.new()
 	slot_lbl.text = "Slot:"
@@ -203,11 +178,11 @@ func _ready() -> void:
 	qs_lbl.text = "Quicksets:"
 	qs_lbl.add_theme_font_size_override("font_size", 11)
 	qs_lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	ctn.add_child(qs_lbl)
+	_content.add_child(qs_lbl)
 
 	var qs_grid := GridContainer.new()
 	qs_grid.columns = 3
-	ctn.add_child(qs_grid)
+	_content.add_child(qs_grid)
 
 	_qs_checker_btn = _op_button("Checker",
 		"Apply a procedural B&W checker material to selected faces.\n"
@@ -236,46 +211,11 @@ func _ready() -> void:
 	slots_hdr.text = "Slots:"
 	slots_hdr.add_theme_font_size_override("font_size", 11)
 	slots_hdr.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	ctn.add_child(slots_hdr)
+	_content.add_child(slots_hdr)
 
 	_mat_palette_vbox = VBoxContainer.new()
 	_mat_palette_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ctn.add_child(_mat_palette_vbox)
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-func _op_button(text: String, tooltip: String) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_font_size_override("font_size", 11)
-	b.tooltip_text = tooltip
-	b.disabled = true
-	return b
-
-
-func _register_op(b: Button, condition: Callable) -> void:
-	_op_entries.append({"button": b, "condition": condition})
-
-
-## Run [param op_callable] as a single undo/redo action, then update gizmos.
-## The owning panel's [method _refresh] is driven by the mesh_changed signal
-## that [method GoBuildMeshInstance.bake] emits, so no explicit refresh call
-## is needed here.
-func _run_op(
-		action_name: String,
-		op_callable: Callable,
-		clear_selection: bool = true,
-) -> void:
-	if _target == null or _plugin == null:
-		return
-	_target.apply_operation(action_name, op_callable, _plugin.get_undo_redo())
-	if clear_selection:
-		_target.selection.clear()
-	_target.update_gizmos()
+	_content.add_child(_mat_palette_vbox)
 
 
 # ---------------------------------------------------------------------------

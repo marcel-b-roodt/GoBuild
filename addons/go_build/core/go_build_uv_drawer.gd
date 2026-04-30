@@ -1,35 +1,35 @@
-## Self-contained Face UV operations drawer for the GoBuild editor panel.
+## Face UV operations drawer for the GoBuild editor panel.
 ##
 ## Hosts the four UV-projection buttons (Planar, Box, Cylindrical, Spherical)
 ## and the param-box used for live previewing scale, offset, and seam rotation.
 ##
 ## Drop into any VBoxContainer with [method add_child].  After adding, call
-## [method set_plugin] once and [method set_target] whenever the selected
-## [GoBuildMeshInstance] changes.
+## [method GoBuildDrawer.set_plugin] once and [method GoBuildDrawer.set_target]
+## whenever the selected [GoBuildMeshInstance] changes.
 ##
 ## Call [method cancel_preview] before switching targets so the snapshot is
 ## restored cleanly.  The owning panel drives button-state updates by calling
-## [method refresh_buttons] on selection-changed events.
+## [method GoBuildDrawer.refresh_buttons] on selection-changed events.
 @tool
 class_name GoBuildUvDrawer
-extends VBoxContainer
+extends GoBuildDrawer
 
 # Self-preloads — dependency order.
-const _SEL_MGR_SCRIPT   := preload("res://addons/go_build/core/selection_manager.gd")
-const _MESH_INST_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
-const _FACE_SCRIPT      := preload("res://addons/go_build/mesh/go_build_face.gd")
-const _UV_PB_SCRIPT     := preload("res://addons/go_build/core/go_build_uv_param_box.gd")
-const _PLANAR_SCRIPT    := preload("res://addons/go_build/uv/planar_projection.gd")
-const _BOX_SCRIPT       := preload("res://addons/go_build/uv/box_projection.gd")
-const _CYL_SCRIPT       := preload("res://addons/go_build/uv/cylindrical_projection.gd")
-const _SPH_SCRIPT       := preload("res://addons/go_build/uv/spherical_projection.gd")
+# GoBuildDrawer already preloads SelectionManager and GoBuildMeshInstance, but
+# both are required here too since this file is compiled independently.
+const _SEL_MGR_SCRIPT_U  := preload("res://addons/go_build/core/selection_manager.gd")
+const _MESH_INST_SCRIPT_U := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+const _DRAWER_SCRIPT_U   := preload("res://addons/go_build/core/go_build_drawer.gd")
+const _FACE_SCRIPT       := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _UV_PB_SCRIPT      := preload("res://addons/go_build/core/go_build_uv_param_box.gd")
+const _PLANAR_SCRIPT     := preload("res://addons/go_build/uv/planar_projection.gd")
+const _BOX_SCRIPT        := preload("res://addons/go_build/uv/box_projection.gd")
+const _CYL_SCRIPT        := preload("res://addons/go_build/uv/cylindrical_projection.gd")
+const _SPH_SCRIPT        := preload("res://addons/go_build/uv/spherical_projection.gd")
 
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
-
-var _plugin: EditorPlugin        = null
-var _target: GoBuildMeshInstance = null
 
 # UV param-box widget — shown during a live preview.
 var _uv_param_box: GoBuildUvParamBox = null
@@ -47,24 +47,9 @@ var _box_uv_btn:         Button = null
 var _cylindrical_uv_btn: Button = null
 var _spherical_uv_btn:   Button = null
 
-## Registry of [Button] → [Callable] condition pairs.
-var _op_entries: Array = []
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-
-## Provide the owning [EditorPlugin] for undo/redo access.
-func set_plugin(plugin: EditorPlugin) -> void:
-	_plugin = plugin
-
-
-## Point the drawer at a new mesh instance (or [code]null[/code] to clear).
-## Does NOT cancel an active preview — call [method cancel_preview] first.
-func set_target(target: GoBuildMeshInstance) -> void:
-	_target = target
-
 
 ## Cancel any active UV param preview and restore the mesh snapshot.
 ## Must be called before [method set_target] when switching to a different node.
@@ -80,13 +65,6 @@ func cancel_preview() -> void:
 		_target.bake()
 	_uv_preview_snapshot = {}
 	_uv_preview_faces    = []
-
-
-## Update button enabled/disabled states based on current target and selection.
-## Call on selection-changed events.
-func refresh_buttons() -> void:
-	for entry in _op_entries:
-		entry.button.disabled = not entry.condition.call()
 
 
 # ---------------------------------------------------------------------------
@@ -118,29 +96,11 @@ func trigger_spherical_uv() -> void:
 # ---------------------------------------------------------------------------
 
 func _ready() -> void:
-	# Drawer header — mirrors _make_drawer() on GoBuildPanel exactly.
-	var btn := Button.new()
-	btn.text = "\u25b6  Face UV"
-	btn.toggle_mode = true
-	btn.button_pressed = false
-	btn.flat = true
-	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.add_theme_font_size_override("font_size", 11)
-	add_child(btn)
-
-	var ctn := VBoxContainer.new()
-	ctn.visible = false
-	add_child(ctn)
-
-	btn.toggled.connect(func(pressed: bool) -> void:
-		ctn.visible = pressed
-		btn.text = ("\u25bc  " if pressed else "\u25b6  ") + "Face UV"
-	)
+	_setup_drawer("Face UV")
 
 	var grid := GridContainer.new()
 	grid.columns = 2
-	ctn.add_child(grid)
+	_content.add_child(grid)
 
 	const _TILE: float = 1.0
 
@@ -185,41 +145,7 @@ func _ready() -> void:
 	_uv_param_box.params_changed.connect(_on_uv_params_preview)
 	_uv_param_box.apply_requested.connect(_on_uv_params_apply)
 	_uv_param_box.cancelled.connect(_on_uv_params_cancelled)
-	ctn.add_child(_uv_param_box)
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-func _op_button(text: String, tooltip: String) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_font_size_override("font_size", 11)
-	b.tooltip_text = tooltip
-	b.disabled = true
-	return b
-
-
-func _register_op(b: Button, condition: Callable) -> void:
-	_op_entries.append({"button": b, "condition": condition})
-
-
-## Run [param op_callable] as a single undo/redo action, then update gizmos.
-## The owning panel's refresh is driven by the mesh_changed signal that
-## [method GoBuildMeshInstance.bake] emits — no explicit refresh needed here.
-func _run_op(
-		action_name: String,
-		op_callable: Callable,
-		clear_selection: bool = true,
-) -> void:
-	if _target == null or _plugin == null:
-		return
-	_target.apply_operation(action_name, op_callable, _plugin.get_undo_redo())
-	if clear_selection:
-		_target.selection.clear()
-	_target.update_gizmos()
+	_content.add_child(_uv_param_box)
 
 
 # ---------------------------------------------------------------------------
