@@ -12,12 +12,12 @@ const _OP_SCRIPT   := preload("res://addons/go_build/mesh/operations/hard_edge_o
 
 ## Returns a two-face mesh sharing vertex indices 0 and 1 (shared edge).
 ##
-## Face A (index 0): quad in the XY plane, normal +Z.
-##   Vertex order (CCW from +Z): [3, 2, 1, 0]
+## Face A (index 0): quad in the XY plane, normal -Z.
+##   Vertex order (CCW from -Z): [3, 2, 1, 0]
 ##     v0=(0,0,0)  v1=(1,0,0)  v2=(1,1,0)  v3=(0,1,0)
 ##
-## Face B (index 1): quad in the XZ plane, normal +Y (verified below).
-##   Vertex order (CCW from +Y): [0, 1, 5, 4]
+## Face B (index 1): quad in the XZ plane, normal -Y (verified below).
+##   Vertex order (CCW from -Y): [0, 1, 5, 4]
 ##     v0=(0,0,0)  v1=(1,0,0)  v4=(0,0,1)  v5=(1,0,1)
 ##
 ## The mesh is pre-rebuilt so edges and coincident_groups are populated.
@@ -31,13 +31,13 @@ func _make_two_face_mesh() -> GoBuildMesh:
 		Vector3(0.0, 0.0, 1.0),  # 4 — face B only
 		Vector3(1.0, 0.0, 1.0),  # 5 — face B only
 	]
-	# Face A: CCW from +Z → normal +Z.
+	# Face A: CCW from -Z → normal -Z.
 	var face_a := GoBuildFace.new()
 	face_a.vertex_indices = [3, 2, 1, 0]
 	face_a.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
 	face_a.smooth_group = 1
 	mesh.faces.append(face_a)
-	# Face B: CCW from +Y → normal +Y.
+	# Face B: CCW from -Y → normal -Y.
 	var face_b := GoBuildFace.new()
 	face_b.vertex_indices = [0, 1, 5, 4]
 	face_b.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
@@ -139,8 +139,8 @@ func test_hard_flag_survives_rebuild_edges() -> void:
 # Bake pipeline: normal seam
 # ---------------------------------------------------------------------------
 
-## Shared edge is hard: face A's vertices should have +Z normals and
-## face B's vertices should have +Y normals at the shared edge, even though
+## Shared edge is hard: face A's vertices should have -Z normals and
+## face B's vertices should have -Y normals at the shared edge, even though
 ## both faces are in smooth_group = 1.
 func test_hard_edge_produces_normal_seam() -> void:
 	var mesh := _make_two_face_mesh()
@@ -160,18 +160,18 @@ func test_hard_edge_produces_normal_seam() -> void:
 	# Face B [0,1,5,4] → tri0:[0,5,1] tri1:[0,4,5] → 6 verts = indices 6-11.
 	#
 	# With hard edge, face A's region and face B's region are distinct.
-	# Face A normal = +Z.  Face B normal = +Y.
-	# v0 in face A (baked index 4) must have normal ~(0,0,1).
-	# v0 in face B (baked index 6) must have normal ~(0,1,0).
+	# Face A normal = -Z.  Face B normal = -Y.
+	# v0 in face A (baked index 4) must have normal ~(0,0,-1).
+	# v0 in face B (baked index 6) must have normal ~(0,-1,0).
 	var norm_v0_in_a: Vector3 = norms[4]  # vertex 0, from face A's triangulation
 	var norm_v0_in_b: Vector3 = norms[6]  # vertex 0, from face B's triangulation
 
-	assert_float(norm_v0_in_a.dot(Vector3.BACK)).is_greater_equal(0.99)
-	assert_float(norm_v0_in_b.dot(Vector3.UP)).is_greater_equal(0.99)
+	assert_float(norm_v0_in_a.dot(Vector3.FORWARD)).is_greater_equal(0.99)
+	assert_float(norm_v0_in_b.dot(Vector3.DOWN)).is_greater_equal(0.99)
 
 
 ## Soft shared edge (same smooth_group): v0 and v1 should receive an averaged
-## normal from both faces, so neither face gets a pure +Z or +Y normal there.
+## normal from both faces, so neither face gets a pure -Z or -Y normal there.
 func test_soft_edge_smooth_normals_blend() -> void:
 	var mesh := _make_two_face_mesh()
 	# Default: no hard edges — the shared edge is soft.
@@ -180,6 +180,6 @@ func test_soft_edge_smooth_normals_blend() -> void:
 	var arrays: Array = array_mesh.surface_get_arrays(0)
 	var norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 
-	# v0 in face A (baked index 4): must NOT be pure +Z (it's averaged with +Y).
+	# v0 in face A (baked index 4): must NOT be pure -Z (it's averaged with -Y).
 	var norm_v0_in_a: Vector3 = norms[4]
-	assert_float(norm_v0_in_a.dot(Vector3.BACK)).is_less(0.99)
+	assert_float(norm_v0_in_a.dot(Vector3.FORWARD)).is_less(0.99)

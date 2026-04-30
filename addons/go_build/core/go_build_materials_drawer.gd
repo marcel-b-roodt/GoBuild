@@ -38,7 +38,7 @@ var _project_settings: GoBuildProjectSettings = null
 # UI widgets
 var _palette_option:      OptionButton         = null
 var _apply_palette_btn:   Button               = null
-var _settings_picker:     EditorResourcePicker = null
+var _settings_picker:     Control              = null
 var _mat_palette_vbox:    VBoxContainer        = null
 var _material_slot_spin:  SpinBox              = null
 var _assign_material_btn: Button               = null
@@ -68,8 +68,7 @@ func set_project_settings(settings: GoBuildProjectSettings) -> void:
 			and _project_settings.changed.is_connected(_rebuild_palette_dropdown):
 		_project_settings.changed.disconnect(_rebuild_palette_dropdown)
 	_project_settings = settings
-	if _settings_picker != null:
-		_settings_picker.edited_resource = settings
+	_update_settings_button_text()
 	if settings != null:
 		settings.changed.connect(_rebuild_palette_dropdown)
 	_rebuild_palette_dropdown()
@@ -98,16 +97,17 @@ func _ready() -> void:
 	settings_lbl.add_theme_font_size_override("font_size", 11)
 	settings_row.add_child(settings_lbl)
 
-	_settings_picker = EditorResourcePicker.new()
-	_settings_picker.base_type = "GoBuildProjectSettings"
-	_settings_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_settings_picker.tooltip_text = (
-			"The active GoBuildProjectSettings resource.\n"
-			+ "Drag a .tres from the FileSystem to use a different settings file.\n"
-			+ "Defaults to res://addons/go_build/go_build_settings.tres (created automatically)."
+	var settings_btn := Button.new()
+	settings_btn.flat = true
+	settings_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	settings_btn.tooltip_text = (
+			"Open the active GoBuildProjectSettings resource in the Inspector.\n"
+			+ "Default path: res://addons/go_build/go_build_settings.tres"
 	)
-	_settings_picker.resource_changed.connect(_on_settings_resource_changed)
+	settings_btn.pressed.connect(_on_open_settings_pressed)
+	_settings_picker = settings_btn
 	settings_row.add_child(_settings_picker)
+	_update_settings_button_text()
 
 	# ── Palette row ──────────────────────────────────────────────────────
 	var pal_row := HBoxContainer.new()
@@ -266,9 +266,29 @@ func _on_settings_resource_changed(resource: Resource) -> void:
 		_project_settings = resource as GoBuildProjectSettings
 	elif resource == null:
 		_project_settings = GoBuildProjectSettings.load_or_create()
-		if _settings_picker != null:
-			_settings_picker.edited_resource = _project_settings
+	_update_settings_button_text()
 	_rebuild_palette_dropdown()
+
+
+func _on_open_settings_pressed() -> void:
+	if _project_settings == null:
+		_project_settings = GoBuildProjectSettings.load_or_create()
+		_update_settings_button_text()
+		_rebuild_palette_dropdown()
+	if not Engine.is_editor_hint() or _project_settings == null:
+		return
+	EditorInterface.edit_resource(_project_settings)
+
+
+func _update_settings_button_text() -> void:
+	if not (_settings_picker is Button):
+		return
+	var btn := _settings_picker as Button
+	if _project_settings == null:
+		btn.text = "Open"
+		return
+	var path: String = _project_settings.resource_path
+	btn.text = "Open: %s" % (path.get_file() if path != "" else "go_build_settings.tres")
 
 
 ## Repopulate [member _palette_option] from the project-wide palette list.

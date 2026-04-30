@@ -33,6 +33,8 @@ const _MATERIALS_DRAWER_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_materials_drawer.gd")
 const _GENERAL_DRAWER_SCRIPT   := \
 		preload("res://addons/go_build/core/go_build_general_drawer.gd")
+const _SHAPE_CATALOG_SCRIPT    := \
+		preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
@@ -42,6 +44,7 @@ var _context_label: Label      = null
 var _mode_buttons: Array[Button] = []
 var _target: GoBuildMeshInstance = null
 var _plugin: EditorPlugin = null
+var _auto_uv_option: OptionButton = null
 
 ## Collapsible drawer subcomponents.
 var _create_drawer:   GoBuildCreateDrawer   = null
@@ -160,6 +163,7 @@ func _ready() -> void:
 
 	_general_drawer = GoBuildGeneralDrawer.new()
 	add_child(_general_drawer)
+	_sync_legacy_handles()
 
 	add_child(HSeparator.new())
 
@@ -207,6 +211,7 @@ func set_target(target: GoBuildMeshInstance) -> void:
 		_target.mesh_changed.disconnect(_refresh)
 
 	_target = target
+	_sync_legacy_handles()
 	for drawer in [_create_drawer, _vertex_drawer, _edge_drawer, _face_drawer,
 			_uv_drawer, _surface_drawer, _materials_drawer, _general_drawer]:
 		if drawer != null:
@@ -222,6 +227,31 @@ func set_target(target: GoBuildMeshInstance) -> void:
 
 	_update_ops_buttons()
 	_refresh()
+	_sync_legacy_handles()
+
+
+## Legacy bridge for tests and older call sites.
+## Auto UV now lives in [GoBuildGeneralDrawer], but this panel-level field/method
+## is kept as a thin wrapper so existing tests and scripts remain valid.
+func _on_auto_uv_mode_selected(index: int) -> void:
+	if _general_drawer == null:
+		return
+	_general_drawer._on_auto_uv_mode_selected(index)
+
+
+## Legacy bridge for tests and older call sites.
+func _supports_shape_preview(shape_name: String) -> bool:
+	return ShapeCreationCatalog.supports_preview(shape_name)
+
+
+## Legacy bridge for tests and older call sites.
+func _default_shape_params(shape_name: String) -> Dictionary:
+	return ShapeCreationCatalog.default_params(shape_name)
+
+
+## Legacy bridge for tests and older call sites.
+func _build_shape_mesh(shape_name: String, params: Dictionary) -> GoBuildMesh:
+	return ShapeCreationCatalog.build_mesh(shape_name, params)
 
 
 ## Apply the mode button state that corresponds to [param new_mode].
@@ -391,6 +421,10 @@ func _update_ops_buttons() -> void:
 			_uv_drawer, _surface_drawer, _materials_drawer, _general_drawer]:
 		if drawer != null:
 			drawer.refresh_buttons()
+
+
+func _sync_legacy_handles() -> void:
+	_auto_uv_option = _general_drawer._auto_uv_option if _general_drawer != null else null
 
 
 ## Return the plugin version from plugin.cfg so panel text stays in sync.

@@ -206,47 +206,58 @@ func _do_operation(operation: Callable) -> void:
 func _apply_auto_uv() -> void:
 	if go_build_mesh == null:
 		return
+	var projection_xform: Transform3D = _get_uv_projection_transform()
 	var auto_faces: Array[int] = []
 	for i: int in go_build_mesh.faces.size():
 		var face: GoBuildFace = go_build_mesh.faces[i]
 		if face.uv_projection_mode == GoBuildFace.UvMode.NONE:
 			auto_faces.append(i)
 		else:
-			_apply_face_projection(i, face)
+			_apply_face_projection(i, face, projection_xform)
 	if auto_faces.is_empty() or auto_uv_mode == GoBuildFace.UvMode.NONE:
 		return
 	match auto_uv_mode:
 		GoBuildFace.UvMode.PLANAR:
 			PlanarProjection.apply(go_build_mesh, auto_faces, 1.0)
 		GoBuildFace.UvMode.BOX:
-			BoxProjection.apply(go_build_mesh, auto_faces, 1.0, global_transform)
+			BoxProjection.apply(go_build_mesh, auto_faces, 1.0, projection_xform)
 		GoBuildFace.UvMode.CYLINDRICAL:
-			CylindricalProjection.apply(go_build_mesh, auto_faces, 1.0, global_transform)
+			CylindricalProjection.apply(go_build_mesh, auto_faces, 1.0, projection_xform)
 		GoBuildFace.UvMode.SPHERICAL:
-			SphericalProjection.apply(go_build_mesh, auto_faces, 1.0, global_transform)
+			SphericalProjection.apply(go_build_mesh, auto_faces, 1.0, projection_xform)
 
 
 ## Re-project a single face using its stored per-face projection params.
 ## Only call this when [member GoBuildFace.uv_projection_mode] is not NONE.
-func _apply_face_projection(face_idx: int, face: GoBuildFace) -> void:
+func _apply_face_projection(
+		face_idx: int,
+		face: GoBuildFace,
+		projection_xform: Transform3D = Transform3D.IDENTITY,
+) -> void:
 	var indices: Array[int] = [face_idx]
 	match face.uv_projection_mode:
 		GoBuildFace.UvMode.PLANAR:
 			PlanarProjection.apply(go_build_mesh, indices, face.uv_scale, face.uv_offset)
 		GoBuildFace.UvMode.BOX:
-			BoxProjection.apply(go_build_mesh, indices, face.uv_scale, global_transform, face.uv_offset)
+			BoxProjection.apply(go_build_mesh, indices, face.uv_scale, projection_xform, face.uv_offset)
 		GoBuildFace.UvMode.CYLINDRICAL:
 			CylindricalProjection.apply(
 				go_build_mesh, indices,
-				face.uv_scale, global_transform,
+				face.uv_scale, projection_xform,
 				face.uv_offset, face.uv_seam_rotation,
 			)
 		GoBuildFace.UvMode.SPHERICAL:
 			SphericalProjection.apply(
 				go_build_mesh, indices,
-				face.uv_scale, global_transform,
+				face.uv_scale, projection_xform,
 				face.uv_offset, face.uv_seam_rotation,
 			)
+
+
+func _get_uv_projection_transform() -> Transform3D:
+	# Node3D.global_transform warns when the node is not inside the scene tree.
+	# In that case use the local transform, which matches world transform while detached.
+	return global_transform if is_inside_tree() else transform
 
 
 ## Returns [code]true[/code] when the current UV setup depends on world-space
