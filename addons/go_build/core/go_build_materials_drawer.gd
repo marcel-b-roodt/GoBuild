@@ -363,7 +363,8 @@ func _rebuild_mat_palette() -> void:
 		use_btn.text = "Use"
 		use_btn.tooltip_text = (
 			"Assign selected face(s) to material slot %d.\n"
-			+ "Requires Face mode with \u22651 face selected." % i
+			% i
+			+ "Requires Face mode with \u22651 face selected."
 		)
 		use_btn.custom_minimum_size.x = 34
 		use_btn.pressed.connect(_on_palette_slot_assign_pressed.bind(i))
