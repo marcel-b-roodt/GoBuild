@@ -36,6 +36,9 @@ enum UvSelectMode {
 const _SEL_MGR_SCRIPT        := preload("res://addons/go_build/core/selection_manager.gd")
 const _FACE_SCRIPT           := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _MESH_SCRIPT           := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _PICKER_SCRIPT         := preload("res://addons/go_build/uv/uv_picker.gd")
+const _ISLAND_XFORM_SCRIPT   := preload("res://addons/go_build/uv/uv_island_transform.gd")
+const _VERT_XFORM_SCRIPT     := preload("res://addons/go_build/uv/uv_vertex_transform.gd")
 
 # ---------------------------------------------------------------------------
 # Colours
@@ -59,7 +62,6 @@ const _PIVOT_COLOR        := Color(1.0, 1.0, 1.0, 0.70)
 const _VTX_DOT_COLOR     := Color(0.6, 0.85, 1.0, 0.9)
 const _VTX_SEL_COLOR     := Color(1.0, 0.85, 0.35, 1.0)
 const _VERT_PICK_RADIUS: float = 12.0
-const _EDGE_THRESHOLD: float = 0.005
 
 # ---------------------------------------------------------------------------
 # View state
@@ -99,9 +101,7 @@ var _selected_uv_verts: Array[Vector2i] = []
 
 ## True while dragging selected UV vertices.
 var _vert_dragging:      bool     = false
-var _vert_drag_start_uv: Vector2  = Vector2.ZERO
-var _vert_drag_prev_uv: Vector2  = Vector2.ZERO
-var _vert_snapshot:      Dictionary = {}
+var _vert_drag_state: UvVertexTransform.DragState = null
 
 ## Lazily-created checkerboard texture for the UV tile background.
 var _checker_tex: ImageTexture = null
@@ -110,12 +110,8 @@ var _checker_tex: ImageTexture = null
 var _tile_repeat: int = 1
 
 ## True while the user is left-dragging a selected island (UV transform).
-var _island_dragging:       bool     = false
-var _island_drag_start_uv:  Vector2  = Vector2.ZERO
-var _island_drag_prev_uv:   Vector2  = Vector2.ZERO
-var _island_snapshot:       Dictionary = {}
-var _island_pivot:          Vector2  = Vector2.ZERO
-var _island_scale_start:    float    = 1.0
+var _island_dragging: bool = false
+var _island_drag_state: UvIslandTransform.DragState = null
 
 ## Box-select state.
 var _box_selecting:   bool    = false
@@ -473,120 +469,24 @@ func _get_albedo_texture() -> Texture2D:
 
 
 ## Return the face index whose UV polygon best contains [param uv_pos], or -1.
-##
-## Uses a point-in-polygon test with an edge proximity fallback.  If the point
-## is not strictly inside any polygon, the face whose closest edge is within
-## [constant _EDGE_THRESHOLD] UV units wins instead.  This makes clicking near
-## edges and corners more reliable.
-##
-## If multiple faces overlap, the last face in the array wins (topmost draw order).
 func _pick_face(uv_pos: Vector2) -> int:
 	if _target == null or _target.go_build_mesh == null:
 		return -1
-	var gbm: GoBuildMesh = _target.go_build_mesh
-	var hit: int = -1
-	var best_edge_dist: float = _EDGE_THRESHOLD * _EDGE_THRESHOLD
-	var any_inside: bool = false
-
-	for fi: int in gbm.faces.size():
-		var face: GoBuildFace = gbm.faces[fi]
-		if face.uvs.size() < 3:
-			continue
-		if _point_in_polygon_uv(uv_pos, face.uvs):
-			hit = fi
-			any_inside = true
-		elif not any_inside:
-			var dist_sq := _min_edge_dist_sq(uv_pos, face.uvs)
-			if dist_sq < best_edge_dist:
-				best_edge_dist = dist_sq
-				hit = fi
-
-	return hit
+	return UvPicker.pick_face(_target.go_build_mesh, uv_pos)
 
 
 ## Return all face indices whose UV polygons contain or are near [param uv_pos].
-## Ordered front-to-back (last drawn = last in list).  Used for face cycling.
 func _pick_face_all(uv_pos: Vector2) -> Array[int]:
 	if _target == null or _target.go_build_mesh == null:
 		return []
-	var gbm: GoBuildMesh = _target.go_build_mesh
-	var result: Array[int] = []
-	for fi: int in gbm.faces.size():
-		var face: GoBuildFace = gbm.faces[fi]
-		if face.uvs.size() < 3:
-			continue
-		if _point_in_polygon_uv(uv_pos, face.uvs):
-			result.append(fi)
-		else:
-			var dist_sq := _min_edge_dist_sq(uv_pos, face.uvs)
-			if dist_sq < _EDGE_THRESHOLD * _EDGE_THRESHOLD:
-				result.append(fi)
-	return result
-
-
-## Ray-casting point-in-polygon test in UV space.
-static func _point_in_polygon_uv(point: Vector2, polygon: Array[Vector2]) -> bool:
-	var n: int = polygon.size()
-	var inside: bool = false
-	var j: int = n - 1
-	for i: int in n:
-		var vi: Vector2 = polygon[i]
-		var vj: Vector2 = polygon[j]
-		if ((vi.y > point.y) != (vj.y > point.y)) and \
-				(point.x < (vj.x - vi.x) * (point.y - vi.y) / (vj.y - vi.y) + vi.x):
-			inside = not inside
-		j = i
-	return inside
-
-
-## Minimum squared distance from [param point] to any edge of [param polygon].
-static func _min_edge_dist_sq(point: Vector2, polygon: Array[Vector2]) -> float:
-	var n: int = polygon.size()
-	var best: float = INF
-	for i: int in n:
-		var a: Vector2 = polygon[i]
-		var b: Vector2 = polygon[(i + 1) % n]
-		var ab := b - a
-		var ap := point - a
-		var t := clampf(ap.dot(ab) / ab.dot(ab), 0.0, 1.0)
-		var closest := a + ab * t
-		var dsq := point.distance_squared_to(closest)
-		if dsq < best:
-			best = dsq
-	return best
+	return UvPicker.pick_face_all(_target.go_build_mesh, uv_pos)
 
 
 ## Return all face indices whose UV polygons intersect a UV-space rectangle.
 func _pick_faces_in_rect(uv_rect: Rect2) -> Array[int]:
 	if _target == null or _target.go_build_mesh == null:
 		return []
-	var gbm: GoBuildMesh = _target.go_build_mesh
-	var result: Array[int] = []
-	for fi: int in gbm.faces.size():
-		var face: GoBuildFace = gbm.faces[fi]
-		if face.uvs.size() < 3:
-			continue
-		if _polygon_intersects_rect(face.uvs, uv_rect):
-			result.append(fi)
-	return result
-
-
-## Check if a UV polygon intersects a UV-space rectangle.
-## True if any vertex is inside the rect, or any edge crosses the rect boundary.
-static func _polygon_intersects_rect(polygon: Array[Vector2], rect: Rect2) -> bool:
-	for uv: Vector2 in polygon:
-		if rect.has_point(uv):
-			return true
-	var corners: Array[Vector2] = [
-		rect.position,
-		Vector2(rect.end.x, rect.position.y),
-		rect.end,
-		Vector2(rect.position.x, rect.end.y),
-	]
-	for corner: Vector2 in corners:
-		if _point_in_polygon_uv(corner, polygon):
-			return true
-	return false
+	return UvPicker.pick_faces_in_rect(_target.go_build_mesh, uv_rect)
 
 
 ## Return the face indices currently selected in the [SelectionManager],
@@ -607,18 +507,7 @@ func _get_uv_selected_faces() -> Array[int]:
 func _compute_pivot(face_indices: Array[int]) -> Vector2:
 	if _target == null or _target.go_build_mesh == null:
 		return Vector2.ZERO
-	var gbm: GoBuildMesh = _target.go_build_mesh
-	var sum := Vector2.ZERO
-	var count: int = 0
-	for fi: int in face_indices:
-		if fi < 0 or fi >= gbm.faces.size():
-			continue
-		for uv: Vector2 in gbm.faces[fi].uvs:
-			sum += uv
-			count += 1
-	if count == 0:
-		return Vector2.ZERO
-	return sum / count
+	return UvPicker.compute_pivot(_target.go_build_mesh, face_indices)
 
 
 # ---------------------------------------------------------------------------
@@ -788,14 +677,14 @@ func _end_left_press(pos: Vector2, mb: InputEventMouseButton) -> void:
 	if _vert_dragging:
 		_commit_vert_drag()
 		_vert_dragging = false
-		_vert_snapshot = {}
+		_vert_drag_state = null
 		queue_redraw()
 		return
 
 	if _island_dragging:
 		_commit_island_drag()
 		_island_dragging = false
-		_island_snapshot = {}
+		_island_drag_state = null
 		queue_redraw()
 		return
 
@@ -969,81 +858,28 @@ func _finish_box_select_vert(uv_rect: Rect2) -> void:
 
 func _begin_island_drag(canvas_pos: Vector2, sel_faces: Array[int]) -> void:
 	_island_dragging = true
-	_island_drag_start_uv = _canvas_to_uv(canvas_pos)
-	_island_drag_prev_uv = _island_drag_start_uv
-	_island_pivot = _compute_pivot(sel_faces)
-	_island_scale_start = 1.0
+	var uv := _canvas_to_uv(canvas_pos)
+	var mode := _transform_mode as UvIslandTransform.Mode
 	if _target and _target.go_build_mesh:
-		_island_snapshot = _target.go_build_mesh.take_snapshot()
+		_island_drag_state = UvIslandTransform.begin(
+			_target.go_build_mesh, sel_faces, uv, mode)
 
 
 func _apply_island_drag(canvas_pos: Vector2) -> void:
-	if _target == null or _target.go_build_mesh == null:
+	if _target == null or _target.go_build_mesh == null or _island_drag_state == null:
 		return
-	var gbm: GoBuildMesh = _target.go_build_mesh
 	var uv_now := _canvas_to_uv(canvas_pos)
 	var sel_faces := _get_uv_selected_faces()
-
-	match _transform_mode:
-		UvTransformMode.MOVE:
-			var delta := uv_now - _island_drag_prev_uv
-			if delta.is_zero_approx():
-				return
-			for fi: int in sel_faces:
-				if fi < 0 or fi >= gbm.faces.size():
-					continue
-				var face: GoBuildFace = gbm.faces[fi]
-				for i: int in face.uvs.size():
-					face.uvs[i] = face.uvs[i] + delta
-
-		UvTransformMode.ROTATE:
-			var angle_start := (_island_drag_start_uv - _island_pivot).angle()
-			var angle_now := (uv_now - _island_pivot).angle()
-			var delta_angle := angle_now - angle_start
-			if is_zero_approx(delta_angle):
-				return
-			var cos_a := cos(delta_angle)
-			var sin_a := sin(delta_angle)
-			for fi: int in sel_faces:
-				if fi < 0 or fi >= gbm.faces.size():
-					continue
-				var face: GoBuildFace = gbm.faces[fi]
-				for i: int in face.uvs.size():
-					var rel := face.uvs[i] - _island_pivot
-					face.uvs[i] = _island_pivot + Vector2(
-						rel.x * cos_a - rel.y * sin_a,
-						rel.x * sin_a + rel.y * cos_a
-					)
-
-		UvTransformMode.SCALE:
-			var dist_start := (_island_drag_start_uv - _island_pivot).length()
-			var dist_now := (uv_now - _island_pivot).length()
-			if is_zero_approx(dist_start):
-				return
-			var scale_ratio := dist_now / dist_start
-			if is_equal_approx(scale_ratio, _island_scale_start):
-				return
-			var factor := scale_ratio / _island_scale_start
-			factor = maxf(factor, 0.01)
-			_island_scale_start = scale_ratio
-			for fi: int in sel_faces:
-				if fi < 0 or fi >= gbm.faces.size():
-					continue
-				var face: GoBuildFace = gbm.faces[fi]
-				for i: int in face.uvs.size():
-					var rel := face.uvs[i] - _island_pivot
-					face.uvs[i] = _island_pivot + rel * factor
-
-	_island_drag_prev_uv = uv_now
+	UvIslandTransform.apply(
+		_target.go_build_mesh, sel_faces, _island_drag_state, uv_now)
 	_target.bake_in_place()
 	queue_redraw()
 
 
 func _commit_island_drag() -> void:
-	if _target == null or _island_snapshot.is_empty() or _plugin == null:
+	if _target == null or _island_drag_state == null or _plugin == null:
 		return
-	# Build an undo action that restores the snapshot.
-	var snapshot := _island_snapshot
+	var snapshot := _island_drag_state.snapshot
 	var action_name := "Move UV Island"
 	match _transform_mode:
 		UvTransformMode.ROTATE:
@@ -1058,13 +894,13 @@ func _commit_island_drag() -> void:
 
 
 func _cancel_island_drag() -> void:
-	if not _island_dragging or _island_snapshot.is_empty() or _target == null:
+	if not _island_dragging or _island_drag_state == null or _target == null:
 		_island_dragging = false
-		_island_snapshot = {}
+		_island_drag_state = null
 		return
-	_target.restore_and_bake(_island_snapshot)
+	_target.restore_and_bake(_island_drag_state.snapshot)
 	_island_dragging = false
-	_island_snapshot = {}
+	_island_drag_state = null
 	queue_redraw()
 
 
@@ -1081,41 +917,28 @@ func _noop() -> void:
 func _do_click_select_vert(canvas_pos: Vector2) -> void:
 	if _target == null or _target.go_build_mesh == null:
 		return
-	var gbm: GoBuildMesh = _target.go_build_mesh
 
 	var uv_pos := _canvas_to_uv(canvas_pos)
-	var best_fi: int = -1
-	var best_vi: int = -1
-	var best_dist_sq: float = (_VERT_PICK_RADIUS / _zoom) * (_VERT_PICK_RADIUS / _zoom)
+	var hit := UvPicker.pick_vert(
+		_target.go_build_mesh, uv_pos, _zoom, _VERT_PICK_RADIUS)
 
-	for fi: int in gbm.faces.size():
-		var face: GoBuildFace = gbm.faces[fi]
-		for vi: int in face.uvs.size():
-			var dsq := uv_pos.distance_squared_to(face.uvs[vi])
-			if dsq < best_dist_sq:
-				best_dist_sq = dsq
-				best_fi = fi
-				best_vi = vi
-
-	if best_fi < 0:
+	if hit.x < 0:
 		if not _shift_held and not _ctrl_held:
 			_selected_uv_verts.clear()
 			queue_redraw()
 		return
 
-	var key := Vector2i(best_fi, best_vi)
-
 	if _shift_held:
-		if not _selected_uv_verts.has(key):
-			_selected_uv_verts.append(key)
+		if not _selected_uv_verts.has(hit):
+			_selected_uv_verts.append(hit)
 	elif _ctrl_held:
-		var idx := _selected_uv_verts.find(key)
+		var idx := _selected_uv_verts.find(hit)
 		if idx >= 0:
 			_selected_uv_verts.remove_at(idx)
 		else:
-			_selected_uv_verts.append(key)
+			_selected_uv_verts.append(hit)
 	else:
-		_selected_uv_verts = [key]
+		_selected_uv_verts = [hit]
 	queue_redraw()
 
 
@@ -1125,55 +948,27 @@ func _do_click_select_vert(canvas_pos: Vector2) -> void:
 
 func _begin_vert_drag(canvas_pos: Vector2) -> void:
 	_vert_dragging = true
-	_vert_drag_start_uv = _canvas_to_uv(canvas_pos)
-	_vert_drag_prev_uv = _vert_drag_start_uv
+	var uv := _canvas_to_uv(canvas_pos)
 	if _target and _target.go_build_mesh:
-		_vert_snapshot = _target.go_build_mesh.take_snapshot()
+		_vert_drag_state = UvVertexTransform.begin(
+			_target.go_build_mesh, uv)
 
 
 func _apply_vert_drag(canvas_pos: Vector2) -> void:
-	if _target == null or _target.go_build_mesh == null:
+	if _target == null or _target.go_build_mesh == null or _vert_drag_state == null:
 		return
-	var gbm: GoBuildMesh = _target.go_build_mesh
 	var uv_now := _canvas_to_uv(canvas_pos)
-	var delta := uv_now - _vert_drag_prev_uv
-	if delta.is_zero_approx():
-		return
-
-	# Build a set of UV positions to move (coincident vertices grouped by position)
-	# so that all handles at the same UV point move together.
-	var positions_to_move: Dictionary = {}
-	for v: Vector2i in _selected_uv_verts:
-		var fi: int = v.x
-		var vi: int = v.y
-		if fi < 0 or fi >= gbm.faces.size():
-			continue
-		positions_to_move[gbm.faces[fi].uvs[vi]] = true
-
-	# Also find all unselected handles that share a position with a selected one.
-	var all_handles: Array[Vector2i] = []
-	for fi: int in gbm.faces.size():
-		var face: GoBuildFace = gbm.faces[fi]
-		for vi: int in face.uvs.size():
-			if positions_to_move.has(face.uvs[vi]):
-				all_handles.append(Vector2i(fi, vi))
-
-	# Move all identified handles.
-	var handled: Dictionary = {}
-	for handle: Vector2i in all_handles:
-		var hfi: int = handle.x
-		var hvi: int = handle.y
-		gbm.faces[hfi].uvs[hvi] = gbm.faces[hfi].uvs[hvi] + delta
-
-	_vert_drag_prev_uv = uv_now
+	UvVertexTransform.apply(
+		_target.go_build_mesh, _selected_uv_verts,
+		_vert_drag_state, uv_now)
 	_target.bake_in_place()
 	queue_redraw()
 
 
 func _commit_vert_drag() -> void:
-	if _target == null or _vert_snapshot.is_empty() or _plugin == null:
+	if _target == null or _vert_drag_state == null or _plugin == null:
 		return
-	var snapshot := _vert_snapshot
+	var snapshot := _vert_drag_state.snapshot
 	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
 	ur.create_action("Move UV Vertices")
 	ur.add_do_method(self, "_noop")
@@ -1182,13 +977,13 @@ func _commit_vert_drag() -> void:
 
 
 func _cancel_vert_drag() -> void:
-	if not _vert_dragging or _vert_snapshot.is_empty() or _target == null:
+	if not _vert_dragging or _vert_drag_state == null or _target == null:
 		_vert_dragging = false
-		_vert_snapshot = {}
+		_vert_drag_state = null
 		return
-	_target.restore_and_bake(_vert_snapshot)
+	_target.restore_and_bake(_vert_drag_state.snapshot)
 	_vert_dragging = false
-	_vert_snapshot = {}
+	_vert_drag_state = null
 	queue_redraw()
 
 
