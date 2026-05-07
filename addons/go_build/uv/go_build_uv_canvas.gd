@@ -859,7 +859,7 @@ func _finish_box_select_vert(uv_rect: Rect2) -> void:
 func _begin_island_drag(canvas_pos: Vector2, sel_faces: Array[int]) -> void:
 	_island_dragging = true
 	var uv := _canvas_to_uv(canvas_pos)
-	var mode := _transform_mode as UvIslandTransform.Mode
+	var mode: int = _transform_mode
 	if _target and _target.go_build_mesh:
 		_island_drag_state = UvIslandTransform.begin(
 			_target.go_build_mesh, sel_faces, uv, mode)

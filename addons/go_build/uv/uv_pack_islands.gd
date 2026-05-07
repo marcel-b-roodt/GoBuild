@@ -158,7 +158,7 @@ static func _fit_scale(bboxes: Array[Rect2], margin: float) -> float:
 	if max_w <= 0.0 or max_h <= 0.0:
 		return 1.0
 
-	var scale_from_area := sqrtf(total_area) / available * 0.9
+	var scale_from_area := sqrt(total_area) / available * 0.9
 	var scale_from_max_u := available / max_w
 	var scale_from_max_v := available / max_h
 	var scale := minf(scale_from_max_u, scale_from_max_v)

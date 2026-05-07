@@ -45,7 +45,7 @@ func test_stitch_shared_edge() -> void:
 	gbm.rebuild_edges()
 	var count := UvStitchIslands.apply(gbm, [0, 1])
 	assert_int(count).is_equal(1)
-	assert_vec2(gbm.faces[1].uvs[0]).is_equal(Vector2(1.0, 0.0))
+	assert_vector(gbm.faces[1].uvs[0]).is_equal(Vector2(1.0, 0.0))
 
 
 func test_stitch_empty_selection() -> void:

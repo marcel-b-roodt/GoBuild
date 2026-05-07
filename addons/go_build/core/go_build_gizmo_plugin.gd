@@ -239,6 +239,10 @@ func setup(plugin: EditorPlugin) -> void:
 	# Scale cube mesh (unit half-size 1.0 — scale at draw time by SCALE_CUBE_HALF * s).
 	scale_cube_mesh = _build_scale_cube_mesh()
 
+func _get_gizmo_name() -> String:
+	return "GoBuild"
+
+
 func _get_name() -> String:
 	return "GoBuildMeshInstance"
 

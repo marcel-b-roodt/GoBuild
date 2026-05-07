@@ -17,7 +17,7 @@ func test_uv_to_canvas_round_trip() -> void:
 	var uv_pos := Vector2(0.5, 0.5)
 	var canvas_pos := canvas._uv_to_canvas(uv_pos)
 	var round_trip := canvas._canvas_to_uv(canvas_pos)
-	assert_vec2(round_trip).is_equal_approx(uv_pos, 0.001)
+	assert_vector(round_trip).is_equal_approx(uv_pos, 0.001)
 
 	canvas.queue_free()
 

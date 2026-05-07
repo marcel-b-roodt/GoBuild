@@ -197,15 +197,15 @@ func test_pick_vert_miss() -> void:
 func test_compute_pivot_single_face() -> void:
 	var gbm := _make_single_triangle_mesh()
 	var pivot := UvPicker.compute_pivot(gbm, [0])
-	assert_vec2(pivot).is_equal(Vector2(1.0 / 3.0, 1.0 / 3.0))
+	assert_vector(pivot).is_equal(Vector2(1.0 / 3.0, 1.0 / 3.0))
 
 
 func test_compute_pivot_empty() -> void:
 	var gbm := _make_single_triangle_mesh()
 	var pivot := UvPicker.compute_pivot(gbm, [])
-	assert_vec2(pivot).is_equal(Vector2.ZERO)
+	assert_vector(pivot).is_equal(Vector2.ZERO)
 
 
 func test_compute_pivot_null_mesh() -> void:
 	var pivot := UvPicker.compute_pivot(null, [0])
-	assert_vec2(pivot).is_equal(Vector2.ZERO)
+	assert_vector(pivot).is_equal(Vector2.ZERO)
