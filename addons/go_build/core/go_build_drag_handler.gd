@@ -659,7 +659,9 @@ func _apply_viewport_plane_drag(
 
 
 ## Apply a uniform (all-axis) scale drag. Projects the mouse onto a camera-facing
-## plane through the centroid and scales all vertex offsets by current/initial dist.
+## plane through the centroid and scales all vertex offsets by current/initial offset.
+## Dragging up-right from the centroid increases scale; dragging down-left decreases
+## it below 1.0 and can go negative (mirror).
 ## [b]Ctrl[/b] snaps the ratio to [member scale_snap_override] increments.
 ## [b]Shift[/b] reduces scale sensitivity (precision mode).
 func _apply_uniform_scale_drag(
@@ -675,15 +677,18 @@ func _apply_uniform_scale_drag(
 			world_centroid, cam_forward)
 	if hit == Vector3.INF:
 		return
-	var dist: float = hit.distance_to(world_centroid)
 	if _drag_initial_t == INF:
+		var dist: float = hit.distance_to(world_centroid)
 		if dist < 1e-3:
 			return
 		_drag_initial_t = dist
+		_drag_start_dir = hit - world_centroid
 		return
 	if _drag_initial_t < 1e-3:
 		return
-	var scale_ratio: float = dist / _drag_initial_t
+	var offset: Vector3 = hit - world_centroid
+	var projected: float = offset.dot(_drag_start_dir.normalized())
+	var scale_ratio: float = projected / _drag_initial_t
 	if Input.is_key_pressed(KEY_CTRL):
 		scale_ratio = snappedf(scale_ratio, scale_snap_override)
 	if precision_active:
@@ -714,11 +719,11 @@ func _apply_inset_drag(
 	var start_screen := Vector2(_drag_start_dir.x, _drag_start_dir.y)
 	var offset: float = (screen_pos - start_screen).dot(Vector2(1.0, 0.0))
 	var amount: float = offset * 0.005
-	amount = clampf(amount, 0.0, 1.0)
 	if Input.is_key_pressed(KEY_CTRL):
 		amount = snappedf(amount, scale_snap_override)
 	if precision_active:
 		amount *= PRECISION_MULTIPLIER
+	amount = clampf(amount, 0.0, 1.0)
 	var gbm: GoBuildMesh = node.go_build_mesh
 	for idx: int in _drag_initial_verts:
 		if _inset_centroids.has(idx):
