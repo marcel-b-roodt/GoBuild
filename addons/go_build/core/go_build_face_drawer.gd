@@ -120,6 +120,41 @@ func _on_extrude_pressed() -> void:
 	var faces_to_extrude: Array[int] = []
 	faces_to_extrude.assign(sel_faces)
 
+	var screen_dir: Vector2 = Vector2(1.0, 0.0)
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if sv != null:
+		var cam: Camera3D = sv.get_camera_3d()
+		if cam != null:
+			var gbm: GoBuildMesh = _target.go_build_mesh
+			var avg_normal: Vector3 = Vector3.ZERO
+			var count: int = 0
+			for fi: int in sel_faces:
+				if fi < 0 or fi >= gbm.faces.size():
+					continue
+				var n: Vector3 = gbm.compute_face_normal(gbm.faces[fi])
+				avg_normal += n
+				count += 1
+			if count > 0:
+				avg_normal /= count
+			var world_normal: Vector3 = _target.global_transform.basis * avg_normal
+			var centroid: Vector3 = Vector3.ZERO
+			var vcount: int = 0
+			for fi: int in sel_faces:
+				if fi < 0 or fi >= gbm.faces.size():
+					continue
+				var face: GoBuildFace = gbm.faces[fi]
+				for vi: int in face.vertex_indices:
+					centroid += gbm.vertices[vi]
+					vcount += 1
+			if vcount > 0:
+				centroid /= vcount
+			var world_pos: Vector3 = _target.global_transform * centroid
+			var center_screen: Vector2 = cam.unproject_position(world_pos)
+			var tip_screen: Vector2 = cam.unproject_position(world_pos + world_normal)
+			var dir: Vector2 = tip_screen - center_screen
+			if dir.length() > 1.0:
+				screen_dir = dir.normalized()
+
 	var preview := GoBuildParamPreview.new()
 	preview.action_name = "Extrude Face"
 	preview.param_label = "Distance"
@@ -127,6 +162,7 @@ func _on_extrude_pressed() -> void:
 	preview.param_min   = -100.0
 	preview.param_max   = 100.0
 	preview.radial      = false
+	preview.screen_direction = screen_dir
 	preview.apply_fn    = func(p: float) -> void: \
 			ExtrudeOperation.apply(_target.go_build_mesh, faces_to_extrude, p)
 	_plugin.call("begin_param_preview", preview)

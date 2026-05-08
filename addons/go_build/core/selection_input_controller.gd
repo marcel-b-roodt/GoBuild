@@ -49,6 +49,9 @@ const _VIEW_PLANE_PICK_RADIUS_SQ: float     = 196.0  # 14 px
 ## Minimum microseconds between full apply+bake flushes during parameter preview.
 ## Caps mesh rebuilds to ~20 fps so the editor stays responsive.
 const _PREVIEW_APPLY_INTERVAL_USEC: int = 50_000  # 50 ms → ~20 fps
+## Multiplier applied to units_per_pixel when Shift is held during a
+## param preview drag.  0.1 = precision mode (10% sensitivity).
+const _PRECISION_MULTIPLIER: float = 0.1
 
 # ---------------------------------------------------------------------------
 # External references (set by setup())
@@ -125,6 +128,11 @@ var _preview_active: bool = false
 ## Accumulates mm.relative from the anchor; used to draw the directional
 ## indicator and to derive _param_preview_delta.
 var _preview_virtual_pos: Vector2              = Vector2.ZERO
+## Previous Shift state during a param preview.  When Shift changes,
+## the current param value is captured as the new param_start and the
+## virtual position / anchor are reset so precision toggling doesn't
+## cause a jump.
+var _preview_prev_shift: bool                   = false
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +287,7 @@ func begin_param_preview(preview: GoBuildParamPreview) -> void:
 	_preview_active          = true
 	_preview_accepting_motion = false
 	_preview_filter_count     = 4
+	_preview_prev_shift      = Input.is_key_pressed(KEY_SHIFT)
 	call_deferred("_accept_preview_motion")
 
 
@@ -1317,6 +1326,17 @@ func _handle_param_preview_input(
 				return EditorPlugin.AFTER_GUI_INPUT_STOP
 			_preview_filter_count = 0  # first normal-sized event — stop filtering
 		_preview_virtual_pos += mm.relative
+		# When Shift (precision) state changes, re-anchor the param computation
+		# at the current value so there is no jump.
+		var shift_now: bool = mm.shift_pressed
+		if shift_now != _preview_prev_shift:
+			_preview_prev_shift = shift_now
+			_param_preview.param_start = _param_preview.param
+			if _param_preview.radial:
+				_preview_anchor_vp = _preview_virtual_pos
+			else:
+				_param_preview_delta = 0.0
+				_preview_virtual_pos = _preview_anchor_vp
 		# Radial: Euclidean distance from anchor in any direction (always >= 0).
 		# Linear: project cumulative cursor offset onto the edge's screen-space
 		# direction so the cut follows the mouse along the edge's visual axis.
@@ -1326,7 +1346,8 @@ func _handle_param_preview_input(
 			_param_preview_delta = (_preview_virtual_pos - _preview_anchor_vp) \
 					.dot(_param_preview.screen_direction)
 		var raw := _param_preview.param_start \
-				+ _param_preview_delta * _param_preview.units_per_pixel
+				+ _param_preview_delta * _param_preview.units_per_pixel \
+				* (_PRECISION_MULTIPLIER if shift_now else 1.0)
 		var new_param := clampf(raw, _param_preview.param_min, _param_preview.param_max)
 		if _param_preview.snap_to_start \
 				and absf(new_param - _param_preview.param_start) \
