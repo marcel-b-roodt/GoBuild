@@ -7,9 +7,9 @@
 ## move/rotate/scale handles stay hidden and only the custom GoBuild
 ## gizmo handles are visible.
 ##
-## Additionally saves and restores the user's native tool mode (W/E/R)
-## so that switching between Object and sub-element modes preserves the
-## transform mode they had before entering edit mode.
+## When returning to Object mode, [method restore_native_tool_mode] presses
+## the native W/E/R button that matches GoBuild's active [TransformMode],
+## keeping the native and GoBuild transform modes in sync.
 ##
 ## [b]Why two-step press[/b]: [member BaseButton.button_pressed] (= [code]set_pressed()[/code])
 ## only updates the ButtonGroup visual — it does [b]not[/b] emit the
@@ -36,11 +36,6 @@ var _button: Button = null
 var _button_w: Button = null
 var _button_e: Button = null
 var _button_r: Button = null
-## The native tool button that was active when [method save_native_tool_mode] was
-## called.  Used to restore the user's transform mode when returning to Object
-## mode.  [code]null[/code] means no save has been taken (or the buttons could
-## not be found).
-var _saved_native_button: Button = null
 
 
 # ---------------------------------------------------------------------------
@@ -74,43 +69,31 @@ func pin_if_active(mode: SelectionManager.Mode) -> void:
 		btn.emit_signal("pressed")
 
 
-## Discard the cached button reference (e.g. on plugin unload).
+## Discard the cached button references (e.g. on plugin unload).
 func invalidate() -> void:
 	_button = null
 	_button_w = null
 	_button_e = null
 	_button_r = null
-	_saved_native_button = null
 
 
-## Remember which native tool button (W, E, or R) is currently pressed.
-## Call this [b]before[/b] switching to a GoBuild sub-element mode so the
-## user's transform mode can be restored later.
-func save_native_tool_mode() -> void:
+## Press the native W/E/R button matching GoBuild's [param transform_mode]
+## (TRANSLATE=0, ROTATE=1, SCALE=2).  Falls back to Move (W) if the target
+## button cannot be found.  Call when returning to Object mode so the native
+## editor gizmo matches what the user was using in GoBuild.
+func restore_native_tool_mode(transform_mode: int) -> void:
 	_ensure_transform_buttons()
-	_saved_native_button = null
-	if _button_w != null and _button_w.button_pressed:
-		_saved_native_button = _button_w
-	elif _button_e != null and _button_e.button_pressed:
-		_saved_native_button = _button_e
-	elif _button_r != null and _button_r.button_pressed:
-		_saved_native_button = _button_r
-
-
-## Press the native tool button that was active when [method save_native_tool_mode]
-## was called.  If no save was taken, defaults to the Move (W) button.
-## Call this when returning to Object mode so the user gets their transform
-## mode back.
-func restore_native_tool_mode() -> void:
-	_ensure_transform_buttons()
-	var btn: Button = _saved_native_button
+	var btn: Button = null
+	match transform_mode:
+		0: btn = _button_w
+		1: btn = _button_e
+		2: btn = _button_r
 	if btn == null or not is_instance_valid(btn):
 		btn = _button_w
 	if btn == null:
 		return
 	btn.set_pressed_no_signal(true)
 	btn.emit_signal("pressed")
-	_saved_native_button = null
 
 
 ## Locate and cache the W/E/R transform buttons from the Node3DEditor toolbar.
