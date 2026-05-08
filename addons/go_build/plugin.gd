@@ -71,6 +71,10 @@ var _rot_snap_btn: OptionButton                  = null
 var _scale_snap_btn: OptionButton                = null
 ## Keeps the native Physical/V tool mode pinned whenever in a sub-element mode.
 var _tool_pinner: Node3DEditorToolPinner         = null
+## True when GoBuild is in a sub-element mode (Vertex/Edge/Face).
+## Used to detect the Object→Edit transition so the native transform mode
+## is saved exactly once.
+var _was_in_edit_mode: bool = false
 
 ## Last observed global transform of the edited node while in Object mode.
 ## Used to detect when the user moves the node so UVs can be refreshed.
@@ -787,7 +791,14 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 		_input_controller.cancel_box_select(_edited_node)
 	_refresh_panel_context()
 	if mode != SelectionManager.Mode.OBJECT:
+		if not _was_in_edit_mode and _tool_pinner != null:
+			_tool_pinner.save_native_tool_mode()
+		_was_in_edit_mode = true
 		call_deferred("_suppress_native_gizmo")
+	else:
+		if _was_in_edit_mode and _tool_pinner != null:
+			_tool_pinner.restore_native_tool_mode()
+		_was_in_edit_mode = false
 
 
 func _on_edited_node_removed() -> void:

@@ -7,6 +7,10 @@
 ## move/rotate/scale handles stay hidden and only the custom GoBuild
 ## gizmo handles are visible.
 ##
+## Additionally saves and restores the user's native tool mode (W/E/R)
+## so that switching between Object and sub-element modes preserves the
+## transform mode they had before entering edit mode.
+##
 ## [b]Why two-step press[/b]: [member BaseButton.button_pressed] (= [code]set_pressed()[/code])
 ## only updates the ButtonGroup visual — it does [b]not[/b] emit the
 ## [code]pressed[/code] signal.  [code]Node3DEditor._menu_item_pressed[/code] is
@@ -19,7 +23,7 @@
 ## [br]1. Shortcut scan: recursively walk the [code]Node3DEditor[/code] subtree
 ##    looking for a [Button] whose [member Button.shortcut] contains an
 ##    [InputEventKey] with [code]keycode[/code] or [code]physical_keycode[/code]
-##    equal to [constant KEY_V].
+##    equal to a target key (V, W, E, R, or Q).
 ## [br]2. Tooltip scan: find the Q (Select) button via the same walk, take its
 ##    [ButtonGroup], and scan all buttons for one whose [member Control.tooltip_text]
 ##    contains "list" or "physical".  Strategy 2 is the fallback for Godot
@@ -29,6 +33,14 @@ class_name Node3DEditorToolPinner
 extends RefCounted
 
 var _button: Button = null
+var _button_w: Button = null
+var _button_e: Button = null
+var _button_r: Button = null
+## The native tool button that was active when [method save_native_tool_mode] was
+## called.  Used to restore the user's transform mode when returning to Object
+## mode.  [code]null[/code] means no save has been taken (or the buttons could
+## not be found).
+var _saved_native_button: Button = null
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +77,55 @@ func pin_if_active(mode: SelectionManager.Mode) -> void:
 ## Discard the cached button reference (e.g. on plugin unload).
 func invalidate() -> void:
 	_button = null
+	_button_w = null
+	_button_e = null
+	_button_r = null
+	_saved_native_button = null
+
+
+## Remember which native tool button (W, E, or R) is currently pressed.
+## Call this [b]before[/b] switching to a GoBuild sub-element mode so the
+## user's transform mode can be restored later.
+func save_native_tool_mode() -> void:
+	_ensure_transform_buttons()
+	_saved_native_button = null
+	if _button_w != null and _button_w.button_pressed:
+		_saved_native_button = _button_w
+	elif _button_e != null and _button_e.button_pressed:
+		_saved_native_button = _button_e
+	elif _button_r != null and _button_r.button_pressed:
+		_saved_native_button = _button_r
+
+
+## Press the native tool button that was active when [method save_native_tool_mode]
+## was called.  If no save was taken, defaults to the Move (W) button.
+## Call this when returning to Object mode so the user gets their transform
+## mode back.
+func restore_native_tool_mode() -> void:
+	_ensure_transform_buttons()
+	var btn: Button = _saved_native_button
+	if btn == null or not is_instance_valid(btn):
+		btn = _button_w
+	if btn == null:
+		return
+	btn.set_pressed_no_signal(true)
+	btn.emit_signal("pressed")
+	_saved_native_button = null
+
+
+## Locate and cache the W/E/R transform buttons from the Node3DEditor toolbar.
+## No-ops if they are already cached.
+func _ensure_transform_buttons() -> void:
+	if _button_w != null and is_instance_valid(_button_w) \
+			and _button_e != null and is_instance_valid(_button_e) \
+			and _button_r != null and is_instance_valid(_button_r):
+		return
+	var n3de: Node = _get_node3d_editor()
+	if n3de == null:
+		return
+	_button_w = find_button_by_shortcut(n3de, KEY_W)
+	_button_e = find_button_by_shortcut(n3de, KEY_E)
+	_button_r = find_button_by_shortcut(n3de, KEY_R)
 
 
 # ---------------------------------------------------------------------------
@@ -76,18 +137,7 @@ func invalidate() -> void:
 func _get_button() -> Button:
 	if _button != null and is_instance_valid(_button):
 		return _button
-	if not Engine.is_editor_hint():
-		return null
-	# Some Godot builds (and headless test runs) do not expose
-	# EditorInterface.get_editor_viewport_3d(). Guard the lookup so tests and
-	# non-editor contexts fail gracefully instead of throwing invalid-call errors.
-	if not ClassDB.class_has_method("EditorInterface", "get_editor_viewport_3d"):
-		return null
-	var sv := EditorInterface.get_editor_viewport_3d(0)
-	if sv == null:
-		return null
-	# Walk up from SubViewport to Node3DEditor (typically 2 hops).
-	var n3de: Node = _find_node3d_editor(sv)
+	var n3de: Node = _get_node3d_editor()
 	if n3de == null:
 		return null
 	# Strategy 1: shortcut KEY_V.
@@ -120,6 +170,19 @@ func _get_button() -> Button:
 		GoBuildDebug.log(
 				"[GoBuild] ToolPinner  Q button not found or has no ButtonGroup")
 	return null
+
+
+## Get the [code]Node3DEditor[/code] node by walking up from the first
+## 3D viewport.  Returns [code]null[/code] if not available.
+func _get_node3d_editor() -> Node:
+	if not Engine.is_editor_hint():
+		return null
+	if not ClassDB.class_has_method("EditorInterface", "get_editor_viewport_3d"):
+		return null
+	var sv := EditorInterface.get_editor_viewport_3d(0)
+	if sv == null:
+		return null
+	return _find_node3d_editor(sv)
 
 
 ## Walk up the scene tree from [param start] until a node whose class name is

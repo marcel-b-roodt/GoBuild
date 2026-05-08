@@ -288,5 +288,186 @@ func test_invalidate_clears_cached_button() -> void:
 	var btn := Button.new()
 	var pinner := Node3DEditorToolPinner.new()
 	pinner._button = btn
+	pinner._button_w = btn
+	pinner._button_e = btn
+	pinner._button_r = btn
+	pinner._saved_native_button = btn
 	pinner.invalidate()
 	assert_object(pinner._button).is_null()
+	assert_object(pinner._button_w).is_null()
+	assert_object(pinner._button_e).is_null()
+	assert_object(pinner._button_r).is_null()
+	assert_object(pinner._saved_native_button).is_null()
+
+
+# ---------------------------------------------------------------------------
+# save_native_tool_mode / restore_native_tool_mode
+# ---------------------------------------------------------------------------
+
+func test_save_captures_pressed_w_button() -> void:
+	var btn_w := Button.new()
+	btn_w.toggle_mode = true
+	add_child(btn_w)
+	btn_w.set_pressed_no_signal(true)
+
+	var btn_e := Button.new()
+	btn_e.toggle_mode = true
+	add_child(btn_e)
+
+	var btn_r := Button.new()
+	btn_r.toggle_mode = true
+	add_child(btn_r)
+
+	var pinner := Node3DEditorToolPinner.new()
+	pinner._button_w = btn_w
+	pinner._button_e = btn_e
+	pinner._button_r = btn_r
+
+	pinner.save_native_tool_mode()
+
+	assert_object(pinner._saved_native_button).is_equal(btn_w)
+	btn_w.queue_free()
+	btn_e.queue_free()
+	btn_r.queue_free()
+
+
+func test_save_captures_pressed_e_button() -> void:
+	var btn_w := Button.new()
+	btn_w.toggle_mode = true
+	add_child(btn_w)
+
+	var btn_e := Button.new()
+	btn_e.toggle_mode = true
+	add_child(btn_e)
+	btn_e.set_pressed_no_signal(true)
+
+	var btn_r := Button.new()
+	btn_r.toggle_mode = true
+	add_child(btn_r)
+
+	var pinner := Node3DEditorToolPinner.new()
+	pinner._button_w = btn_w
+	pinner._button_e = btn_e
+	pinner._button_r = btn_r
+
+	pinner.save_native_tool_mode()
+
+	assert_object(pinner._saved_native_button).is_equal(btn_e)
+	btn_w.queue_free()
+	btn_e.queue_free()
+	btn_r.queue_free()
+
+
+func test_save_captures_pressed_r_button() -> void:
+	var btn_w := Button.new()
+	btn_w.toggle_mode = true
+	add_child(btn_w)
+
+	var btn_e := Button.new()
+	btn_e.toggle_mode = true
+	add_child(btn_e)
+
+	var btn_r := Button.new()
+	btn_r.toggle_mode = true
+	add_child(btn_r)
+	btn_r.set_pressed_no_signal(true)
+
+	var pinner := Node3DEditorToolPinner.new()
+	pinner._button_w = btn_w
+	pinner._button_e = btn_e
+	pinner._button_r = btn_r
+
+	pinner.save_native_tool_mode()
+
+	assert_object(pinner._saved_native_button).is_equal(btn_r)
+	btn_w.queue_free()
+	btn_e.queue_free()
+	btn_r.queue_free()
+
+
+func test_save_defaults_to_w_when_nothing_pressed() -> void:
+	var btn_w := Button.new()
+	btn_w.toggle_mode = true
+	add_child(btn_w)
+
+	var btn_e := Button.new()
+	btn_e.toggle_mode = true
+	add_child(btn_e)
+
+	var btn_r := Button.new()
+	btn_r.toggle_mode = true
+	add_child(btn_r)
+
+	var pinner := Node3DEditorToolPinner.new()
+	pinner._button_w = btn_w
+	pinner._button_e = btn_e
+	pinner._button_r = btn_r
+
+	pinner.save_native_tool_mode()
+	pinner.restore_native_tool_mode()
+
+	assert_bool(btn_w.button_pressed).is_true()
+	btn_w.queue_free()
+	btn_e.queue_free()
+	btn_r.queue_free()
+
+
+func test_restore_presses_saved_button() -> void:
+	var btn_w := Button.new()
+	btn_w.toggle_mode = true
+	add_child(btn_w)
+
+	var btn_e := Button.new()
+	btn_e.toggle_mode = true
+	add_child(btn_e)
+	btn_e.set_pressed_no_signal(true)
+
+	var btn_r := Button.new()
+	btn_r.toggle_mode = true
+	add_child(btn_r)
+
+	_reset_press_count()
+	btn_e.pressed.connect(_on_button_pressed)
+
+	var pinner := Node3DEditorToolPinner.new()
+	pinner._button_w = btn_w
+	pinner._button_e = btn_e
+	pinner._button_r = btn_r
+
+	pinner.save_native_tool_mode()
+	# E was saved, so restore should press E (and clear _saved_native_button).
+	pinner.restore_native_tool_mode()
+
+	assert_int(_press_count).is_equal(1)
+	assert_object(pinner._saved_native_button).is_null()
+	btn_w.queue_free()
+	btn_e.queue_free()
+	btn_r.queue_free()
+
+
+func test_restore_defaults_to_w_when_saved_button_invalid() -> void:
+	var btn_w := Button.new()
+	btn_w.toggle_mode = true
+	add_child(btn_w)
+
+	var btn_e := Button.new()
+	btn_e.toggle_mode = true
+	add_child(btn_e)
+	btn_e.set_pressed_no_signal(true)
+
+	var pinner := Node3DEditorToolPinner.new()
+	pinner._button_w = btn_w
+	pinner._button_e = btn_e
+
+	pinner.save_native_tool_mode()
+	# Simulate the saved button becoming invalid (e.g. editor rebuild).
+	btn_e.queue_free()
+	await get_tree().process_frame
+
+	_reset_press_count()
+	btn_w.pressed.connect(_on_button_pressed)
+
+	pinner.restore_native_tool_mode()
+
+	assert_int(_press_count).is_equal(1)
+	btn_w.queue_free()
