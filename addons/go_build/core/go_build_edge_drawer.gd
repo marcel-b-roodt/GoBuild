@@ -169,8 +169,9 @@ func _on_extrude_edge_pressed() -> void:
 	preview.action_name = "Extrude Edge"
 	preview.param_label = "Distance"
 	preview.param_start = _EDGE_EXTRUDE_DEFAULT_WIDTH
-	preview.param_min   = 0.0
+	preview.param_min   = -100.0
 	preview.param_max   = 100.0
+	preview.radial      = false
 	preview.apply_fn    = func(p: float) -> void: \
 			EdgeExtrudeOperation.apply(_target.go_build_mesh, edges_to_extrude, p)
 	_plugin.call("begin_param_preview", preview)
@@ -192,6 +193,7 @@ func _on_bevel_pressed() -> void:
 	preview.param_label = "Width"
 	preview.param_start = _BEVEL_DEFAULT_WIDTH
 	preview.param_min   = 0.0001
+	preview.radial      = false
 	preview.apply_fn    = func(p: float) -> void: \
 			BevelOperation.apply(_target.go_build_mesh, edges_to_bevel, p)
 	_plugin.call("begin_param_preview", preview)

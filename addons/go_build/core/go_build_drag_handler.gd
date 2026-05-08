@@ -697,8 +697,9 @@ func _apply_uniform_scale_drag(
 
 ## Apply an inset drag to the inner-ring vertices created by [method begin_inset_drag].
 ## On the first frame, records the initial screen position via [member _drag_start_dir].
-## Subsequent frames compute an inset amount from the screen-space distance moved
-## and blend each inner vertex from its initial position toward its face centroid.
+## Subsequent frames compute an inset amount from the screen-space offset
+## along the drag direction and blend each inner vertex from its initial
+## position toward its face centroid.
 ## [b]Ctrl[/b] snaps the amount to [member scale_snap_override] increments.
 ## [b]Shift[/b] reduces inset speed (precision mode).
 func _apply_inset_drag(
@@ -711,8 +712,9 @@ func _apply_inset_drag(
 		_drag_initial_t = 0.0
 		return
 	var start_screen := Vector2(_drag_start_dir.x, _drag_start_dir.y)
-	var amount: float = start_screen.distance_to(screen_pos) * 0.005
-	amount = clampf(amount, 0.0, 0.99)
+	var offset: float = (screen_pos - start_screen).dot(Vector2(1.0, 0.0))
+	var amount: float = offset * 0.005
+	amount = clampf(amount, 0.0, 1.0)
 	if Input.is_key_pressed(KEY_CTRL):
 		amount = snappedf(amount, scale_snap_override)
 	if precision_active:

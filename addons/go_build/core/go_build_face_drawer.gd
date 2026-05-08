@@ -126,6 +126,7 @@ func _on_extrude_pressed() -> void:
 	preview.param_start = _EXTRUDE_DEFAULT_DISTANCE
 	preview.param_min   = -100.0
 	preview.param_max   = 100.0
+	preview.radial      = false
 	preview.apply_fn    = func(p: float) -> void: \
 			ExtrudeOperation.apply(_target.go_build_mesh, faces_to_extrude, p)
 	_plugin.call("begin_param_preview", preview)
@@ -148,6 +149,7 @@ func _on_inset_pressed() -> void:
 	preview.param_start = _INSET_DEFAULT_AMOUNT
 	preview.param_min   = 0.0
 	preview.param_max   = 1.0
+	preview.radial      = false
 	preview.apply_fn    = func(p: float) -> void: \
 			InsetOperation.apply(_target.go_build_mesh, faces_to_inset, p)
 	_plugin.call("begin_param_preview", preview)
