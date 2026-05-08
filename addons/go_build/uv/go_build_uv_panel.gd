@@ -109,7 +109,7 @@ func _ready() -> void:
 	_move_btn = Button.new()
 	_move_btn.text = "Move"
 	_move_btn.flat = true
-	_move_btn.tooltip_text = "Move UV island (W / G)"
+	_move_btn.tooltip_text = "Move UV island (W)"
 	_move_btn.toggle_mode = true
 	_move_btn.button_pressed = true
 	_move_btn.pressed.connect(_on_move_pressed)
@@ -118,7 +118,7 @@ func _ready() -> void:
 	_rotate_btn = Button.new()
 	_rotate_btn.text = "Rotate"
 	_rotate_btn.flat = true
-	_rotate_btn.tooltip_text = "Rotate UV island (R)"
+	_rotate_btn.tooltip_text = "Rotate UV island (E)"
 	_rotate_btn.toggle_mode = true
 	_rotate_btn.pressed.connect(_on_rotate_pressed)
 	xform_bar.add_child(_rotate_btn)
@@ -126,7 +126,7 @@ func _ready() -> void:
 	_scale_btn = Button.new()
 	_scale_btn.text = "Scale"
 	_scale_btn.flat = true
-	_scale_btn.tooltip_text = "Scale UV island (S)"
+	_scale_btn.tooltip_text = "Scale UV island (R)"
 	_scale_btn.toggle_mode = true
 	_scale_btn.pressed.connect(_on_scale_pressed)
 	xform_bar.add_child(_scale_btn)

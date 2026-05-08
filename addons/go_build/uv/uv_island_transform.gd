@@ -23,12 +23,20 @@ class DragState:
 	var pivot: Vector2 = Vector2.ZERO
 	var scale_start: float = 1.0
 	var snapshot: Dictionary = {}
+	var precision: bool = false
+	var cumulative_delta: Vector2 = Vector2.ZERO
+	var cumulative_angle: float = 0.0
+	var cumulative_scale: float = 1.0
+	var prev_angle: float = 0.0
 
 
-## Mode constants matching [GoBuildUvCanvas.UvTransformMode].
 const MODE_MOVE: int = 0
 const MODE_ROTATE: int = 1
 const MODE_SCALE: int = 2
+
+const SENSITIVITY_MOVE: float = 1.0
+const SENSITIVITY_SCALE: float = 1.0
+const PRECISION_MULTIPLIER: float = 0.1
 
 
 ## Begin a new island drag.  Returns a [DragState] the caller should store.
@@ -41,6 +49,7 @@ static func begin(
 	ds.prev_uv = canvas_uv
 	ds.pivot = UvPicker.compute_pivot(mesh, sel_faces)
 	ds.scale_start = 1.0
+	ds.prev_angle = (canvas_uv - ds.pivot).angle()
 	if mesh != null:
 		ds.snapshot = mesh.take_snapshot()
 	return ds
@@ -50,14 +59,19 @@ static func begin(
 ## Returns true if any change was made.
 static func apply(
 		mesh: GoBuildMesh, sel_faces: Array[int],
-		ds: DragState, canvas_uv: Vector2) -> bool:
+		ds: DragState, canvas_uv: Vector2,
+		precision: bool = false) -> bool:
 	if mesh == null or sel_faces.is_empty():
 		return false
+
+	ds.precision = precision
+	var prec_mult: float = PRECISION_MULTIPLIER if precision else 1.0
 
 	var changed := false
 	match ds.mode:
 		MODE_MOVE:
-			var delta := canvas_uv - ds.prev_uv
+			var raw_delta := canvas_uv - ds.prev_uv
+			var delta := raw_delta * SENSITIVITY_MOVE * prec_mult
 			if delta.is_zero_approx():
 				return false
 			for fi: int in sel_faces:
@@ -66,14 +80,19 @@ static func apply(
 				var face: GoBuildFace = mesh.faces[fi]
 				for i: int in face.uvs.size():
 					face.uvs[i] = face.uvs[i] + delta
+			ds.cumulative_delta += delta
 			changed = true
 
 		MODE_ROTATE:
-			var angle_start := (ds.start_uv - ds.pivot).angle()
 			var angle_now := (canvas_uv - ds.pivot).angle()
-			var delta_angle := angle_now - angle_start
-			if is_zero_approx(delta_angle):
+			var raw_delta_angle := angle_now - ds.prev_angle
+			if raw_delta_angle > PI:
+				raw_delta_angle -= TAU
+			elif raw_delta_angle < -PI:
+				raw_delta_angle += TAU
+			if is_zero_approx(raw_delta_angle):
 				return false
+			var delta_angle := raw_delta_angle * prec_mult
 			var cos_a := cos(delta_angle)
 			var sin_a := sin(delta_angle)
 			for fi: int in sel_faces:
@@ -86,6 +105,8 @@ static func apply(
 						rel.x * cos_a - rel.y * sin_a,
 						rel.x * sin_a + rel.y * cos_a
 					)
+			ds.cumulative_angle += delta_angle
+			ds.prev_angle = angle_now
 			changed = true
 
 		MODE_SCALE:
@@ -98,7 +119,8 @@ static func apply(
 				return false
 			var factor := scale_ratio / ds.scale_start
 			factor = maxf(factor, 0.01)
-			ds.scale_start = scale_ratio
+			if precision:
+				factor = 1.0 + (factor - 1.0) * PRECISION_MULTIPLIER
 			for fi: int in sel_faces:
 				if fi < 0 or fi >= mesh.faces.size():
 					continue
@@ -106,6 +128,8 @@ static func apply(
 				for i: int in face.uvs.size():
 					var rel := face.uvs[i] - ds.pivot
 					face.uvs[i] = ds.pivot + rel * factor
+			ds.cumulative_scale *= factor
+			ds.scale_start = scale_ratio
 			changed = true
 
 	if changed:

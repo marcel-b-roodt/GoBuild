@@ -6,7 +6,7 @@
 ## - Click a UV face to select it (synced with the 3D viewport).
 ## - Shift+click adds; Ctrl+click toggles.
 ## - Drag with left mouse to box-select faces in UV space.
-## - G/R/S keys switch transform mode (Move/Rotate/Scale) for selected islands.
+## - W/E/R keys switch transform mode (Move/Rotate/Scale) for selected islands.
 ## - Left-drag on a selected island to transform its UVs.
 @tool
 class_name GoBuildUvCanvas
@@ -62,6 +62,11 @@ const _PIVOT_COLOR        := Color(1.0, 1.0, 1.0, 0.70)
 const _VTX_DOT_COLOR     := Color(0.6, 0.85, 1.0, 0.9)
 const _VTX_SEL_COLOR     := Color(1.0, 0.85, 0.35, 1.0)
 const _VERT_PICK_RADIUS: float = 12.0
+const _DELTA_LINE_COLOR  := Color(1.0, 0.92, 0.4, 0.70)
+const _DELTA_ARC_COLOR   := Color(1.0, 0.92, 0.4, 0.55)
+const _DELTA_TEXT_COLOR  := Color(1.0, 0.92, 0.4, 0.92)
+const _PRECISION_TEXT_COLOR := Color(0.5, 0.85, 1.0, 0.92)
+const _ORIGIN_MARKER_COLOR := Color(1.0, 1.0, 1.0, 0.50)
 
 # ---------------------------------------------------------------------------
 # View state
@@ -130,6 +135,10 @@ var _ctrl_held:  bool = false
 var _last_click_uv: Vector2 = Vector2(INF, INF)
 var _cycle_candidates: Array[int] = []
 var _cycle_index: int = 0
+
+
+func _ready() -> void:
+	focus_mode = Control.FOCUS_ALL
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +261,10 @@ func _draw() -> void:
 	if _uv_select_mode == UvSelectMode.VERTEX:
 		_draw_uv_vertices()
 	_draw_transform_gizmo()
+	if _island_dragging and _island_drag_state != null:
+		_draw_drag_overlay()
+	if _vert_dragging and _vert_drag_state != null:
+		_draw_vert_drag_overlay()
 	if _box_selecting:
 		_draw_box_select()
 
@@ -389,6 +402,107 @@ func _draw_transform_gizmo() -> void:
 			draw_rect(Rect2(end_y - Vector2(tip_size, tip_size), tip_rect), _GIZMO_AXIS_Y_COLOR)
 
 	draw_circle(pivot_px, 3.0, _PIVOT_COLOR)
+
+
+## Draw the delta/origin overlay during an active island drag.
+## Shows the reference pivot, a delta line/arc, and a numeric readout.
+func _draw_drag_overlay() -> void:
+	var ds: UvIslandTransform.DragState = _island_drag_state
+	if ds == null:
+		return
+
+	var pivot_px := _uv_to_canvas(ds.pivot)
+	var mouse_uv := _canvas_to_uv(get_local_mouse_position())
+	var mouse_px := _uv_to_canvas(mouse_uv)
+
+	draw_circle(pivot_px, 6.0, _ORIGIN_MARKER_COLOR)
+	draw_circle(pivot_px, 3.0, _PIVOT_COLOR)
+
+	var mode: int = ds.mode
+	var text_color: Color = _DELTA_TEXT_COLOR
+	if ds.precision:
+		text_color = _PRECISION_TEXT_COLOR
+	var font: Font = ThemeDB.fallback_font
+	var fsize: int = 12
+	var label_offset := Vector2(12.0, -8.0)
+
+	match mode:
+		UvIslandTransform.MODE_MOVE:
+			draw_line(pivot_px, mouse_px, _DELTA_LINE_COLOR, 1.5)
+			var dx: float = ds.cumulative_delta.x
+			var dy: float = ds.cumulative_delta.y
+			var text := "Δ %.3f, %.3f" % [dx, dy]
+			draw_string(font, mouse_px + label_offset + Vector2(1.0, 1.0), text,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+			draw_string(font, mouse_px + label_offset, text,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, text_color)
+
+		UvIslandTransform.MODE_ROTATE:
+			var angle_start := (ds.start_uv - ds.pivot).angle()
+			var radius_px := pivot_px.distance_to(mouse_px) * 0.6
+			radius_px = maxf(radius_px, 20.0)
+			if not is_zero_approx(ds.cumulative_angle):
+				var from_angle := angle_start
+				var to_angle := angle_start + ds.cumulative_angle
+				var arc_start := mini(from_angle, to_angle)
+				var arc_end := maxi(from_angle, to_angle)
+				draw_arc(pivot_px, radius_px, arc_start, arc_end, 128, _DELTA_ARC_COLOR, 2.0)
+			var deg := rad_to_deg(ds.cumulative_angle)
+			var text := "%.1f°" % deg
+			var label_pos := pivot_px + Vector2(cos(angle_start + ds.cumulative_angle),
+					sin(angle_start + ds.cumulative_angle)) * radius_px
+			draw_string(font, label_pos + label_offset + Vector2(1.0, 1.0), text,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+			draw_string(font, label_pos + label_offset, text,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, text_color)
+
+		UvIslandTransform.MODE_SCALE:
+			draw_line(pivot_px, mouse_px, _DELTA_LINE_COLOR, 1.5)
+			var text := "%.3fx" % ds.cumulative_scale
+			draw_string(font, mouse_px + label_offset + Vector2(1.0, 1.0), text,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+			draw_string(font, mouse_px + label_offset, text,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, text_color)
+
+	var indicator_y: float = pivot_px.y - 16.0
+	if ds.precision:
+		var prec_text := "PRECISION"
+		draw_string(font, pivot_px + Vector2(10.0, indicator_y) + Vector2(1.0, 1.0), prec_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.45))
+		draw_string(font, pivot_px + Vector2(10.0, indicator_y), prec_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, _PRECISION_TEXT_COLOR)
+		indicator_y -= 14.0
+
+
+## Draw the delta overlay during an active vertex drag.
+func _draw_vert_drag_overlay() -> void:
+	var ds: UvVertexTransform.DragState = _vert_drag_state
+	if ds == null:
+		return
+
+	var mouse_uv := _canvas_to_uv(get_local_mouse_position())
+	var mouse_px := _uv_to_canvas(mouse_uv)
+
+	var text_color: Color = _DELTA_TEXT_COLOR if not ds.precision else _PRECISION_TEXT_COLOR
+	var font: Font = ThemeDB.fallback_font
+	var fsize: int = 12
+	var label_offset := Vector2(12.0, -8.0)
+
+	draw_line(_uv_to_canvas(ds.start_uv), mouse_px, _DELTA_LINE_COLOR, 1.5)
+	var dx: float = ds.cumulative_delta.x
+	var dy: float = ds.cumulative_delta.y
+	var text := "Δ %.3f, %.3f" % [dx, dy]
+	draw_string(font, mouse_px + label_offset + Vector2(1.0, 1.0), text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+	draw_string(font, mouse_px + label_offset, text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, text_color)
+
+	if ds.precision:
+		var prec_text := "PRECISION"
+		draw_string(font, mouse_px + Vector2(12.0, -20.0) + Vector2(1.0, 1.0), prec_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.45))
+		draw_string(font, mouse_px + Vector2(12.0, -20.0), prec_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, _PRECISION_TEXT_COLOR)
 
 
 ## Draw a filled triangle arrowhead at [param tip] pointing in direction [param angle].
@@ -532,6 +646,7 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _handle_mouse_button(mb: InputEventMouseButton) -> void:
+	grab_focus()
 	# Zoom.
 	if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
 		_zoom_at(mb.position, 1.1)
@@ -620,17 +735,17 @@ func _handle_key(ek: InputEventKey) -> void:
 		return
 	if _uv_select_mode == UvSelectMode.VERTEX:
 		return
-	if ek.keycode == KEY_G:
+	if ek.keycode == KEY_W:
 		_transform_mode = UvTransformMode.MOVE
 		queue_redraw()
 		accept_event()
 		return
-	if ek.keycode == KEY_R:
+	if ek.keycode == KEY_E:
 		_transform_mode = UvTransformMode.ROTATE
 		queue_redraw()
 		accept_event()
 		return
-	if ek.keycode == KEY_S:
+	if ek.keycode == KEY_R:
 		_transform_mode = UvTransformMode.SCALE
 		queue_redraw()
 		accept_event()
@@ -871,7 +986,8 @@ func _apply_island_drag(canvas_pos: Vector2) -> void:
 	var uv_now := _canvas_to_uv(canvas_pos)
 	var sel_faces := _get_uv_selected_faces()
 	UvIslandTransform.apply(
-		_target.go_build_mesh, sel_faces, _island_drag_state, uv_now)
+		_target.go_build_mesh, sel_faces, _island_drag_state, uv_now,
+		_shift_held)
 	_target.bake_in_place()
 	queue_redraw()
 
@@ -960,7 +1076,7 @@ func _apply_vert_drag(canvas_pos: Vector2) -> void:
 	var uv_now := _canvas_to_uv(canvas_pos)
 	UvVertexTransform.apply(
 		_target.go_build_mesh, _selected_uv_verts,
-		_vert_drag_state, uv_now)
+		_vert_drag_state, uv_now, _shift_held)
 	_target.bake_in_place()
 	queue_redraw()
 

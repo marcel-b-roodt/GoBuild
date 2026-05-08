@@ -24,6 +24,7 @@ const _OVERLAY_HINT_SCRIPT  := preload("res://addons/go_build/core/overlay_hint_
 const _SEL_DIMS_SCRIPT      := preload("res://addons/go_build/core/selection_dims_helper.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
+const _DRAG_HANDLER_SCRIPT := preload("res://addons/go_build/core/go_build_drag_handler.gd")
 const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
 const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_panel.gd")
 const _UV_PANEL_SCRIPT      := preload("res://addons/go_build/uv/go_build_uv_panel.gd")
@@ -419,6 +420,8 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 	else:
 		_draw_mode_hint(overlay)
 	_draw_selection_dims(overlay)
+	if _gizmo_plugin != null and _gizmo_plugin._drag_handler.is_dragging():
+		_draw_drag_value(overlay)
 
 
 func _handle_keyboard(event: InputEvent) -> int:
@@ -664,6 +667,37 @@ func _build_selection_dims() -> String:
 			_edited_node.global_transform)
 
 
+## Draw the active drag value readout in the viewport overlay.
+## Shows the current delta (distance, angle, or scale ratio) above the mode hint.
+## When precision mode (Shift) is active, uses a different colour and appends
+## a "PRECISION" label.
+func _draw_drag_value(overlay: Control) -> void:
+	if _gizmo_plugin == null:
+		return
+	var dh: GoBuildDragHandler = _gizmo_plugin._drag_handler
+	if not dh.is_dragging():
+		return
+	var text: String = dh.get_drag_value_text()
+	if text.is_empty():
+		return
+	var precision: bool = Input.is_key_pressed(KEY_SHIFT)
+	var text_color: Color = Color(0.5, 0.85, 1.0, 0.92) if precision else Color(1.0, 0.92, 0.4, 0.90)
+	var font: Font = ThemeDB.fallback_font
+	var fsize: int = 12
+	var m: float   = 8.0
+	var pos := Vector2(m, overlay.size.y - m - 18.0)
+	overlay.draw_string(font, pos + Vector2(1.0, 1.0), text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+	overlay.draw_string(font, pos, text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, text_color)
+	if precision:
+		var prec_text := "PRECISION"
+		overlay.draw_string(font, pos + Vector2(0.0, -14.0) + Vector2(1.0, 1.0), prec_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.45))
+		overlay.draw_string(font, pos + Vector2(0.0, -14.0), prec_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, text_color)
+
+
 ## Return a short operation name for the panel context label.
 ## Mirrors [method _build_overlay_hint] but returns only the active operation
 ## (no mode prefix, no shortcut hints).
@@ -733,7 +767,8 @@ func _on_snap_selected(index: int) -> void:
 func _on_rot_snap_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
-	_gizmo_plugin.rot_snap_override = _ROT_SNAP_PRESETS[index]
+	var deg: float = _ROT_SNAP_PRESETS[index]
+	_gizmo_plugin.rot_snap_override = deg
 
 
 func _on_scale_snap_selected(index: int) -> void:

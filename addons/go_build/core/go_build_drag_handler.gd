@@ -32,6 +32,9 @@ const PLANE_HANDLE_OFFSET:     int = 4_000_000
 const VIEW_PLANE_HANDLE_ID:    int = 5_000_000
 const UNIFORM_SCALE_HANDLE_ID: int = 6_000_000
 
+## Precision multiplier applied when Shift is held during a drag.
+const PRECISION_MULTIPLIER: float = 0.1
+
 # ── Snap overrides ───────────────────────────────────────────────────────────
 ## Ctrl-snap step override; -1.0 = use editor grid step.
 ## Written by [code]plugin.gd[/code] via the passthrough property on
@@ -41,6 +44,8 @@ var snap_step_override: float = -1.0
 var rot_snap_override: float = 15.0
 ## Ctrl-snap step for scale ratio.  Default 0.1 (snaps to 0.1, 0.2, 0.3 …).
 var scale_snap_override: float = 0.1
+## True when Shift is held during a drag (precision mode).
+var precision_active: bool = false
 
 # ── Drag state ──────────────────────────────────────────────────────────────
 ## Vertex index → original position before the current drag started.
@@ -79,6 +84,11 @@ var _drag_vertex_update_mode: bool = false
 ## instead of [method GoBuildMeshInstance.bake] so mesh resource assignment is
 ## avoided while the drag is in progress.
 var _drag_preview_mode: bool = false
+## Cumulative delta values for overlay readout.
+var _drag_cumulative_translate: Vector3 = Vector3.ZERO
+var _drag_cumulative_angle: float = 0.0
+var _drag_cumulative_scale: float = 1.0
+var _drag_current_handle_id: int = -1
 
 # ── Deferred-bake state ─────────────────────────────────────────────────────
 var _bake_pending_node: GoBuildMeshInstance = null
@@ -122,6 +132,38 @@ func get_drag_restore() -> Dictionary:
 	return _drag_restore
 
 
+## Return true if a drag is currently in progress.
+func is_dragging() -> bool:
+	return not _drag_initial_verts.is_empty() and _drag_current_handle_id >= AXIS_HANDLE_OFFSET
+
+
+## Return a human-readable string for the current drag delta.
+## Returns empty string when not dragging.
+func get_drag_value_text() -> String:
+	if not is_dragging():
+		return ""
+	var hid: int = _drag_current_handle_id
+	if _inset_mode:
+		return "inset %.3f" % _drag_cumulative_scale
+	if hid >= UNIFORM_SCALE_HANDLE_ID:
+		return "%.2fx" % _drag_cumulative_scale
+	if hid >= VIEW_PLANE_HANDLE_ID:
+		return _translate_text()
+	if hid >= PLANE_HANDLE_OFFSET:
+		return _translate_text()
+	if hid >= SCALE_HANDLE_OFFSET:
+		return "%.2fx" % _drag_cumulative_scale
+	if hid >= ROT_HANDLE_OFFSET:
+		var deg := rad_to_deg(_drag_cumulative_angle)
+		return "%.1f°" % deg
+	return _translate_text()
+
+
+func _translate_text() -> String:
+	var t := _drag_cumulative_translate
+	return "Δ %.3f, %.3f, %.3f" % [t.x, t.y, t.z]
+
+
 # ---------------------------------------------------------------------------
 # Public drag API
 # ---------------------------------------------------------------------------
@@ -150,6 +192,9 @@ func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
 		_drag_world_axis = (node.global_transform.basis * local_axis).normalized()
 
 	_drag_restore = node.go_build_mesh.take_snapshot()
+	_drag_cumulative_translate = Vector3.ZERO
+	_drag_cumulative_angle = 0.0
+	_drag_cumulative_scale = 1.0
 	# Engage the fast vertex-position-only bake path for the duration of this drag.
 	_drag_vertex_update_mode = true
 	_drag_preview_mode = node.auto_uv_mode != GoBuildFace.UvMode.NONE
@@ -170,6 +215,8 @@ func update_drag(
 		return
 	if node == null:
 		return
+	_drag_current_handle_id = handle_id
+	precision_active = Input.is_key_pressed(KEY_SHIFT)
 	if _inset_mode:
 		_apply_inset_drag(node, camera, screen_pos)
 		return
@@ -247,6 +294,11 @@ func reset_drag_state() -> void:
 	_drag_preview_mode = false
 	_inset_mode = false
 	_inset_centroids.clear()
+	_drag_cumulative_translate = Vector3.ZERO
+	_drag_cumulative_angle = 0.0
+	_drag_cumulative_scale = 1.0
+	_drag_current_handle_id = -1
+	precision_active = false
 	_bake_pending_node         = null
 	_bake_scheduled            = false
 	_gizmo_redraw_pending_node = null
@@ -354,6 +406,7 @@ func _flush_pending_gizmo_redraw() -> void:
 ## When Ctrl is held, snaps the scalar travel distance to [method _get_snap_step].
 ## When V is held, snaps the centroid to the nearest non-dragged mesh vertex,
 ## projected onto the drag axis (vertex snap).
+## When Shift is held, reduces movement to 10% (precision mode).
 func _apply_translate_drag(
 		node: GoBuildMeshInstance,
 		axis_idx: int,
@@ -375,6 +428,7 @@ func _apply_translate_drag(
 					node.global_transform.basis.inverse() * (world_axis * t_delta)
 			for idx: int in _drag_initial_verts:
 				gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+			_drag_cumulative_translate = delta_local
 			if _drag_initial_t == INF:
 				_drag_initial_t = 0.0
 			_schedule_bake(node)
@@ -388,17 +442,19 @@ func _apply_translate_drag(
 	var t_delta: float = t_now - _drag_initial_t
 	if Input.is_key_pressed(KEY_CTRL):
 		t_delta = snappedf(t_delta, _get_snap_step())
+	if precision_active:
+		t_delta *= PRECISION_MULTIPLIER
 	var delta_world: Vector3 = world_axis * t_delta
 	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
 
 	for idx: int in _drag_initial_verts:
 		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
 
+	_drag_cumulative_translate = delta_local
 	_schedule_bake(node)
-
-
 ## Apply a rotate drag around axis [param axis_idx] to all cached vertices.
 ## Uses [method Vector3.signed_angle_to] to compute the delta angle each frame.
+## Shift reduces rotation speed to 10% (precision mode).
 func _apply_rotate_drag(
 		node: GoBuildMeshInstance,
 		axis_idx: int,
@@ -431,11 +487,14 @@ func _apply_rotate_drag(
 	var delta_angle: float = _drag_start_dir.signed_angle_to(dir, _drag_world_axis)
 	if Input.is_key_pressed(KEY_CTRL):
 		delta_angle = snappedf(delta_angle, deg_to_rad(rot_snap_override))
+	if precision_active:
+		delta_angle *= PRECISION_MULTIPLIER
 
 	for idx: int in _drag_initial_verts:
 		var local_pos: Vector3 = _drag_initial_verts[idx] - local_centroid
 		gbm.vertices[idx] = local_centroid + local_pos.rotated(local_axis, delta_angle)
 
+	_drag_cumulative_angle = delta_angle
 	_schedule_bake(node)
 
 
@@ -447,6 +506,7 @@ func _apply_rotate_drag(
 ## grid step via [method _get_snap_step].
 ## [b]V held[/b] snaps the centroid to the nearest non-dragged mesh vertex,
 ## constrained to move only within the drag plane.
+## [b]Shift held[/b] reduces movement to 10% (precision mode).
 func _apply_plane_drag(
 		node: GoBuildMeshInstance,
 		plane_idx: int,
@@ -471,6 +531,7 @@ func _apply_plane_drag(
 			var delta_local: Vector3 = node.global_transform.basis.inverse() * raw_delta
 			for idx: int in _drag_initial_verts:
 				gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+			_drag_cumulative_translate = delta_local
 			if _drag_initial_t == INF:
 				_drag_initial_t = 0.0
 			_schedule_bake(node)
@@ -492,15 +553,19 @@ func _apply_plane_drag(
 	var delta_world: Vector3 = hit - _drag_start_dir
 	if Input.is_key_pressed(KEY_CTRL):
 		delta_world = delta_world.snapped(Vector3.ONE * _get_snap_step())
+	if precision_active:
+		delta_world *= PRECISION_MULTIPLIER
 	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
 	for idx: int in _drag_initial_verts:
 		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+	_drag_cumulative_translate = delta_local
 	_schedule_bake(node)
 
 
 ## Apply a per-axis scale drag for [param axis_idx] to all cached vertices.
 ## Projects the mouse ray onto the axis, computes a scale ratio from the initial
 ## projection, and scales the per-axis displacement of each vertex from the centroid.
+## Shift reduces scale sensitivity (precision mode).
 func _apply_scale_drag(
 		node: GoBuildMeshInstance,
 		axis_idx: int,
@@ -522,12 +587,15 @@ func _apply_scale_drag(
 	var scale_ratio: float = t_now / _drag_initial_t
 	if Input.is_key_pressed(KEY_CTRL):
 		scale_ratio = snappedf(scale_ratio, scale_snap_override)
+	if precision_active:
+		scale_ratio = 1.0 + (scale_ratio - 1.0) * PRECISION_MULTIPLIER
 	for idx: int in _drag_initial_verts:
 		var local_pos: Vector3 = _drag_initial_verts[idx] - local_centroid
 		# Scale only the component along the dragged axis; keep perpendicular unchanged.
 		var along: float   = local_pos.dot(local_axis)
 		var perp: Vector3  = local_pos - local_axis * along
 		gbm.vertices[idx]  = local_centroid + perp + local_axis * along * scale_ratio
+	_drag_cumulative_scale = scale_ratio
 	_schedule_bake(node)
 
 
@@ -537,6 +605,7 @@ func _apply_scale_drag(
 ## Subsequent calls translate the selection by [code]hit - _drag_start_dir[/code].
 ## [b]Ctrl held[/b] snaps the world-space delta to the editor grid step.
 ## [b]V held[/b] snaps the centroid to the nearest non-dragged mesh vertex.
+## [b]Shift held[/b] reduces movement to 10% (precision mode).
 func _apply_viewport_plane_drag(
 		node: GoBuildMeshInstance,
 		camera: Camera3D,
@@ -555,6 +624,7 @@ func _apply_viewport_plane_drag(
 					node.global_transform.basis.inverse() * (snap_world - world_centroid)
 			for idx: int in _drag_initial_verts:
 				gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+			_drag_cumulative_translate = delta_local
 			if _drag_initial_t == INF:
 				_drag_initial_t = 0.0
 			_schedule_bake(node)
@@ -579,15 +649,19 @@ func _apply_viewport_plane_drag(
 	var delta_world: Vector3 = hit - _drag_start_dir
 	if Input.is_key_pressed(KEY_CTRL):
 		delta_world = delta_world.snapped(Vector3.ONE * _get_snap_step())
+	if precision_active:
+		delta_world *= PRECISION_MULTIPLIER
 	var delta_local: Vector3 = node.global_transform.basis.inverse() * delta_world
 	for idx: int in _drag_initial_verts:
 		gbm.vertices[idx] = _drag_initial_verts[idx] + delta_local
+	_drag_cumulative_translate = delta_local
 	_schedule_bake(node)
 
 
 ## Apply a uniform (all-axis) scale drag. Projects the mouse onto a camera-facing
 ## plane through the centroid and scales all vertex offsets by current/initial dist.
 ## [b]Ctrl[/b] snaps the ratio to [member scale_snap_override] increments.
+## [b]Shift[/b] reduces scale sensitivity (precision mode).
 func _apply_uniform_scale_drag(
 		node: GoBuildMeshInstance, camera: Camera3D, screen_pos: Vector2,
 ) -> void:
@@ -612,9 +686,12 @@ func _apply_uniform_scale_drag(
 	var scale_ratio: float = dist / _drag_initial_t
 	if Input.is_key_pressed(KEY_CTRL):
 		scale_ratio = snappedf(scale_ratio, scale_snap_override)
+	if precision_active:
+		scale_ratio = 1.0 + (scale_ratio - 1.0) * PRECISION_MULTIPLIER
 	for idx: int in _drag_initial_verts:
 		gbm.vertices[idx] = local_centroid \
 				+ (_drag_initial_verts[idx] - local_centroid) * scale_ratio
+	_drag_cumulative_scale = scale_ratio
 	_schedule_bake(node)
 
 
@@ -623,6 +700,7 @@ func _apply_uniform_scale_drag(
 ## Subsequent frames compute an inset amount from the screen-space distance moved
 ## and blend each inner vertex from its initial position toward its face centroid.
 ## [b]Ctrl[/b] snaps the amount to [member scale_snap_override] increments.
+## [b]Shift[/b] reduces inset speed (precision mode).
 func _apply_inset_drag(
 		node: GoBuildMeshInstance,
 		_camera: Camera3D,
@@ -637,6 +715,8 @@ func _apply_inset_drag(
 	amount = clampf(amount, 0.0, 0.99)
 	if Input.is_key_pressed(KEY_CTRL):
 		amount = snappedf(amount, scale_snap_override)
+	if precision_active:
+		amount *= PRECISION_MULTIPLIER
 	var gbm: GoBuildMesh = node.go_build_mesh
 	for idx: int in _drag_initial_verts:
 		if _inset_centroids.has(idx):

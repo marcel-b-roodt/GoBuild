@@ -15,6 +15,12 @@ class DragState:
 	var start_uv: Vector2 = Vector2.ZERO
 	var prev_uv: Vector2 = Vector2.ZERO
 	var snapshot: Dictionary = {}
+	var precision: bool = false
+	var cumulative_delta: Vector2 = Vector2.ZERO
+
+
+const SENSITIVITY_MOVE: float = 1.0
+const PRECISION_MULTIPLIER: float = 0.1
 
 
 ## Begin a new vertex drag.  Returns a [DragState] the caller should store.
@@ -34,12 +40,17 @@ static func apply(
 		mesh: GoBuildMesh,
 		selected: Array[Vector2i],
 		ds: DragState,
-		canvas_uv: Vector2) -> bool:
+		canvas_uv: Vector2,
+		precision: bool = false) -> bool:
 	if mesh == null or selected.is_empty():
 		return false
-	var delta := canvas_uv - ds.prev_uv
+	var prec_mult: float = PRECISION_MULTIPLIER if precision else 1.0
+	var raw_delta := canvas_uv - ds.prev_uv
+	var delta := raw_delta * SENSITIVITY_MOVE * prec_mult
 	if delta.is_zero_approx():
 		return false
+
+	ds.precision = precision
 
 	var positions_to_move: Dictionary = {}
 	for v: Vector2i in selected:
@@ -61,5 +72,6 @@ static func apply(
 		var hvi: int = handle.y
 		mesh.faces[hfi].uvs[hvi] = mesh.faces[hfi].uvs[hvi] + delta
 
+	ds.cumulative_delta += delta
 	ds.prev_uv = canvas_uv
 	return true
