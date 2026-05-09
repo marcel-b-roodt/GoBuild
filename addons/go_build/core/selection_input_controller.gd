@@ -133,6 +133,11 @@ var _preview_virtual_pos: Vector2              = Vector2.ZERO
 ## virtual position / anchor are reset so precision toggling doesn't
 ## cause a jump.
 var _preview_prev_shift: bool                   = false
+## Accumulated parameter contribution from previous precision segments.
+## On each Shift toggle, the amount consumed at the previous precision rate
+## is folded into this offset so that the visual indicator (anchor-to-cursor
+## line) stays in place and only the sensitivity changes.
+var _param_preview_precision_offset: float       = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +268,7 @@ func has_active_press() -> bool:
 func begin_param_preview(preview: GoBuildParamPreview) -> void:
 	_param_preview       = preview
 	_param_preview_delta = 0.0
+	_param_preview_precision_offset = 0.0
 	# Initialise apply target to param_start so that a commit with zero mouse
 	# movement applies the visible default rather than 0.
 	_preview_apply_target    = preview.param_start
@@ -330,6 +336,7 @@ func cancel_param_preview(edited_node: GoBuildMeshInstance) -> void:
 		edited_node.restore_and_bake(_param_preview.snapshot)
 	_param_preview = null
 	_param_preview_delta = 0.0
+	_param_preview_precision_offset = 0.0
 
 
 func _schedule_preview_apply(node: GoBuildMeshInstance, target: float) -> void:
@@ -1326,17 +1333,17 @@ func _handle_param_preview_input(
 				return EditorPlugin.AFTER_GUI_INPUT_STOP
 			_preview_filter_count = 0  # first normal-sized event — stop filtering
 		_preview_virtual_pos += mm.relative
-		# When Shift (precision) state changes, re-anchor the param computation
-		# at the current value so there is no jump.
+		# When Shift (precision) state changes, fold the delta's contribution
+		# at the old precision rate into _param_preview_precision_offset so the
+		# visual indicator (anchor-to-cursor line) stays in place and only the
+		# sensitivity changes.  The anchor and virtual positions are untouched.
 		var shift_now: bool = mm.shift_pressed
 		if shift_now != _preview_prev_shift:
+			var old_precision: float = _PRECISION_MULTIPLIER if _preview_prev_shift else 1.0
+			var new_precision: float = _PRECISION_MULTIPLIER if shift_now else 1.0
+			_param_preview_precision_offset += _param_preview_delta \
+					* _param_preview.units_per_pixel * (old_precision - new_precision)
 			_preview_prev_shift = shift_now
-			_param_preview.param_start = _param_preview.param
-			if _param_preview.radial:
-				_preview_anchor_vp = _preview_virtual_pos
-			else:
-				_param_preview_delta = 0.0
-				_preview_virtual_pos = _preview_anchor_vp
 		# Radial: Euclidean distance from anchor in any direction (always >= 0).
 		# Linear: project cumulative cursor offset onto the edge's screen-space
 		# direction so the cut follows the mouse along the edge's visual axis.
@@ -1346,6 +1353,7 @@ func _handle_param_preview_input(
 			_param_preview_delta = (_preview_virtual_pos - _preview_anchor_vp) \
 					.dot(_param_preview.screen_direction)
 		var raw := _param_preview.param_start \
+				+ _param_preview_precision_offset \
 				+ _param_preview_delta * _param_preview.units_per_pixel \
 				* (_PRECISION_MULTIPLIER if shift_now else 1.0)
 		var new_param := clampf(raw, _param_preview.param_min, _param_preview.param_max)
@@ -1394,6 +1402,7 @@ func _commit_param_preview(edited_node: GoBuildMeshInstance) -> void:
 	var final_target := _preview_apply_target
 	_param_preview        = null
 	_param_preview_delta  = 0.0
+	_param_preview_precision_offset = 0.0
 	_preview_apply_target = 0.0
 	if edited_node == null or not is_instance_valid(edited_node):
 		return

@@ -71,10 +71,17 @@ var _drag_restore: Dictionary = {}
 var _drag_action_name_override: String = ""
 ## When true, [method update_drag] routes to [method _apply_inset_drag]
 ## regardless of handle_id.  Set by [method begin_inset_drag].
+## When true, [method _apply_inset_drag] routes to inner-ring blending.
+## Set by [method begin_inset_drag]; cleared by [method reset_drag_state].
 var _inset_mode: bool = false
 ## Maps inner-ring vertex index → local-space face centroid.
 ## Populated by [method begin_inset_drag]; cleared by [method reset_drag_state].
 var _inset_centroids: Dictionary = {}
+## Accumulated inset amount from before the last precision toggle.
+## When Shift state changes during an inset drag, the current amount is captured
+## here so the offset-based computation restarts from zero relative to the new
+## anchor, preserving the full 0→1 inset range from the original vertex positions.
+var _inset_amount_offset: float = 0.0
 ## When true, [method _flush_pending_bake] routes to
 ## [method GoBuildMeshInstance.bake_vertex_positions] instead of
 ## [method GoBuildMeshInstance.bake].  Set by [method begin_drag]; cleared by
@@ -89,6 +96,11 @@ var _drag_cumulative_translate: Vector3 = Vector3.ZERO
 var _drag_cumulative_angle: float = 0.0
 var _drag_cumulative_scale: float = 1.0
 var _drag_current_handle_id: int = -1
+## Previous Shift state during a drag.  When Shift changes during a drag,
+## [method _reanchor_if_precision_changed] snapshots the current vertex
+## positions into [member _drag_initial_verts] and resets [member _drag_initial_t]
+## so that precision toggle is seamless — no position jump, only sensitivity changes.
+var _prev_precision_active: bool = false
 
 # ── Deferred-bake state ─────────────────────────────────────────────────────
 var _bake_pending_node: GoBuildMeshInstance = null
@@ -164,6 +176,33 @@ func _translate_text() -> String:
 	return "Δ %.3f, %.3f, %.3f" % [t.x, t.y, t.z]
 
 
+## When Shift (precision) state changes during a drag, snapshot the current
+## vertex positions into [member _drag_initial_verts] and reset
+## [member _drag_initial_t] so that subsequent drag frames re-anchor at the
+## current visual position.  This makes precision toggle seamless: only the
+## sensitivity changes, with no position jump.
+##
+## For inset mode, also resets [member _drag_start_dir] to the current screen
+## position so the offset-based amount computation starts from zero again.
+##
+## Call at the start of every [method update_drag] invocation, before any
+## drag-specific apply method.
+func _reanchor_if_precision_changed(node: GoBuildMeshInstance, screen_pos: Vector2) -> void:
+	var shift_now: bool = Input.is_key_pressed(KEY_SHIFT)
+	if shift_now == _prev_precision_active:
+		return
+	_prev_precision_active = shift_now
+	if _inset_mode:
+		_inset_amount_offset = _current_inset_amount(node)
+		_drag_start_dir = Vector3(screen_pos.x, screen_pos.y, 0.0)
+		_drag_initial_t = 0.0
+	else:
+		var gbm: GoBuildMesh = node.go_build_mesh
+		for idx: int in _drag_initial_verts:
+			_drag_initial_verts[idx] = gbm.vertices[idx]
+		_drag_initial_t = INF
+
+
 # ---------------------------------------------------------------------------
 # Public drag API
 # ---------------------------------------------------------------------------
@@ -195,6 +234,8 @@ func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
 	_drag_cumulative_translate = Vector3.ZERO
 	_drag_cumulative_angle = 0.0
 	_drag_cumulative_scale = 1.0
+	_inset_amount_offset = 0.0
+	_prev_precision_active = Input.is_key_pressed(KEY_SHIFT)
 	# Engage the fast vertex-position-only bake path for the duration of this drag.
 	_drag_vertex_update_mode = true
 	_drag_preview_mode = node.auto_uv_mode != GoBuildFace.UvMode.NONE
@@ -217,6 +258,7 @@ func update_drag(
 		return
 	_drag_current_handle_id = handle_id
 	precision_active = Input.is_key_pressed(KEY_SHIFT)
+	_reanchor_if_precision_changed(node, screen_pos)
 	if _inset_mode:
 		_apply_inset_drag(node, camera, screen_pos)
 		return
@@ -294,11 +336,13 @@ func reset_drag_state() -> void:
 	_drag_preview_mode = false
 	_inset_mode = false
 	_inset_centroids.clear()
+	_inset_amount_offset = 0.0
 	_drag_cumulative_translate = Vector3.ZERO
 	_drag_cumulative_angle = 0.0
 	_drag_cumulative_scale = 1.0
 	_drag_current_handle_id = -1
 	precision_active = false
+	_prev_precision_active = false
 	_bake_pending_node         = null
 	_bake_scheduled            = false
 	_gizmo_redraw_pending_node = null
@@ -723,14 +767,36 @@ func _apply_inset_drag(
 		amount = snappedf(amount, scale_snap_override)
 	if precision_active:
 		amount *= PRECISION_MULTIPLIER
-	amount = clampf(amount, 0.0, 1.0)
+	amount = clampf(amount + _inset_amount_offset, 0.0, 1.0)
 	var gbm: GoBuildMesh = node.go_build_mesh
 	for idx: int in _drag_initial_verts:
 		if _inset_centroids.has(idx):
 			var init_pos: Vector3 = _drag_initial_verts[idx]
 			var centroid: Vector3 = _inset_centroids[idx]
 			gbm.vertices[idx] = lerp(init_pos, centroid, amount)
+	_drag_cumulative_scale = amount
 	_schedule_bake(node)
+
+
+## Compute the current inset amount from the mesh vertex positions.
+## For the first inner-ring vertex found, derives [code]lerp(init, centroid, amount)[/code]
+## to recover [code]amount[/code]. Used by [method _reanchor_if_precision_changed]
+## to capture the current inset progress before resetting the screen-space anchor.
+func _current_inset_amount(node: GoBuildMeshInstance) -> float:
+	var gbm: GoBuildMesh = node.go_build_mesh
+	for idx: int in _drag_initial_verts:
+		if not _inset_centroids.has(idx):
+			continue
+		var init_pos: Vector3 = _drag_initial_verts[idx]
+		var centroid: Vector3 = _inset_centroids[idx]
+		var current_pos: Vector3 = gbm.vertices[idx]
+		var direction: Vector3 = centroid - init_pos
+		var length_sq: float = direction.length_squared()
+		if length_sq < 1e-10:
+			continue
+		var t: float = (current_pos - init_pos).dot(direction) / length_sq
+		return clampf(t, 0.0, 1.0)
+	return 0.0
 
 
 ## Return the undo/redo action name for [param handle_id].
