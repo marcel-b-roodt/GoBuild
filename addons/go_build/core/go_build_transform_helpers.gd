@@ -38,6 +38,43 @@ static func get_local_axis(axis_idx: int) -> Vector3:
 	return Vector3.ZERO
 
 
+## Project a screen position onto a world-space axis line through [param axis_origin]
+## along [param axis_dir]. Returns the parametric t value along the axis.
+## Derived from the line-to-line closest-approach formula.
+static func project_to_axis(
+		camera: Camera3D,
+		screen_pos: Vector2,
+		axis_origin: Vector3,
+		axis_dir: Vector3,
+) -> float:
+	var cam_origin: Vector3 = camera.project_ray_origin(screen_pos)
+	var cam_dir: Vector3   = camera.project_ray_normal(screen_pos)
+	var r: Vector3 = axis_origin - cam_origin
+	var b: float   = axis_dir.dot(cam_dir)
+	var c: float   = axis_dir.dot(r)
+	var f: float   = cam_dir.dot(r)
+	var denom: float = 1.0 - b * b
+	if absf(denom) < 1e-7:
+		return 0.0
+	return (b * f - c) / denom
+
+
+## Project a screen position onto a world-space plane defined by [param plane_origin]
+## and [param plane_normal]. Returns the 3D hit point, or [code]Vector3.INF[/code]
+## if the camera ray is parallel to the plane or hits from behind.
+static func project_to_plane(
+		camera: Camera3D,
+		screen_pos: Vector2,
+		plane_origin: Vector3,
+		plane_normal: Vector3,
+) -> Vector3:
+	return ray_plane_intersect(
+			camera.project_ray_origin(screen_pos),
+			camera.project_ray_normal(screen_pos),
+			plane_origin,
+			plane_normal)
+
+
 ## Pure-math ray-plane intersection (no camera dependency).
 ## Returns [code]Vector3.INF[/code] when the ray is parallel to the plane or
 ## the intersection is behind [param ray_origin].

@@ -32,6 +32,10 @@ const _CONTROLLER_SCRIPT    := preload(
 		"res://addons/go_build/core/selection_input_controller.gd")
 const _TOOL_PINNER_SCRIPT   := preload(
 		"res://addons/go_build/core/node3d_editor_tool_pinner.gd")
+const _DRAG_CTRL_SCRIPT    := preload(
+		"res://addons/go_build/core/go_build_drag_controller.gd")
+const _DRAG_OP_SCRIPT       := preload(
+		"res://addons/go_build/core/go_build_drag_operation.gd")
 const _ICON                 := preload("res://addons/go_build/go_build.svg")
 
 ## EditorSettings keys for the four mode-switch shortcuts.
@@ -65,6 +69,7 @@ var _project_settings: GoBuildProjectSettings    = null
 var _edited_node: GoBuildMeshInstance            = null
 var _gizmo_plugin: GoBuildGizmoPlugin            = null
 var _input_controller: SelectionInputController  = null
+var _drag_controller: GoBuildDragController       = null
 var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
@@ -138,7 +143,9 @@ func _enter_tree() -> void:
 	add_node_3d_gizmo_plugin(_gizmo_plugin)
 
 	_input_controller = _CONTROLLER_SCRIPT.new()
-	_input_controller.setup(_gizmo_plugin, _panel, self)
+	_drag_controller = _DRAG_CTRL_SCRIPT.new()
+	_drag_controller.setup(self)
+	_input_controller.setup(_gizmo_plugin, _panel, self, _drag_controller)
 
 	_build_toolbar()
 	_tool_pinner = Node3DEditorToolPinner.new()
@@ -293,7 +300,12 @@ func _on_editor_focus_regained() -> void:
 	GoBuildDebug.log("[GoBuild] PLUGIN._on_editor_focus_regained  node=%s" % _edited_node.name)
 
 	if _input_controller != null:
-		_input_controller.cancel_param_preview(_edited_node)
+		# Do NOT cancel an active param preview on focus regain — it owns
+		# the cursor and input state.  Only cancel stale drags.
+		if not _input_controller.has_active_param_preview():
+			_input_controller.cancel_param_preview(_edited_node)
+			if _drag_controller != null:
+				_drag_controller.cancel()
 		_input_controller.cancel_drag(_edited_node)
 		_input_controller.cancel_box_select(_edited_node)
 
@@ -412,19 +424,27 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 	return _input_controller.process_input(_edited_node, camera, event)
 
 
-## Draw the box-select rect and the mode / modifier hint label.
+## Draw the box-select rect, param-preview indicator, and mode / modifier hint label.
+## When the DragController is active (param or gizmo mode), its overlay data
+## drives the indicator.  Otherwise falls back to the legacy paths.
 func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 	# Belt-and-suspenders: also pin on every viewport render frame.
 	if _edited_node != null and _tool_pinner != null:
 		_tool_pinner.pin_if_active(_edited_node.selection.mode)
 	if _input_controller != null:
 		_input_controller.draw_overlay(overlay)
-	if _input_controller != null and _input_controller.has_active_param_preview():
+	# Priority: drag-controller (unified indicator + text) > legacy param hint > mode hint.
+	var controller_active: bool = _drag_controller != null and _drag_controller.is_active()
+	if _input_controller != null:
+		_input_controller.set_suppress_preview_indicator(controller_active)
+	if controller_active:
+		_draw_controller_overlay(overlay)
+	elif _input_controller != null and _input_controller.has_active_param_preview():
 		_draw_param_preview_hint(overlay)
 	else:
 		_draw_mode_hint(overlay)
 	_draw_selection_dims(overlay)
-	if _gizmo_plugin != null and _gizmo_plugin._drag_handler.is_dragging():
+	if not controller_active and _gizmo_plugin != null and _gizmo_plugin._drag_handler.is_dragging():
 		_draw_drag_value(overlay)
 
 
@@ -629,6 +649,83 @@ func _draw_param_preview_hint(overlay: Control) -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(1.0, 0.85, 0.3, 0.95))
 
 
+## Draw the unified controller overlay in the viewport.
+## For param mode: draws the directional indicator (anchor, line, cursor) and
+## the parameter value text.
+## For gizmo mode: draws the drag value text (delta, angle, scale ratio).
+func _draw_controller_overlay(overlay: Control) -> void:
+	if _drag_controller == null:
+		return
+	var data: Dictionary = _drag_controller.get_overlay_data()
+	if data.is_empty():
+		return
+	if _drag_controller.is_param_mode():
+		_draw_controller_param_overlay(overlay, data)
+	else:
+		_draw_controller_gizmo_overlay(overlay)
+
+
+func _draw_controller_param_overlay(overlay: Control, data: Dictionary) -> void:
+	var anchor: Vector2 = data.get("anchor", Vector2.ZERO)
+	var indicator: Vector2 = data.get("indicator_pos", data.get("virtual_pos", Vector2.ZERO))
+	var param: float = data.get("param", 0.0)
+	var param_start: float = data.get("param_start", param)
+	var m := 8.0
+	var clamped := Vector2(
+			clampf(indicator.x, m, overlay.size.x - m),
+			clampf(indicator.y, m, overlay.size.y - m))
+	var col_pos  := Color(0.25, 0.85, 0.35, 0.90)
+	var col_neg  := Color(0.90, 0.30, 0.25, 0.90)
+	var col_line := col_pos if param >= param_start else col_neg
+	var col_shad := Color(0.0, 0.0, 0.0, 0.55)
+	overlay.draw_line(Vector2(anchor.x, 0.0), Vector2(anchor.x, overlay.size.y),
+			Color(1.0, 1.0, 1.0, 0.12), 1.0)
+	overlay.draw_line(Vector2(0.0, anchor.y), Vector2(overlay.size.x, anchor.y),
+			Color(1.0, 1.0, 1.0, 0.08), 1.0)
+	overlay.draw_line(anchor, clamped, col_shad, 4.0)
+	overlay.draw_line(anchor, clamped, col_line, 2.5)
+	overlay.draw_circle(anchor, 5.5, col_shad)
+	overlay.draw_circle(anchor, 4.5, Color.WHITE)
+	overlay.draw_circle(anchor, 3.0, Color(0.15, 0.15, 0.15))
+	overlay.draw_circle(clamped, 7.5, col_shad)
+	overlay.draw_circle(clamped, 6.5, col_line)
+	overlay.draw_circle(clamped, 3.5, Color.WHITE)
+	var hint: String = _drag_controller.get_overlay_text()
+	if not hint.is_empty():
+		var font: Font = ThemeDB.fallback_font
+		var fsize: int = 13
+		var pos := Vector2(m, overlay.size.y - m)
+		overlay.draw_string(font, pos + Vector2(1.0, 1.0), hint,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.60))
+		overlay.draw_string(font, pos, hint,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(1.0, 0.85, 0.3, 0.95))
+
+
+func _draw_controller_gizmo_overlay(overlay: Control) -> void:
+	if _drag_controller == null:
+		return
+	var text: String = _drag_controller.get_overlay_text()
+	if text.is_empty():
+		return
+	var precision: bool = Input.is_key_pressed(KEY_SHIFT)
+	var text_color: Color = Color(0.5, 0.85, 1.0, 0.92) if precision \
+			else Color(1.0, 0.92, 0.4, 0.90)
+	var font: Font = ThemeDB.fallback_font
+	var fsize: int = 12
+	var m: float   = 8.0
+	var pos := Vector2(m, overlay.size.y - m - 18.0)
+	overlay.draw_string(font, pos + Vector2(1.0, 1.0), text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+	overlay.draw_string(font, pos, text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, text_color)
+	if precision:
+		var prec_text := "PRECISION"
+		overlay.draw_string(font, pos + Vector2(0.0, -14.0) + Vector2(1.0, 1.0), prec_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.45))
+		overlay.draw_string(font, pos + Vector2(0.0, -14.0), prec_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, text_color)
+
+
 func _build_overlay_hint() -> String:
 	if _edited_node == null or _gizmo_plugin == null:
 		return ""
@@ -725,8 +822,9 @@ func _refresh_panel_context() -> void:
 
 ## Enter parameter-preview mode for the given operation.
 ## Called from [GoBuildPanel] via [code]_plugin.call("begin_param_preview", preview)[/code].
-## Takes a mesh snapshot, optionally scales sensitivity by gizmo scale, applies
-## the default parameter, and passes the preview to [SelectionInputController].
+## Takes a mesh snapshot, optionally scales sensitivity by gizmo scale, creates
+## a [GoBuildDragOperation] from the legacy [GoBuildParamPreview], and passes it
+## to the [GoBuildDragController].
 func begin_param_preview(preview: GoBuildParamPreview) -> void:
 	if _input_controller == null or _edited_node == null or _gizmo_plugin == null:
 		return
@@ -735,12 +833,27 @@ func begin_param_preview(preview: GoBuildParamPreview) -> void:
 	if preview.scale_by_gizmo:
 		var s: float = _gizmo_plugin.compute_node_gizmo_scale(_edited_node)
 		preview.units_per_pixel *= s
-	# Apply the default parameter so the result is visible on entry.
-	preview.apply_fn.call(preview.param_start)
-	preview.param = preview.param_start
-	_edited_node.begin_preview()
-	_edited_node.bake_preview()
-	_edited_node.update_gizmos()
+
+	var op := GoBuildDragOperation.new()
+	op.node = _edited_node
+	op.snapshot = preview.snapshot
+	op.apply_fn = preview.apply_fn
+	op.action_name = preview.action_name
+	op.overlay_label = preview.param_label
+	op.delta_mode = GoBuildDragOperation.DeltaMode.PARAM_LINEAR if not preview.radial \
+			else GoBuildDragOperation.DeltaMode.PARAM_RADIAL
+	op.param = preview.param_start
+	op.param_start = preview.param_start
+	op.param_min = preview.param_min
+	op.param_max = preview.param_max
+	op.units_per_pixel = preview.units_per_pixel
+	op.scale_by_gizmo = preview.scale_by_gizmo
+	op.snap_to_start = preview.snap_to_start
+	op.snap_threshold = preview.snap_threshold
+	op.screen_direction = preview.screen_direction
+	op.preview_mode = true
+
+	_drag_controller.begin_with_initial_apply(op)
 	_input_controller.begin_param_preview(preview)
 	_refresh_panel_context()
 	update_overlays()
@@ -785,7 +898,10 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 	GoBuildDebug.log("[GoBuild] PLUGIN._on_mode_changed  mode=%d  edited_null=%s" \
 			% [mode, str(_edited_node == null)])
 	if _input_controller != null:
-		_input_controller.cancel_param_preview(_edited_node)
+		if not _input_controller.has_active_param_preview():
+			_input_controller.cancel_param_preview(_edited_node)
+			if _drag_controller != null:
+				_drag_controller.cancel()
 		_input_controller.cancel_drag(_edited_node)
 		_input_controller.clear_hover(_edited_node)
 		_input_controller.cancel_box_select(_edited_node)

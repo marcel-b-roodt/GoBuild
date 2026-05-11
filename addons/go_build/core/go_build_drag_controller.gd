@@ -1,0 +1,697 @@
+## Unified drag / operation controller for GoBuild.
+##
+## Owns the full begin → update → commit/cancel lifecycle for both gizmo-handle
+## drags and param-preview operations.  Replaces the duplicated logic that was
+## spread across [GoBuildDragHandler] and [SelectionInputController].
+##
+## Each interaction creates a [GoBuildDragOperation] and passes it to [method begin].
+## The controller drives the [GoBuildMouseTracker], selects the correct
+## [GoBuildDeltaStrategy] function, applies the result, manages deferred baking,
+## and wires undo/redo on commit.
+##
+## This controller is intentionally a [RefCounted] — it has no scene-tree
+## dependency and can be unit-tested without a running editor.
+@tool
+class_name GoBuildDragController
+extends RefCounted
+
+# Self-preloads (dependency order).
+const _DRAG_OP_SCRIPT     := preload("res://addons/go_build/core/go_build_drag_operation.gd")
+const _DELTA_STRAT_SCRIPT := preload("res://addons/go_build/core/go_build_delta_strategy.gd")
+const _MOUSE_TRACKER_SCRIPT := preload("res://addons/go_build/core/go_build_mouse_tracker.gd")
+const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _TRANSFORM_HELPERS_SCRIPT := preload(
+		"res://addons/go_build/core/go_build_transform_helpers.gd")
+
+## Precision multiplier applied when Shift is held during a drag.
+const _PRECISION_MULTIPLIER_VAL: float = 0.1
+
+var _op: GoBuildDragOperation = null
+var _tracker: GoBuildMouseTracker = GoBuildMouseTracker.new()
+
+var _active: bool = false
+var _initialised: bool = false
+
+## When true, the controller only drives overlay display — the SIC or legacy
+## handler owns mesh mutation, deferred bakes, and undo wiring.  The controller
+## must NOT restore snapshots, call apply_fn, or schedule bakes.
+var _overlay_only: bool = false
+
+var _apply_scheduled: bool = false
+var _apply_node: GoBuildMeshInstance = null
+var _apply_target_param: float = 0.0
+var _apply_target_vec: Vector3 = Vector3.ZERO
+
+var _strategy_initial_t: float = INF
+var _strategy_initial_hit: Vector3 = Vector3.ZERO
+var _strategy_ref_dir: Vector3 = Vector3.ZERO
+var _strategy_initial_dist: float = 0.0
+var _strategy_initial_dir: Vector3 = Vector3.ZERO
+var _strategy_needs_init: bool = true
+
+var _cached_camera: Camera3D = null
+var _cached_screen_pos: Vector2 = Vector2.ZERO
+
+var _overlay_anchor: Vector2 = Vector2.ZERO
+var _overlay_vp_size: Vector2 = Vector2.ZERO
+
+var _editor_plugin: EditorPlugin = null
+
+
+func setup(editor_plugin: EditorPlugin) -> void:
+	_editor_plugin = editor_plugin
+
+
+func begin(op: GoBuildDragOperation, overlay_only: bool = false) -> void:
+	_op = op
+	_active = true
+	_overlay_only = overlay_only
+	_initialised = false
+	_strategy_initial_t = INF
+	_strategy_initial_hit = Vector3.ZERO
+	_strategy_ref_dir = Vector3.ZERO
+	_strategy_initial_dist = 0.0
+	_strategy_initial_dir = Vector3.ZERO
+	_strategy_needs_init = true
+	_apply_scheduled = false
+	_apply_node = null
+	_apply_target_param = 0.0
+	_apply_target_vec = Vector3.ZERO
+	_cached_camera = null
+	_cached_screen_pos = Vector2.ZERO
+
+	if _is_gizmo_mode():
+		_initialised = true
+		if op.node != null and is_instance_valid(op.node):
+			if op.preview_mode:
+				op.node.begin_preview()
+
+	var radial: bool = op.delta_mode == GoBuildDragOperation.DeltaMode.PARAM_RADIAL \
+			or op.delta_mode == GoBuildDragOperation.DeltaMode.INSET
+	_tracker.begin(
+			Vector2.ZERO,
+			Vector2(1280, 720),
+			radial,
+			op.screen_direction,
+			op.units_per_pixel)
+
+	_capture_viewport_info()
+
+
+func begin_with_initial_apply(op: GoBuildDragOperation) -> void:
+	begin(op)
+	if op.node != null and is_instance_valid(op.node):
+		if op.apply_fn.is_valid():
+			op.apply_fn.call(op.param_start)
+		op.param = op.param_start
+		if op.preview_mode:
+			op.node.begin_preview()
+			op.node.bake_preview()
+		else:
+			op.node.bake()
+		op.node.update_gizmos()
+
+
+func update(camera: Camera3D, screen_pos: Vector2, shift_pressed: bool, ctrl_pressed: bool) -> void:
+	if not _active or _op == null:
+		return
+	_cached_camera = camera
+	_cached_screen_pos = screen_pos
+
+	if _is_gizmo_mode():
+		_update_gizmo_drag(camera, screen_pos, shift_pressed, ctrl_pressed)
+	else:
+		_update_param_drag()
+
+
+func handle_motion_event(mm: InputEventMouseMotion) -> void:
+	if not _active or _op == null:
+		return
+	if not _tracker.is_active():
+		return
+	# The SIC pre-filters synthetic/warp events for param previews, so the
+	# tracker's own startup filter should be bypassed to avoid swallowing
+	# legitimate first events.
+	_tracker.reset_filter()
+	_tracker.feed(mm)
+	if not _is_gizmo_mode():
+		_update_param_drag()
+		if _editor_plugin != null:
+			_editor_plugin.update_overlays()
+
+
+func handle_motion_raw(screen_pos: Vector2, shift_pressed: bool, ctrl_pressed: bool,
+		camera: Camera3D) -> void:
+	if not _active or _op == null:
+		return
+	if _is_gizmo_mode():
+		_update_gizmo_drag(camera, screen_pos, shift_pressed, ctrl_pressed)
+	else:
+		_update_param_drag()
+
+
+func commit() -> void:
+	if not _active or _op == null:
+		return
+	var op: GoBuildDragOperation = _op
+
+	if _overlay_only:
+		_clear_deferred_state()
+		_end()
+		return
+
+	if op.node != null and is_instance_valid(op.node):
+		if not _is_gizmo_mode():
+			_flush_param_apply_sync(op.node, op.param)
+		else:
+			_flush_gizmo_apply_sync(op.node)
+
+		if op.preview_mode:
+			op.node.end_preview()
+		if op.node.auto_uv_mode != GoBuildFace.UvMode.NONE:
+			op.node._apply_auto_uv()
+		op.node.bake()
+
+		var after_snapshot: Dictionary = op.node.go_build_mesh.take_snapshot()
+		op.node.update_gizmos()
+
+		if _editor_plugin != null:
+			var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
+			ur.create_action(op.action_name)
+			ur.add_do_method(op.node, "restore_and_bake", after_snapshot)
+			ur.add_undo_method(op.node, "restore_and_bake", op.snapshot)
+			ur.commit_action(false)
+
+	_clear_deferred_state()
+	_end()
+
+
+func cancel() -> void:
+	if not _active or _op == null:
+		return
+	var op: GoBuildDragOperation = _op
+
+	if not _overlay_only:
+		if op.node != null and is_instance_valid(op.node):
+			if op.preview_mode:
+				op.node.end_preview()
+			op.node.restore_and_bake(op.snapshot)
+
+	_clear_deferred_state()
+	_end()
+
+
+func is_active() -> bool:
+	return _active
+
+
+func get_operation() -> GoBuildDragOperation:
+	return _op
+
+
+func get_overlay_data() -> Dictionary:
+	if not _active or _op == null:
+		return {}
+	var data: Dictionary = {}
+	data["anchor"] = _overlay_anchor
+	data["vp_size"] = _overlay_vp_size
+	data["indicator_pos"] = _tracker.get_indicator_pos()
+	data["virtual_pos"] = _tracker.get_virtual_pos()
+	data["delta"] = _tracker.get_delta()
+	data["param"] = _op.param
+	data["param_start"] = _op.param_start
+	data["label"] = _op.overlay_label
+	data["param_label"] = _get_param_label()
+	if _is_gizmo_mode():
+		data["is_gizmo"] = true
+		data["cumulative_translate"] = _op._gizmo_cumulative_translate
+		data["cumulative_angle"] = _op._gizmo_cumulative_angle
+		data["cumulative_scale"] = _op._gizmo_cumulative_scale
+	return data
+
+
+func get_overlay_text() -> String:
+	if not _active or _op == null:
+		return ""
+	if _is_gizmo_mode():
+		return _gizmo_value_text()
+	var snap_hint: String = ""
+	if _op.snap_to_start:
+		snap_hint = "  [near %.2f snaps]" % _op.param_start
+	return "%s: %.4f%s   LMB=accept   RMB/Esc=cancel" % [
+		_op.overlay_label, _op.param, snap_hint]
+
+
+func get_tracker() -> GoBuildMouseTracker:
+	return _tracker
+
+
+func is_param_mode() -> bool:
+	return _active and _op != null and not _is_gizmo_mode()
+
+
+## Set the current param value from an external source (e.g. SIC driving the
+## param preview).  This keeps the overlay text in sync without the controller
+## computing param from its own tracker during overlay-only mode.
+func set_param(value: float) -> void:
+	if _op != null:
+		_op.param = value
+
+
+func set_viewport_info(anchor: Vector2, vp_size: Vector2) -> void:
+	_overlay_anchor = anchor
+	_overlay_vp_size = vp_size
+	_tracker.begin(
+			anchor,
+			vp_size,
+			_tracker._radial,
+			_tracker._screen_direction,
+			_tracker._sensitivity)
+
+
+# ---------------------------------------------------------------------------
+# Internal — mode query
+# ---------------------------------------------------------------------------
+
+func _is_gizmo_mode() -> bool:
+	if _op == null:
+		return false
+	return _op.delta_mode == GoBuildDragOperation.DeltaMode.AXIS_PROJECT \
+		or _op.delta_mode == GoBuildDragOperation.DeltaMode.PLANE_PROJECT \
+		or _op.delta_mode == GoBuildDragOperation.DeltaMode.VIEWPORT_PLANE_PROJECT \
+		or _op.delta_mode == GoBuildDragOperation.DeltaMode.ROTATE \
+		or _op.delta_mode == GoBuildDragOperation.DeltaMode.SCALE_AXIS \
+		or _op.delta_mode == GoBuildDragOperation.DeltaMode.SCALE_UNIFORM \
+		or _op.delta_mode == GoBuildDragOperation.DeltaMode.INSET
+
+
+# ---------------------------------------------------------------------------
+# Internal — gizmo drag
+# ---------------------------------------------------------------------------
+
+func _update_gizmo_drag(
+		camera: Camera3D,
+		screen_pos: Vector2,
+		shift_pressed: bool,
+		ctrl_pressed: bool,
+) -> void:
+	var op: GoBuildDragOperation = _op
+	var node: GoBuildMeshInstance = op.node
+	if node == null or not is_instance_valid(node):
+		return
+	var gbm: GoBuildMesh = node.go_build_mesh
+	if gbm == null:
+		return
+
+	var precision_mult: float = _PRECISION_MULTIPLIER_VAL if shift_pressed else 1.0
+	var snap_enabled: bool = ctrl_pressed
+	var snap_step: float = op.snap_step
+	var world_centroid: Vector3 = node.global_transform * op.drag_centroid
+	var node_xform: Transform3D = node.global_transform
+
+	if _apply_gizmo_strategy(op, camera, screen_pos, world_centroid, node_xform,
+			precision_mult, snap_enabled, snap_step):
+		if not _overlay_only:
+			_schedule_gizmo_apply(node)
+
+
+func _apply_gizmo_strategy(
+		op: GoBuildDragOperation,
+		camera: Camera3D,
+		screen_pos: Vector2,
+		world_centroid: Vector3,
+		node_xform: Transform3D,
+		precision_mult: float,
+		snap_enabled: bool,
+		snap_step: float,
+) -> bool:
+	var result: GoBuildDeltaStrategy.StrategyResult = _compute_strategy_result(
+			op, camera, screen_pos, world_centroid, node_xform,
+			precision_mult, snap_enabled, snap_step)
+	if result == null:
+		return false
+	if result.needs_initialise:
+		_store_strategy_init(op, result)
+		return false
+	_apply_strategy_result(op, result)
+	return true
+
+
+func _compute_strategy_result(
+		op: GoBuildDragOperation,
+		camera: Camera3D,
+		screen_pos: Vector2,
+		world_centroid: Vector3,
+		node_xform: Transform3D,
+		precision_mult: float,
+		snap_enabled: bool,
+		snap_step: float,
+) -> GoBuildDeltaStrategy.StrategyResult:
+	match op.delta_mode:
+		GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
+			return GoBuildDeltaStrategy.axis_project(
+					camera, screen_pos, world_centroid,
+					(node_xform.basis * op.world_axis).normalized(),
+					node_xform, snap_step, snap_enabled, precision_mult,
+					_strategy_initial_t)
+
+		GoBuildDragOperation.DeltaMode.PLANE_PROJECT:
+			return GoBuildDeltaStrategy.plane_project(
+					camera, screen_pos, world_centroid,
+					(node_xform.basis * op.world_axis).normalized(),
+					node_xform, snap_step, snap_enabled, precision_mult,
+					_strategy_initial_hit, _strategy_needs_init)
+
+		GoBuildDragOperation.DeltaMode.VIEWPORT_PLANE_PROJECT:
+			return GoBuildDeltaStrategy.viewport_plane_project(
+					camera, screen_pos, world_centroid,
+					-camera.global_transform.basis.z,
+					node_xform, snap_step, snap_enabled, precision_mult,
+					_strategy_initial_hit, _strategy_needs_init)
+
+		GoBuildDragOperation.DeltaMode.ROTATE:
+			var local_axis: Vector3 = _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)
+			return GoBuildDeltaStrategy.rotate(
+					camera, screen_pos, world_centroid,
+					(node_xform.basis * local_axis).normalized(),
+					deg_to_rad(op.snap_step), snap_enabled, precision_mult,
+					_strategy_ref_dir, _strategy_needs_init)
+
+		GoBuildDragOperation.DeltaMode.SCALE_AXIS:
+			return GoBuildDeltaStrategy.scale_axis(
+					camera, screen_pos, world_centroid,
+					(node_xform.basis * op.world_axis).normalized(),
+					snap_step, snap_enabled, precision_mult, _strategy_initial_t)
+
+		GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
+			return GoBuildDeltaStrategy.scale_uniform(
+					camera, screen_pos, world_centroid,
+					-camera.global_transform.basis.z,
+					snap_step, snap_enabled, precision_mult,
+					_strategy_initial_dist, _strategy_initial_dir, _strategy_needs_init)
+
+		GoBuildDragOperation.DeltaMode.INSET:
+			return GoBuildDeltaStrategy.inset(
+					screen_pos, snap_step, snap_enabled, precision_mult,
+					Vector2(_strategy_initial_hit.x, _strategy_initial_hit.y),
+					op._gizmo_inset_offset)
+
+	return null
+
+
+func _store_strategy_init(
+		op: GoBuildDragOperation,
+		result: GoBuildDeltaStrategy.StrategyResult,
+) -> void:
+	match op.delta_mode:
+		GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
+			_strategy_initial_t = result.float_value
+		GoBuildDragOperation.DeltaMode.PLANE_PROJECT:
+			_strategy_initial_hit = result.vec_value
+			_strategy_needs_init = false
+		GoBuildDragOperation.DeltaMode.VIEWPORT_PLANE_PROJECT:
+			_strategy_initial_hit = result.vec_value
+			_strategy_needs_init = false
+		GoBuildDragOperation.DeltaMode.ROTATE:
+			_strategy_ref_dir = result.vec_value
+			_strategy_needs_init = false
+		GoBuildDragOperation.DeltaMode.SCALE_AXIS:
+			_strategy_initial_t = result.float_value
+		GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
+			_strategy_initial_dist = result.float_value
+			_strategy_initial_dir = result.vec_value
+			_strategy_needs_init = false
+
+
+func _apply_strategy_result(
+		op: GoBuildDragOperation,
+		result: GoBuildDeltaStrategy.StrategyResult,
+) -> void:
+	var node: GoBuildMeshInstance = op.node
+	var mutate: bool = not _overlay_only
+	match op.delta_mode:
+		GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
+			if mutate:
+				_apply_vertex_translate(node, op, result.vec_value)
+			op._gizmo_cumulative_translate = result.vec_value
+		GoBuildDragOperation.DeltaMode.PLANE_PROJECT:
+			if mutate:
+				_apply_vertex_translate(node, op, result.vec_value)
+			op._gizmo_cumulative_translate = result.vec_value
+		GoBuildDragOperation.DeltaMode.VIEWPORT_PLANE_PROJECT:
+			if mutate:
+				_apply_vertex_translate(node, op, result.vec_value)
+			op._gizmo_cumulative_translate = result.vec_value
+		GoBuildDragOperation.DeltaMode.ROTATE:
+			if mutate:
+				var local_axis: Vector3 = _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)
+				_apply_vertex_rotate(node, op, local_axis, op.drag_centroid, result.float_value)
+			op._gizmo_cumulative_angle = result.float_value
+		GoBuildDragOperation.DeltaMode.SCALE_AXIS:
+			if mutate:
+				_apply_vertex_scale_axis(op, _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index),
+						result.float_value)
+			op._gizmo_cumulative_scale = result.float_value
+		GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
+			if mutate:
+				_apply_vertex_scale_uniform(op, op.drag_centroid, result.float_value)
+			op._gizmo_cumulative_scale = result.float_value
+		GoBuildDragOperation.DeltaMode.INSET:
+			if mutate:
+				_apply_inset(op, result.float_value)
+			op._gizmo_cumulative_scale = result.float_value
+
+
+func _apply_vertex_translate(
+		node: GoBuildMeshInstance,
+		op: GoBuildDragOperation,
+		delta_local: Vector3,
+) -> void:
+	var gbm: GoBuildMesh = node.go_build_mesh
+	for idx: int in op.initial_vertex_positions:
+		gbm.vertices[idx] = op.initial_vertex_positions[idx] + delta_local
+
+
+func _apply_vertex_rotate(
+		node: GoBuildMeshInstance,
+		op: GoBuildDragOperation,
+		local_axis: Vector3,
+		local_centroid: Vector3,
+		angle: float,
+) -> void:
+	var gbm: GoBuildMesh = node.go_build_mesh
+	for idx: int in op.initial_vertex_positions:
+		var local_pos: Vector3 = op.initial_vertex_positions[idx] - local_centroid
+		gbm.vertices[idx] = local_centroid + local_pos.rotated(local_axis, angle)
+
+
+func _apply_vertex_scale_axis(
+		op: GoBuildDragOperation,
+		local_axis: Vector3,
+		scale_ratio: float,
+) -> void:
+	if op.node == null:
+		return
+	var gbm: GoBuildMesh = op.node.go_build_mesh
+	var local_centroid: Vector3 = op.drag_centroid
+	for idx: int in op.initial_vertex_positions:
+		var local_pos: Vector3 = op.initial_vertex_positions[idx] - local_centroid
+		var along: float = local_pos.dot(local_axis)
+		var perp: Vector3 = local_pos - local_axis * along
+		gbm.vertices[idx] = local_centroid + perp + local_axis * along * scale_ratio
+
+
+func _apply_vertex_scale_uniform(
+		op: GoBuildDragOperation,
+		local_centroid: Vector3,
+		scale_ratio: float,
+) -> void:
+	if op.node == null:
+		return
+	var gbm: GoBuildMesh = op.node.go_build_mesh
+	for idx: int in op.initial_vertex_positions:
+		gbm.vertices[idx] = local_centroid \
+				+ (op.initial_vertex_positions[idx] - local_centroid) * scale_ratio
+
+
+func _apply_inset(op: GoBuildDragOperation, amount: float) -> void:
+	if op.node == null:
+		return
+	var gbm: GoBuildMesh = op.node.go_build_mesh
+	for idx: int in op.initial_vertex_positions:
+		if op.inset_centroids.has(idx):
+			var init_pos: Vector3 = op.initial_vertex_positions[idx]
+			var centroid: Vector3 = op.inset_centroids[idx]
+			gbm.vertices[idx] = lerp(init_pos, centroid, amount)
+
+
+func _schedule_gizmo_apply(node: GoBuildMeshInstance) -> void:
+	_apply_node = node
+	if not _apply_scheduled:
+		_apply_scheduled = true
+		call_deferred("_flush_gizmo_apply_deferred")
+
+
+func _flush_gizmo_apply_deferred() -> void:
+	_apply_scheduled = false
+	if _apply_node == null or not is_instance_valid(_apply_node) or _op == null:
+		_apply_node = null
+		return
+	var node: GoBuildMeshInstance = _apply_node
+	_apply_node = null
+	if _op.preview_mode:
+		node.bake_preview()
+	elif _op.vertex_update_mode:
+		node.bake_vertex_positions()
+	else:
+		node.bake()
+	if _editor_plugin != null:
+		_editor_plugin.update_overlays()
+
+
+func _flush_gizmo_apply_sync(node: GoBuildMeshInstance) -> void:
+	_apply_scheduled = false
+	_apply_node = null
+	if _op == null:
+		return
+	if _op.preview_mode:
+		if node.auto_uv_mode != GoBuildFace.UvMode.NONE:
+			node._apply_auto_uv()
+		node.bake_preview()
+	elif _op.vertex_update_mode:
+		node.bake_vertex_positions()
+	else:
+		if node.auto_uv_mode != GoBuildFace.UvMode.NONE:
+			node._apply_auto_uv()
+		node.bake()
+
+
+# ---------------------------------------------------------------------------
+# Internal — param drag
+# ---------------------------------------------------------------------------
+
+func _update_param_drag() -> void:
+	var op: GoBuildDragOperation = _op
+	var tracker_delta: float = _tracker.get_delta()
+	var precision_mult: float = _tracker.get_precision_multiplier()
+	var precision_offset: float = _tracker.get_precision_offset()
+
+	var raw: float = op.param_start + precision_offset \
+			+ tracker_delta * op.units_per_pixel * precision_mult
+	var clamped: float = clampf(raw, op.param_min, op.param_max)
+	var hit_bound: bool = clamped != raw
+	if op.snap_to_start and absf(clamped - op.param_start) < op.snap_threshold:
+		clamped = op.param_start
+
+	op.param = clamped
+	var denom: float = op.units_per_pixel * precision_mult
+	if hit_bound and not is_zero_approx(denom):
+		var consumed_delta: float = (clamped - op.param_start - precision_offset) / denom
+		_tracker.fold_clamp_excess(consumed_delta)
+
+	if not _overlay_only:
+		_schedule_param_apply(op.node, op.param)
+
+
+func _schedule_param_apply(node: GoBuildMeshInstance, target: float) -> void:
+	_apply_node = node
+	_apply_target_param = target
+	if not _apply_scheduled:
+		_apply_scheduled = true
+		call_deferred("_flush_param_apply_deferred")
+
+
+func _flush_param_apply_deferred() -> void:
+	_apply_scheduled = false
+	var node := _apply_node
+	var target := _apply_target_param
+	_apply_node = null
+	if node == null or not is_instance_valid(node) or _op == null:
+		return
+	_do_param_apply(node, target)
+
+
+func _do_param_apply(node: GoBuildMeshInstance, target: float) -> void:
+	if _op == null:
+		return
+	node.go_build_mesh.restore_snapshot(_op.snapshot)
+	_op.apply_fn.call(target)
+	if node.auto_uv_mode != GoBuildFace.UvMode.NONE:
+		node._apply_auto_uv()
+	node.bake_preview()
+	if _editor_plugin != null:
+		_editor_plugin.update_overlays()
+
+
+func _flush_param_apply_sync(node: GoBuildMeshInstance, target_param: float) -> void:
+	_apply_scheduled = false
+	_apply_node = null
+	if _op == null:
+		return
+	node.go_build_mesh.restore_snapshot(_op.snapshot)
+	_op.apply_fn.call(target_param)
+	if node.auto_uv_mode != GoBuildFace.UvMode.NONE:
+		node._apply_auto_uv()
+
+
+# ---------------------------------------------------------------------------
+# Internal — helpers
+# ---------------------------------------------------------------------------
+
+func _end() -> void:
+	_tracker.end()
+	_active = false
+	_overlay_only = false
+	_op = null
+	_strategy_initial_t = INF
+	_strategy_initial_hit = Vector3.ZERO
+	_strategy_ref_dir = Vector3.ZERO
+	_strategy_initial_dist = 0.0
+	_strategy_initial_dir = Vector3.ZERO
+	_strategy_needs_init = true
+	_apply_scheduled = false
+	_apply_node = null
+	_apply_target_param = 0.0
+	_apply_target_vec = Vector3.ZERO
+	_cached_camera = null
+	_cached_screen_pos = Vector2.ZERO
+
+
+func _clear_deferred_state() -> void:
+	_apply_scheduled = false
+	_apply_node = null
+	_apply_target_param = 0.0
+
+
+func _capture_viewport_info() -> void:
+	if not Engine.is_editor_hint():
+		return
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	_overlay_vp_size = Vector2(1280, 720)
+	if sv != null:
+		var vp_parent := sv.get_parent() as Control
+		if vp_parent != null:
+			_overlay_vp_size = Vector2(vp_parent.size)
+	_overlay_anchor = _overlay_vp_size * 0.5
+
+
+func _get_param_label() -> String:
+	if _op == null:
+		return ""
+	return _op.overlay_label
+
+
+func _gizmo_value_text() -> String:
+	if _op == null:
+		return ""
+	if _op.delta_mode == GoBuildDragOperation.DeltaMode.INSET:
+		return "inset %.3f" % _op._gizmo_cumulative_scale
+	if _op.delta_mode == GoBuildDragOperation.DeltaMode.SCALE_AXIS \
+			or _op.delta_mode == GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
+		return "%.2fx" % _op._gizmo_cumulative_scale
+	if _op.delta_mode == GoBuildDragOperation.DeltaMode.ROTATE:
+		return "%.1f°" % rad_to_deg(_op._gizmo_cumulative_angle)
+	var t: Vector3 = _op._gizmo_cumulative_translate
+	return "Δ %.3f, %.3f, %.3f" % [t.x, t.y, t.z]

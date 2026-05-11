@@ -28,6 +28,10 @@ const _EDGE_SCRIPT          := preload(
 		"res://addons/go_build/mesh/go_build_edge.gd")
 const _PARAM_PREVIEW_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_param_preview.gd")
+const _DRAG_CTRL_SCRIPT := preload(
+		"res://addons/go_build/core/go_build_drag_controller.gd")
+const _DRAG_OP_SCRIPT    := preload(
+		"res://addons/go_build/core/go_build_drag_operation.gd")
 
 # ---------------------------------------------------------------------------
 # Constants (were in plugin.gd)
@@ -46,9 +50,6 @@ const _SCALE_HANDLE_PICK_RADIUS_SQ: float   = 144.0  # 12 px
 const _PLANE_HANDLE_PICK_RADIUS_SQ: float   = 225.0  # 15 px
 ## Squared screen-space pixel radius for viewport-plane handle hit-testing.
 const _VIEW_PLANE_PICK_RADIUS_SQ: float     = 196.0  # 14 px
-## Minimum microseconds between full apply+bake flushes during parameter preview.
-## Caps mesh rebuilds to ~20 fps so the editor stays responsive.
-const _PREVIEW_APPLY_INTERVAL_USEC: int = 50_000  # 50 ms → ~20 fps
 ## Multiplier applied to units_per_pixel when Shift is held during a
 ## param preview drag.  0.1 = precision mode (10% sensitivity).
 const _PRECISION_MULTIPLIER: float = 0.1
@@ -60,6 +61,11 @@ const _PRECISION_MULTIPLIER: float = 0.1
 var _gizmo_plugin: GoBuildGizmoPlugin = null
 var _panel: GoBuildPanel              = null
 var _editor_plugin: EditorPlugin      = null
+var _drag_controller: GoBuildDragController = null
+
+## When true, the SIC skips drawing its param-preview indicator because the
+## DragController is drawing its own.  Set by plugin.gd on each overlay draw.
+var _suppress_preview_indicator: bool = false
 
 # ---------------------------------------------------------------------------
 # Box-select state
@@ -102,9 +108,6 @@ var _preview_apply_node: GoBuildMeshInstance   = null
 var _preview_apply_target: float               = 0.0
 ## True when motion arrived since the last flush — prevents infinite reschedule.
 var _preview_apply_dirty: bool                 = false
-## Timestamp (Engine.get_process_time_usec) of the last completed apply flush.
-## Used to throttle bake/apply to a maximum rate so the editor stays responsive.
-var _preview_last_apply_usec: int              = 0
 ## Mouse mode saved at preview start so it can be restored on cancel/commit.
 var _preview_saved_mouse_mode: Input.MouseMode = Input.MOUSE_MODE_VISIBLE
 ## Ignored until call_deferred fires _accept_preview_motion.
@@ -149,10 +152,12 @@ func setup(
 		gizmo_plugin: GoBuildGizmoPlugin,
 		panel: GoBuildPanel,
 		editor_plugin: EditorPlugin,
+		drag_controller: GoBuildDragController = null,
 ) -> void:
 	_gizmo_plugin  = gizmo_plugin
 	_panel         = panel
 	_editor_plugin = editor_plugin
+	_drag_controller = drag_controller
 
 
 # ---------------------------------------------------------------------------
@@ -184,12 +189,14 @@ func process_input(
 
 ## Draw the box-select rectangle and param-preview indicator.
 ## Call from [method EditorPlugin._forward_3d_draw_over_viewport].
+## When the DragController is active in param mode, it handles the indicator
+## drawing via plugin.gd, so the SIC skips its own indicator to avoid double-draw.
 func draw_overlay(overlay: Control) -> void:
 	if _box_select_active:
 		var rect: Rect2 = _get_box_select_rect()
 		overlay.draw_rect(rect, Color(0.25, 0.45, 0.8, 0.15), true)
 		overlay.draw_rect(rect, Color(0.5, 0.7, 1.0, 0.85), false)
-	if _param_preview != null and _preview_accepting_motion:
+	if _param_preview != null and _preview_accepting_motion and not _suppress_preview_indicator:
 		_draw_preview_indicator(overlay)
 
 
@@ -236,6 +243,8 @@ func _draw_preview_indicator(overlay: Control) -> void:
 ## Cancel any in-progress handle drag.  Safe to call when idle.
 func cancel_drag(edited_node: GoBuildMeshInstance) -> void:
 	cancel_param_preview(edited_node)
+	if _drag_controller != null and _drag_controller.is_active():
+		_drag_controller.cancel()
 	_cancel_active_drag(edited_node)
 
 
@@ -272,7 +281,6 @@ func begin_param_preview(preview: GoBuildParamPreview) -> void:
 	# Initialise apply target to param_start so that a commit with zero mouse
 	# movement applies the visible default rather than 0.
 	_preview_apply_target    = preview.param_start
-	_preview_last_apply_usec = 0
 	# Capture viewport display size for the overlay indicator.
 	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
 	_preview_vp_size = Vector2(1280, 720)  # safe fallback
@@ -294,6 +302,9 @@ func begin_param_preview(preview: GoBuildParamPreview) -> void:
 	_preview_accepting_motion = false
 	_preview_filter_count     = 4
 	_preview_prev_shift      = Input.is_key_pressed(KEY_SHIFT)
+	# Sync the drag controller's viewport anchor so its overlay matches ours.
+	if _drag_controller != null and _drag_controller.is_active():
+		_drag_controller.set_viewport_info(_preview_anchor_vp, _preview_vp_size)
 	call_deferred("_accept_preview_motion")
 
 
@@ -305,6 +316,13 @@ func _accept_preview_motion() -> void:
 ## [code]true[/code] while a parameter-preview is active.
 func has_active_param_preview() -> bool:
 	return _param_preview != null
+
+
+## Set whether the SIC should suppress its own param-preview indicator drawing.
+## Called each frame by plugin.gd to avoid double-drawing when the DragController
+## is providing the indicator.
+func set_suppress_preview_indicator(suppress: bool) -> void:
+	_suppress_preview_indicator = suppress
 
 ## One-line overlay text for the active preview.
 ## Returns an empty string when idle.
@@ -325,7 +343,6 @@ func cancel_param_preview(edited_node: GoBuildMeshInstance) -> void:
 	_preview_apply_node       = null
 	_preview_apply_dirty      = false
 	_preview_apply_target     = 0.0
-	_preview_last_apply_usec  = 0
 	_preview_accepting_motion = false
 	_preview_filter_count     = 0
 	_preview_virtual_pos      = Vector2.ZERO
@@ -337,6 +354,8 @@ func cancel_param_preview(edited_node: GoBuildMeshInstance) -> void:
 	_param_preview = null
 	_param_preview_delta = 0.0
 	_param_preview_precision_offset = 0.0
+	if _editor_plugin != null:
+		_editor_plugin.update_overlays()
 
 
 func _schedule_preview_apply(node: GoBuildMeshInstance, target: float) -> void:
@@ -351,12 +370,13 @@ func _schedule_preview_apply(node: GoBuildMeshInstance, target: float) -> void:
 func _flush_preview_apply() -> void:
 	_preview_apply_scheduled = false
 	var node := _preview_apply_node
+	var target := _preview_apply_target
 	_preview_apply_node  = null
 	_preview_apply_dirty = false
 	if node == null or not is_instance_valid(node) or _param_preview == null:
 		return
 	node.go_build_mesh.restore_snapshot(_param_preview.snapshot)
-	_param_preview.apply_fn.call(_preview_apply_target)
+	_param_preview.apply_fn.call(target)
 	if node.auto_uv_mode != GoBuildFace.UvMode.NONE:
 		node._apply_auto_uv()
 	node.bake_preview()
@@ -415,6 +435,8 @@ func _handle_mouse_release(
 ) -> int:
 	if _dragging_handle:
 		_gizmo_plugin.commit_drag(edited_node, _active_handle_id, false)
+		if _drag_controller != null and _drag_controller.is_active():
+			_drag_controller.commit()
 		_dragging_handle  = false
 		_active_handle_id = -1
 		edited_node.update_gizmos()
@@ -442,6 +464,9 @@ func _handle_mouse_motion(
 	if _dragging_handle:
 		_gizmo_plugin.update_drag(edited_node, _active_handle_id, camera, mm.position)
 		_gizmo_plugin.schedule_gizmo_redraw(edited_node)
+		if _drag_controller != null and _drag_controller.is_active():
+			_drag_controller.handle_motion_raw(
+					mm.position, mm.shift_pressed, mm.ctrl_pressed, camera)
 		return 1
 	if _pressed_handle_id != -1:
 		if _handle_press_pos.distance_squared_to(mm.position) > BOX_SELECT_DRAG_THRESHOLD_SQ:
@@ -458,6 +483,8 @@ func _handle_mouse_motion(
 				_dragging_handle   = true
 				_active_handle_id  = _pressed_handle_id
 				_pressed_handle_id = -1
+				# Also start the DragController for the unified pipeline.
+				_begin_drag_controller_for_gizmo(edited_node, _active_handle_id)
 				_gizmo_plugin.update_drag(
 						edited_node, _active_handle_id, camera, mm.position)
 				_gizmo_plugin.schedule_gizmo_redraw(edited_node)
@@ -1146,6 +1173,8 @@ func _clear_hover(edited_node: GoBuildMeshInstance) -> void:
 func _cancel_active_drag(edited_node: GoBuildMeshInstance) -> void:
 	if _dragging_handle and _gizmo_plugin != null and edited_node != null:
 		_gizmo_plugin.commit_drag(edited_node, _active_handle_id, true)
+	if _drag_controller != null and _drag_controller.is_active():
+		_drag_controller.cancel()
 	_dragging_handle   = false
 	_active_handle_id  = -1
 	_pressed_handle_id = -1
@@ -1159,6 +1188,26 @@ func _cancel_box_select(edited_node: GoBuildMeshInstance) -> void:
 	if edited_node != null:
 		edited_node.update_gizmos()
 	_editor_plugin.update_overlays()
+
+
+# ---------------------------------------------------------------------------
+# DragController bridge — gizmo drags
+# ---------------------------------------------------------------------------
+
+## After a gizmo drag starts via [GoBuildDragHandler], create a matching
+## [GoBuildDragOperation] and begin the [GoBuildDragController].
+## The controller will co-exist with the legacy handler during migration.
+func _begin_drag_controller_for_gizmo(
+		edited_node: GoBuildMeshInstance,
+		handle_id: int,
+) -> void:
+	if _drag_controller == null or edited_node == null:
+		return
+	var op: GoBuildDragOperation = _gizmo_plugin._drag_handler.create_drag_operation(
+			edited_node, handle_id)
+	if op == null:
+		return
+	_drag_controller.begin(op, true)
 
 
 # ---------------------------------------------------------------------------
@@ -1315,58 +1364,23 @@ func _handle_param_preview_input(
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and key.keycode == KEY_ESCAPE:
-			cancel_param_preview(edited_node)
+			_cancel_param_preview_via_controller(edited_node)
 			return EditorPlugin.AFTER_GUI_INPUT_STOP
 		return EditorPlugin.AFTER_GUI_INPUT_PASS
 
 	if event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
-		# Layer 1 gate: block all motion until deferred _accept_preview_motion fires.
 		if not _preview_accepting_motion:
 			return EditorPlugin.AFTER_GUI_INPUT_STOP
-		# Layer 2 filter: skip large-relative events for the first few events after
-		# accepting, which handles synthetic motion from the startup warp and popup
-		# close that may arrive one or two frames later.
 		if _preview_filter_count > 0:
 			if mm.relative.length_squared() > 50.0 * 50.0:
 				_preview_filter_count -= 1
 				return EditorPlugin.AFTER_GUI_INPUT_STOP
-			_preview_filter_count = 0  # first normal-sized event — stop filtering
+			_preview_filter_count = 0
 		_preview_virtual_pos += mm.relative
-		# When Shift (precision) state changes, fold the delta's contribution
-		# at the old precision rate into _param_preview_precision_offset so the
-		# visual indicator (anchor-to-cursor line) stays in place and only the
-		# sensitivity changes.  The anchor and virtual positions are untouched.
-		var shift_now: bool = mm.shift_pressed
-		if shift_now != _preview_prev_shift:
-			var old_precision: float = _PRECISION_MULTIPLIER if _preview_prev_shift else 1.0
-			var new_precision: float = _PRECISION_MULTIPLIER if shift_now else 1.0
-			_param_preview_precision_offset += _param_preview_delta \
-					* _param_preview.units_per_pixel * (old_precision - new_precision)
-			_preview_prev_shift = shift_now
-		# Radial: Euclidean distance from anchor in any direction (always >= 0).
-		# Linear: project cumulative cursor offset onto the edge's screen-space
-		# direction so the cut follows the mouse along the edge's visual axis.
-		if _param_preview.radial:
-			_param_preview_delta = _preview_virtual_pos.distance_to(_preview_anchor_vp)
-		else:
-			_param_preview_delta = (_preview_virtual_pos - _preview_anchor_vp) \
-					.dot(_param_preview.screen_direction)
-		var raw := _param_preview.param_start \
-				+ _param_preview_precision_offset \
-				+ _param_preview_delta * _param_preview.units_per_pixel \
-				* (_PRECISION_MULTIPLIER if shift_now else 1.0)
-		var new_param := clampf(raw, _param_preview.param_min, _param_preview.param_max)
-		if _param_preview.snap_to_start \
-				and absf(new_param - _param_preview.param_start) \
-				< _param_preview.snap_threshold:
-			new_param = _param_preview.param_start
-		_param_preview.param = new_param
-		# Refresh overlay immediately (cheap) so indicator is always current.
+		if _drag_controller != null and _drag_controller.is_active():
+			_drag_controller.handle_motion_event(mm)
 		_editor_plugin.update_overlays()
-		# Defer the expensive restore_snapshot + apply_fn + bake + update_gizmos.
-		# All events within a frame are coalesced into one mesh rebuild.
-		_schedule_preview_apply(edited_node, new_param)
 		return EditorPlugin.AFTER_GUI_INPUT_STOP
 
 	if event is InputEventMouseButton:
@@ -1374,10 +1388,10 @@ func _handle_param_preview_input(
 		if not mb.pressed:
 			return EditorPlugin.AFTER_GUI_INPUT_PASS
 		if mb.button_index == MOUSE_BUTTON_LEFT:
-			_commit_param_preview(edited_node)
+			_commit_param_preview_via_controller(edited_node)
 			return EditorPlugin.AFTER_GUI_INPUT_STOP
 		if mb.button_index == MOUSE_BUTTON_RIGHT:
-			cancel_param_preview(edited_node)
+			_cancel_param_preview_via_controller(edited_node)
 			return EditorPlugin.AFTER_GUI_INPUT_STOP
 
 	return EditorPlugin.AFTER_GUI_INPUT_PASS
@@ -1392,7 +1406,6 @@ func _commit_param_preview(edited_node: GoBuildMeshInstance) -> void:
 	_preview_accepting_motion = false
 	_preview_filter_count     = 0
 	_preview_virtual_pos      = Vector2.ZERO
-	_preview_last_apply_usec  = 0
 	_preview_active           = false
 	Input.mouse_mode = _preview_saved_mouse_mode
 	# Capture all needed refs before nulling _param_preview.
@@ -1431,3 +1444,53 @@ func _commit_param_preview(edited_node: GoBuildMeshInstance) -> void:
 	# the do-method.  Calling it again would bake a second bevel on an already-
 	# beveled mesh before the undo system restores final_snapshot, causing a crash.
 	ur.commit_action(false)
+	if _editor_plugin != null:
+		_editor_plugin.update_overlays()
+
+
+# ---------------------------------------------------------------------------
+# DragController bridge — commit / cancel via controller when available
+# ---------------------------------------------------------------------------
+
+## Commit the active param preview through the [GoBuildDragController] if it
+## is active, falling back to the legacy [_commit_param_preview] path otherwise.
+func _commit_param_preview_via_controller(edited_node: GoBuildMeshInstance) -> void:
+	if _drag_controller != null and _drag_controller.is_active():
+		_drag_controller.commit()
+		_cleanup_preview_state()
+	else:
+		_commit_param_preview(edited_node)
+
+
+## Cancel the active param preview through the [GoBuildDragController] if it
+## is active, falling back to the legacy [method cancel_param_preview] path otherwise.
+func _cancel_param_preview_via_controller(edited_node: GoBuildMeshInstance) -> void:
+	if _drag_controller != null and _drag_controller.is_active():
+		_drag_controller.cancel()
+		_cleanup_preview_state()
+		if edited_node != null and is_instance_valid(edited_node):
+			edited_node.update_gizmos()
+		if _editor_plugin != null:
+			_editor_plugin.update_overlays()
+	else:
+		cancel_param_preview(edited_node)
+
+
+## Reset SIC-side preview bookkeeping after the controller has handled
+## commit/cancel.  The controller owns mesh mutation; this only clears
+## mouse mode and SIC tracking state.
+func _cleanup_preview_state() -> void:
+	_preview_apply_scheduled  = false
+	_preview_apply_node       = null
+	_preview_apply_dirty      = false
+	_preview_apply_target     = 0.0
+	_preview_accepting_motion = false
+	_preview_filter_count     = 0
+	_preview_virtual_pos      = Vector2.ZERO
+	_preview_active           = false
+	Input.mouse_mode = _preview_saved_mouse_mode
+	_param_preview             = null
+	_param_preview_delta       = 0.0
+	_param_preview_precision_offset = 0.0
+
+

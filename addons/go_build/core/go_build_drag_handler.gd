@@ -22,6 +22,7 @@ const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh
 const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _EDGE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_edge.gd")
 const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
+const _DRAG_OP_SCRIPT       := preload("res://addons/go_build/core/go_build_drag_operation.gd")
 
 ## Handle-ID range constants — must stay in sync with [GoBuildGizmoPlugin] and
 ## [GoBuildGizmo].  Duplicated here so the handler is self-contained.
@@ -347,6 +348,72 @@ func reset_drag_state() -> void:
 	_bake_scheduled            = false
 	_gizmo_redraw_pending_node = null
 	_gizmo_redraw_scheduled    = false
+
+
+# ---------------------------------------------------------------------------
+# DragOperation factory — bridge to GoBuildDragController
+# ---------------------------------------------------------------------------
+
+## Create a [GoBuildDragOperation] from the current drag state.
+## Must be called after [method begin_drag] (or [method begin_inset_drag] /
+## [method begin_extrude_drag]) has succeeded, so the vertex cache and snapshot
+## are populated.  Returns [code]null[/code] if no drag is active.
+##
+## The operation's [member GoBuildDragOperation.delta_mode] is set from
+## [param handle_id].  All accumulated state (vertex positions, centroids,
+## action name, bake mode) is transferred from this handler's member variables.
+func create_drag_operation(node: GoBuildMeshInstance, handle_id: int) -> GoBuildDragOperation:
+	if _drag_initial_verts.is_empty() or node == null:
+		return null
+	var op := GoBuildDragOperation.new()
+	op.node = node
+	op.snapshot = _drag_restore
+	op.action_name = _drag_action_name_override \
+			if not _drag_action_name_override.is_empty() \
+			else _drag_action_name(handle_id)
+	op.handle_id = handle_id
+	op.initial_vertex_positions = _drag_initial_verts.duplicate()
+	op.drag_centroid = _compute_drag_centroid()
+	op.vertex_update_mode = _drag_vertex_update_mode
+	op.preview_mode = _drag_preview_mode
+	op.inset_centroids = _inset_centroids.duplicate()
+	op._gizmo_inset_offset = _inset_amount_offset
+	op.snap_step = GoBuildTransformHelpers.get_snap_step(snap_step_override)
+
+	var local_axes: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
+	if handle_id >= UNIFORM_SCALE_HANDLE_ID:
+		op.delta_mode = GoBuildDragOperation.DeltaMode.SCALE_UNIFORM
+	elif handle_id >= VIEW_PLANE_HANDLE_ID:
+		op.delta_mode = GoBuildDragOperation.DeltaMode.VIEWPORT_PLANE_PROJECT
+	elif handle_id >= PLANE_HANDLE_OFFSET:
+		var plane_idx: int = handle_id - PLANE_HANDLE_OFFSET
+		op.delta_mode = GoBuildDragOperation.DeltaMode.PLANE_PROJECT
+		var plane_normals: Array[Vector3] = [Vector3.BACK, Vector3.RIGHT, Vector3.UP]
+		op.world_axis = (node.global_transform.basis * plane_normals[plane_idx]).normalized()
+		op.plane_index = plane_idx
+	elif handle_id >= SCALE_HANDLE_OFFSET:
+		var axis_idx: int = handle_id - SCALE_HANDLE_OFFSET
+		op.delta_mode = GoBuildDragOperation.DeltaMode.SCALE_AXIS
+		op.world_axis = (node.global_transform.basis * local_axes[axis_idx]).normalized()
+		op.axis_index = axis_idx
+		op.snap_step = scale_snap_override
+	elif handle_id >= ROT_HANDLE_OFFSET:
+		var axis_idx: int = handle_id - ROT_HANDLE_OFFSET
+		op.delta_mode = GoBuildDragOperation.DeltaMode.ROTATE
+		var local_axis: Vector3 = local_axes[axis_idx]
+		op.world_axis = (node.global_transform.basis * local_axis).normalized()
+		op.axis_index = axis_idx
+		op.snap_step = rot_snap_override
+	elif _inset_mode:
+		op.delta_mode = GoBuildDragOperation.DeltaMode.INSET
+		op.snap_step = scale_snap_override
+	else:
+		var axis_idx: int = handle_id - AXIS_HANDLE_OFFSET
+		op.delta_mode = GoBuildDragOperation.DeltaMode.AXIS_PROJECT
+		op.world_axis = (node.global_transform.basis * local_axes[axis_idx]).normalized()
+		op.axis_index = axis_idx
+
+	return op
 
 
 # ---------------------------------------------------------------------------
