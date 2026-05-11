@@ -9,10 +9,47 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Unified drag/operation pipeline (`GoBuildDragController` + `GoBuildDragOperation`):
+  param-preview operations (Extrude, Inset, Bevel, Loop Cut, Edge Extrude) and
+  gizmo drags (Translate, Rotate, Scale, Plane, Viewport-plane) now share a
+  single pipeline for delta accumulation, precision mode, commit, and cancel.
+- Precision-scaled overlay indicator with anchor dot, directional colour line,
+  and live parameter text.  Precision mode (Shift) scales sensitivity to 10%
+  and seamlessly toggles mid-drag via anchor re-capture.
+- Clamp folding: when the drag parameter hits min/max bounds, excess delta is
+  folded back so reversing direction responds instantly — no dead zone.
+- Directional extrude: new shapes created by Extrude Face or Extrude Edge
+  orient their outward normal toward the camera, matching modeller expectation.
+- Negative extrude support: drag left / down from the anchor to extrude inward.
+- Inset and bevel preview: Shift+drag on scale handles starts an inset preview;
+  the inset amount responds to mouse movement in real time.
+- Fill operation (`FillOperation`): fills a closed boundary loop with a new
+  face. Combined into a single "Bridge/Fill" button that auto-detects topology
+  (two boundary chains → bridge; one closed loop → fill). Full undo/redo.
+- Auto-select after Extrude Edge: newly created edges are automatically selected
+  when the extrude operation commits, ready for further modelling.
+- Post-commit selection callback pattern (`post_commit_fn`) on `GoBuildDragOperation`
+  and `GoBuildParamPreview` — extensible hook for side effects after commit.
+  Drawer helpers `_make_select_edges_fn`, `_make_select_faces_fn`,
+  `_make_select_vertices_fn` create these callbacks from selection state.
 
 ### Changed
+- Refactor: extracted `GoBuildDrawer._make_select_*_fn` static helpers from
+  inline lambdas in `GoBuildFaceDrawer` and `GoBuildEdgeDrawer`.  All
+  post-commit selection callbacks now flow through these reusable factories.
+- Refactor: `GoBuildGizmoPlugin` persists the Godot native transform mode
+  (Move/Rotate/Scale) across Object/Edit mode switches instead of saving and
+  restoring it independently.
 
 ### Fixed
+- Gizmo handle picking now uses `compute_world_gizmo_scale()` with the selection
+  centroid instead of `compute_node_gizmo_scale()` with the node origin.  This
+  eliminates the desync between where handles are drawn and where they are
+  clickable when the selection centroid is far from the node origin.
+- Right-click in Vertex/Edge/Face mode now consumes the mouse event so
+  Godot's editor does not also start a camera orbit.  This fixes the cursor
+  jumping and viewport shifting when opening the GoBuild context menu.
+  In Object mode, right-click still passes through for native editor behaviour.
 
 ---
 
