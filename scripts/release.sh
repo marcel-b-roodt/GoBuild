@@ -12,16 +12,19 @@
 #      and validates version format:
 #        stable: X.Y.Z
 #        dev:    X.Y.Z-devN
-#   2. Requires a non-empty [Unreleased] section (prepare it first with
+#   2. Creates release/vX.Y.Z branch from main
+#   3. Requires a non-empty [Unreleased] section (prepare it first with
 #      scripts/release/prepare_release_notes.sh)
-#   3. Updates CHANGELOG.md — promotes [Unreleased] → [VERSION] — DATE and
+#   4. Updates CHANGELOG.md — promotes [Unreleased] → [VERSION] — DATE and
 #      inserts a fresh empty [Unreleased] section above it
-#   4. Bumps version= in addons/go_build/plugin.cfg
-#   5. Runs verify.sh (GDScript syntax + lint)
-#   6. Commits both files: "chore: bump version to vVERSION"
-#   7. Creates annotated tag vVERSION
-#   8. Pushes main + tags to origin
+#   5. Bumps version= in addons/go_build/plugin.cfg
+#   6. Runs verify.sh (GDScript syntax + lint)
+#   7. Commits both files: "chore: bump version to vVERSION"
+#   8. Creates annotated tag vVERSION on the release branch
+#   9. Merges release branch back to main with --no-ff
+#  10. Pushes main, release branch, and tag to origin
 #
+# The release branch persists on origin for hotfix use.
 # After this script finishes:
 #   - The release.yml CI workflow triggers on the tag and creates a draft
 #     GitHub Release containing the plugin zip, the changelog section, and
@@ -71,6 +74,8 @@ DATE=$(date +%Y-%m-%d)
 echo "GoBuild — Release $TAG ($DATE)"
 echo "────────────────────────────────────────"
 
+RELEASE_BRANCH="release/${TAG}"
+
 # ── Validate git state ─────────────────────────────────────────────────────────
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [[ "$BRANCH" != "main" ]]; then
@@ -86,6 +91,11 @@ fi
 
 if git rev-parse "$TAG" &>/dev/null; then
     echo "Error: tag '$TAG' already exists" >&2
+    exit 1
+fi
+
+if git rev-parse --verify "$RELEASE_BRANCH" &>/dev/null; then
+    echo "Error: branch '$RELEASE_BRANCH' already exists" >&2
     exit 1
 fi
 
@@ -110,6 +120,10 @@ if ! awk '
     echo "Error: [Unreleased] section is empty. Run scripts/release/prepare_release_notes.sh first." >&2
     exit 1
 fi
+
+# ── Create release branch ──────────────────────────────────────────────────────
+echo "→ Creating branch $RELEASE_BRANCH from main..."
+git checkout -b "$RELEASE_BRANCH"
 
 # ── Update CHANGELOG.md ────────────────────────────────────────────────────────
 echo "→ Updating CHANGELOG.md..."
@@ -140,21 +154,30 @@ else
     git commit -m "chore: bump version to ${TAG}"
 fi
 
-# ── Tag ────────────────────────────────────────────────────────────────────────
-echo "→ Tagging ${TAG}..."
+# ── Tag on release branch ────────────────────────────────────────────────────────
+echo "→ Tagging ${TAG} on ${RELEASE_BRANCH}..."
 if $IS_DEV; then
     git tag -a "${TAG}" -m "Prerelease ${TAG}"
 else
     git tag -a "${TAG}" -m "Release ${TAG}"
 fi
 
+# ── Merge back to main ─────────────────────────────────────────────────────────
+echo "→ Merging ${RELEASE_BRANCH} into main..."
+git checkout main
+git merge --no-ff "$RELEASE_BRANCH" -m "Merge ${RELEASE_BRANCH} into main"
+
 # ── Push ───────────────────────────────────────────────────────────────────────
-echo "→ Pushing main + ${TAG}..."
-git push origin main --tags
+echo "→ Pushing main, ${RELEASE_BRANCH}, and ${TAG}..."
+git push origin main
+git push origin "$RELEASE_BRANCH"
+git push origin "$TAG"
 
 echo ""
 echo "────────────────────────────────────────"
 echo "✓  Released ${TAG}"
+echo ""
+echo "  Release branch: ${RELEASE_BRANCH} (pushed, persists for hotfixes)"
 echo ""
 echo "Next steps:"
 echo "  1. Review the draft GitHub Release at:"

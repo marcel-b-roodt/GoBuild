@@ -152,6 +152,15 @@ _run_release() {
     echo "$output" | grep -qi "already exists"
 }
 
+@test "exits 1 when the release branch already exists" {
+    _setup_git_repo
+    cd "$TMP_DIR"
+    "$REAL_GIT" branch release/v0.3.0
+    _run_release 0.3.0
+    [ "$status" -eq 1 ]
+    echo "$output" | grep -qi "already exists"
+}
+
 # ---------------------------------------------------------------------------
 # CHANGELOG guard
 # ---------------------------------------------------------------------------
@@ -252,7 +261,7 @@ EOF
     cd "$TMP_DIR"
     _run_release 0.3.0
     [ "$status" -eq 0 ]
-    "$REAL_GIT" -C "$TMP_DIR" log --oneline | grep -q "chore: bump version to v0.3.0"
+    "$REAL_GIT" -C "$TMP_DIR" log --oneline --all | grep -q "chore: bump version to v0.3.0"
 }
 
 @test "creates an annotated tag" {
@@ -264,15 +273,33 @@ EOF
     "$REAL_GIT" -C "$TMP_DIR" tag | grep -q "^v0.3.0$"
 }
 
-@test "tag points to the version-bump commit" {
+@test "creates a release branch" {
+    _setup_git_repo
+    _mock_git_push
+    cd "$TMP_DIR"
+    _run_release 0.3.0
+    [ "$status" -eq 0 ]
+    "$REAL_GIT" -C "$TMP_DIR" branch --list | grep -q "release/v0.3.0"
+}
+
+@test "tag points to the version-bump commit on the release branch" {
     _setup_git_repo
     _mock_git_push
     cd "$TMP_DIR"
     _run_release 0.3.0
     [ "$status" -eq 0 ]
     TAG_SHA=$("$REAL_GIT" -C "$TMP_DIR" rev-parse v0.3.0^{commit})
-    HEAD_SHA=$("$REAL_GIT" -C "$TMP_DIR" rev-parse HEAD)
-    [ "$TAG_SHA" = "$HEAD_SHA" ]
+    BRANCH_SHA=$("$REAL_GIT" -C "$TMP_DIR" rev-parse release/v0.3.0)
+    [ "$TAG_SHA" = "$BRANCH_SHA" ]
+}
+
+@test "main has a merge commit from the release branch" {
+    _setup_git_repo
+    _mock_git_push
+    cd "$TMP_DIR"
+    _run_release 0.3.0
+    [ "$status" -eq 0 ]
+    "$REAL_GIT" -C "$TMP_DIR" log --oneline main | grep -q "Merge release/v0.3.0 into main"
 }
 
 # ---------------------------------------------------------------------------
@@ -286,4 +313,13 @@ EOF
     _run_release 0.3.0
     [ "$status" -eq 0 ]
     echo "$output" | grep -q "Released v0.3.0"
+}
+
+@test "prints the release branch name on completion" {
+    _setup_git_repo
+    _mock_git_push
+    cd "$TMP_DIR"
+    _run_release 0.3.0
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "release/v0.3.0"
 }
