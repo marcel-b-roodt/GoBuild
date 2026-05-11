@@ -851,6 +851,7 @@ func begin_param_preview(preview: GoBuildParamPreview) -> void:
 	op.snap_to_start = preview.snap_to_start
 	op.snap_threshold = preview.snap_threshold
 	op.screen_direction = preview.screen_direction
+	op.post_commit_fn = preview.post_commit_fn
 	op.preview_mode = true
 
 	_drag_controller.begin_with_initial_apply(op)

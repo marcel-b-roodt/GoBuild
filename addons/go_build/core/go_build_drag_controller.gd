@@ -184,6 +184,9 @@ func commit() -> void:
 			ur.add_undo_method(op.node, "restore_and_bake", op.snapshot)
 			ur.commit_action(false)
 
+		if op.post_commit_fn.is_valid():
+			op.post_commit_fn.call()
+
 	_clear_deferred_state()
 	_end()
 

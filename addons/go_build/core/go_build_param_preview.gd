@@ -78,3 +78,8 @@ var radial: bool = true
 ## dragging along the edge direction moves the cut in the correct direction
 ## regardless of whether the edge runs horizontally, vertically, or diagonally.
 var screen_direction: Vector2 = Vector2(1.0, 0.0)
+
+## Optional callback invoked after a successful commit (LMB accept).
+## Signature: [code]() -> void[/code].
+## Used to update the selection (e.g. select the new edges after extrude).
+var post_commit_fn: Callable = Callable()

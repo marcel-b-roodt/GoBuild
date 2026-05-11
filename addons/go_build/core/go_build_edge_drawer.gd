@@ -165,6 +165,8 @@ func _on_extrude_edge_pressed() -> void:
 		return
 	var edges_to_extrude: Array[int] = []
 	edges_to_extrude.assign(sel_edges)
+	var target_ref: GoBuildMeshInstance = _target
+	var last_new_edges: Array[int] = []
 
 	var preview := GoBuildParamPreview.new()
 	preview.action_name = "Extrude Edge"
@@ -173,8 +175,18 @@ func _on_extrude_edge_pressed() -> void:
 	preview.param_min   = -100.0
 	preview.param_max   = 100.0
 	preview.radial      = false
-	preview.apply_fn    = func(p: float) -> void: \
-			EdgeExtrudeOperation.apply(_target.go_build_mesh, edges_to_extrude, p)
+	preview.apply_fn    = func(p: float) -> void:
+		last_new_edges.clear()
+		var result: Array[int] = EdgeExtrudeOperation.apply(
+				_target.go_build_mesh, edges_to_extrude, p)
+		last_new_edges.assign(result)
+	preview.post_commit_fn = func() -> void:
+		if target_ref == null or not is_instance_valid(target_ref):
+			return
+		if not last_new_edges.is_empty():
+			target_ref.selection.set_mode(SelectionManager.Mode.EDGE)
+			target_ref.selection.set_selected_edges(last_new_edges)
+			target_ref.update_gizmos()
 	_plugin.call("begin_param_preview", preview)
 
 

@@ -88,6 +88,8 @@ var _active_handle_id:  int     = -1
 var _pressed_handle_id: int     = -1
 ## Screen position of the mouse-down that started the pending press.
 var _handle_press_pos:  Vector2 = Vector2.ZERO
+## New edge indices to select after a gizmo drag completes (e.g. extrude edge).
+var _pending_edge_selection: Array[int] = []
 
 # ---------------------------------------------------------------------------
 # Right-click context-menu state
@@ -437,6 +439,7 @@ func _handle_mouse_release(
 		_gizmo_plugin.commit_drag(edited_node, _active_handle_id, false)
 		if _drag_controller != null and _drag_controller.is_active():
 			_drag_controller.commit()
+		_apply_pending_edge_selection(edited_node)
 		_dragging_handle  = false
 		_active_handle_id = -1
 		edited_node.update_gizmos()
@@ -696,6 +699,8 @@ func _begin_edge_extrude_drag(
 	# per extruded edge) — these are the only vertices that should move.
 	# Do NOT update the selection here; doing so fires selection_changed which
 	# calls update_gizmos() synchronously and interferes with drag setup.
+	_pending_edge_selection.clear()
+	_pending_edge_selection.assign(new_edge_indices)
 	var new_verts: Array[int] = []
 	for ei: int in new_edge_indices:
 		var edge: GoBuildEdge = gbm.edges[ei]
@@ -719,6 +724,19 @@ func _begin_edge_extrude_drag(
 # ---------------------------------------------------------------------------
 # Handle picking
 # ---------------------------------------------------------------------------
+
+func _apply_pending_edge_selection(edited_node: GoBuildMeshInstance) -> void:
+	if _pending_edge_selection.is_empty():
+		return
+	if edited_node == null or not is_instance_valid(edited_node):
+		_pending_edge_selection.clear()
+		return
+	var edges: Array[int] = []
+	edges.assign(_pending_edge_selection)
+	_pending_edge_selection.clear()
+	edited_node.selection.set_mode(SelectionManager.Mode.EDGE)
+	edited_node.selection.set_selected_edges(edges)
+
 
 func _find_hovered_handle_id(
 		edited_node: GoBuildMeshInstance,
@@ -1178,6 +1196,7 @@ func _cancel_active_drag(edited_node: GoBuildMeshInstance) -> void:
 	_dragging_handle   = false
 	_active_handle_id  = -1
 	_pressed_handle_id = -1
+	_pending_edge_selection.clear()
 	if _gizmo_plugin != null:
 		_gizmo_plugin.reset_drag_state()
 
@@ -1413,6 +1432,7 @@ func _commit_param_preview(edited_node: GoBuildMeshInstance) -> void:
 	var before       := _param_preview.snapshot
 	var apply_fn     := _param_preview.apply_fn
 	var final_target := _preview_apply_target
+	var commit_fn    := _param_preview.post_commit_fn
 	_param_preview        = null
 	_param_preview_delta  = 0.0
 	_param_preview_precision_offset = 0.0
@@ -1444,6 +1464,8 @@ func _commit_param_preview(edited_node: GoBuildMeshInstance) -> void:
 	# the do-method.  Calling it again would bake a second bevel on an already-
 	# beveled mesh before the undo system restores final_snapshot, causing a crash.
 	ur.commit_action(false)
+	if commit_fn.is_valid():
+		commit_fn.call()
 	if _editor_plugin != null:
 		_editor_plugin.update_overlays()
 

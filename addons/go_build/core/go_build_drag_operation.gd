@@ -63,6 +63,11 @@ var initial_vertex_positions: Dictionary = {}
 
 var drag_centroid: Vector3 = Vector3.ZERO
 
+## Optional callback invoked after a successful commit (LMB accept).
+## Signature: [code]() -> void[/code].
+## Used to update the selection (e.g. select the new edges after extrude).
+var post_commit_fn: Callable = Callable()
+
 var handle_id: int = -1
 
 var _gizmo_cumulative_translate: Vector3 = Vector3.ZERO
