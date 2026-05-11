@@ -168,3 +168,62 @@ func _run_op(
 	if clear_selection:
 		_target.selection.clear()
 	_target.update_gizmos()
+
+
+# ---------------------------------------------------------------------------
+# Post-commit selection helpers
+# ---------------------------------------------------------------------------
+
+## Returns a [Callable] that sets [param node]'s edge selection to
+## [param edge_indices] and refreshes gizmos. Intended to be used as
+## [member GoBuildParamPreview.post_commit_fn] or
+## [member GoBuildDragOperation.post_commit_fn].
+##
+## Example:
+##   [codeblock]
+##   preview.post_commit_fn = _make_select_edges_fn(_target, new_edges)
+##   [/codeblock]
+static func _make_select_edges_fn(
+		node: GoBuildMeshInstance,
+		edge_indices: Array[int],
+) -> Callable:
+	return func() -> void:
+		if node == null or not is_instance_valid(node):
+			return
+		if edge_indices.is_empty():
+			return
+		node.selection.set_mode(SelectionManager.Mode.EDGE)
+		node.selection.set_selected_edges(edge_indices)
+		node.update_gizmos()
+
+
+## Returns a [Callable] that sets [param node]'s face selection to
+## [param face_indices] and refreshes gizmos.
+static func _make_select_faces_fn(
+		node: GoBuildMeshInstance,
+		face_indices: Array[int],
+) -> Callable:
+	return func() -> void:
+		if node == null or not is_instance_valid(node):
+			return
+		if face_indices.is_empty():
+			return
+		node.selection.set_mode(SelectionManager.Mode.FACE)
+		node.selection.set_selected_faces(face_indices)
+		node.update_gizmos()
+
+
+## Returns a [Callable] that sets [param node]'s vertex selection to
+## [param vertex_indices] and refreshes gizmos.
+static func _make_select_vertices_fn(
+		node: GoBuildMeshInstance,
+		vertex_indices: Array[int],
+) -> Callable:
+	return func() -> void:
+		if node == null or not is_instance_valid(node):
+			return
+		if vertex_indices.is_empty():
+			return
+		node.selection.set_mode(SelectionManager.Mode.VERTEX)
+		node.selection.set_selected_vertices(vertex_indices)
+		node.update_gizmos()

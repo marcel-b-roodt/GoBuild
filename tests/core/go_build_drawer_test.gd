@@ -144,3 +144,43 @@ func test_set_target_null_stores_null() -> void:
 class _OpenTestDrawer extends GoBuildDrawer:
 	func _ready() -> void:
 		_setup_drawer("Open Test", true)
+
+
+# ---------------------------------------------------------------------------
+# Post-commit selection helpers
+# ---------------------------------------------------------------------------
+
+func test_select_edges_fn_sets_edge_mode_and_indices() -> void:
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	add_child(node)
+	var fn := GoBuildDrawer._make_select_edges_fn(node, [3, 7, 11])
+	fn.call()
+	assert_int(node.selection.get_mode()).is_equal(SelectionManager.Mode.EDGE)
+	assert_array(node.selection.get_selected_edges()).is_equal([3, 7, 11])
+
+
+func test_select_edges_fn_empty_array_is_no_op() -> void:
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	add_child(node)
+	node.selection.set_mode(SelectionManager.Mode.FACE)
+	var fn := GoBuildDrawer._make_select_edges_fn(node, [])
+	fn.call()
+	assert_int(node.selection.get_mode()).is_equal(SelectionManager.Mode.FACE)
+
+
+func test_select_faces_fn_sets_face_mode_and_indices() -> void:
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	add_child(node)
+	var fn := GoBuildDrawer._make_select_faces_fn(node, [1, 2])
+	fn.call()
+	assert_int(node.selection.get_mode()).is_equal(SelectionManager.Mode.FACE)
+	assert_array(node.selection.get_selected_faces()).is_equal([1, 2])
+
+
+func test_select_vertices_fn_sets_vertex_mode_and_indices() -> void:
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	add_child(node)
+	var fn := GoBuildDrawer._make_select_vertices_fn(node, [0, 5])
+	fn.call()
+	assert_int(node.selection.get_mode()).is_equal(SelectionManager.Mode.VERTEX)
+	assert_array(node.selection.get_selected_vertices()).is_equal([0, 5])

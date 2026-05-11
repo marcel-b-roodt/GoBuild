@@ -180,13 +180,7 @@ func _on_extrude_edge_pressed() -> void:
 		var result: Array[int] = EdgeExtrudeOperation.apply(
 				_target.go_build_mesh, edges_to_extrude, p)
 		last_new_edges.assign(result)
-	preview.post_commit_fn = func() -> void:
-		if target_ref == null or not is_instance_valid(target_ref):
-			return
-		if not last_new_edges.is_empty():
-			target_ref.selection.set_mode(SelectionManager.Mode.EDGE)
-			target_ref.selection.set_selected_edges(last_new_edges)
-			target_ref.update_gizmos()
+	preview.post_commit_fn = _make_select_edges_fn(target_ref, last_new_edges)
 	_plugin.call("begin_param_preview", preview)
 
 
