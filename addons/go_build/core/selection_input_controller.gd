@@ -180,6 +180,10 @@ func process_input(
 					_right_click_press_pos.distance_squared_to(mm.position) \
 					> BOX_SELECT_DRAG_THRESHOLD_SQ:
 				_right_click_dragged = true
+			var in_edit_mode: bool = edited_node != null \
+					and edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT
+			if in_edit_mode:
+				return 1
 			return 0
 		return _handle_mouse_motion(edited_node, camera, mm)
 	if event is InputEventMouseButton:
@@ -393,13 +397,18 @@ func _handle_mouse_button(
 		mb: InputEventMouseButton,
 ) -> int:
 	if mb.button_index == MOUSE_BUTTON_RIGHT:
+		var in_edit_mode: bool = edited_node != null \
+				and edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT
 		if mb.pressed:
 			_cancel_active_drag(edited_node)
 			_cancel_box_select(edited_node)
 			_right_click_press_pos = mb.position
 			_right_click_dragged   = false
+			if in_edit_mode:
+				return 1
 		elif not _right_click_dragged:
-			_show_context_menu(edited_node, mb.position)
+			if _show_context_menu(edited_node, mb.position):
+				return 1
 		return 0
 	if mb.button_index == MOUSE_BUTTON_LEFT:
 		if mb.pressed:
@@ -1234,12 +1243,14 @@ func _begin_drag_controller_for_gizmo(
 
 ## Show a [PopupMenu] at screen position [param at] with operations appropriate
 ## to the current edit mode and selection.  No-op in Object mode.
-func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
+## Returns [code]true[/code] if a popup was shown (caller should consume the event),
+## [code]false[/code] otherwise.
+func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 	if edited_node == null:
-		return
+		return false
 	var mode: SelectionManager.Mode = edited_node.selection.get_mode()
 	if mode == SelectionManager.Mode.OBJECT:
-		return
+		return false
 	# Convert viewport-local position to screen (OS window) coordinates.
 	# mb.position from _forward_3d_gui_input is relative to the 3D SubViewport.
 	# The SubViewport's parent Control holds the viewport at a known screen location.
@@ -1295,6 +1306,7 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 	popup.id_pressed.connect(
 			func(id: int) -> void: _on_context_menu_pressed(id, mode_int, edited_node))
 	popup.popup(Rect2i(screen_at, Vector2i.ZERO))
+	return true
 
 
 func _on_context_menu_pressed(
