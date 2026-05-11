@@ -42,8 +42,6 @@ const BOX_SELECT_DRAG_THRESHOLD_SQ: float = 25.0  # 5 px
 
 ## Screen-space pixel radius for translate cone handle hit-testing.
 const _TRANSLATE_HANDLE_PICK_RADIUS_PX: float = 10.0
-## Squared screen-space pixel radius for rotate-ring hit-testing.
-const _ROTATE_HANDLE_PICK_RADIUS_SQ: float  = 144.0  # 12 px
 ## Squared screen-space pixel radius for scale cube handle hit-testing.
 const _SCALE_HANDLE_PICK_RADIUS_SQ: float   = 144.0  # 12 px
 ## Squared screen-space pixel radius for planar handle hit-testing.
@@ -765,7 +763,8 @@ func _find_translate_handle(
 		positions: Array[Vector3],
 ) -> int:
 	var gt: Transform3D = edited_node.global_transform
-	var s: float        = _gizmo_plugin.compute_node_gizmo_scale(edited_node)
+	var lc: Vector3 = _gizmo_plugin.get_selection_local_centroid(edited_node)
+	var s: float        = _gizmo_plugin.compute_world_gizmo_scale(gt * lc)
 	var cone_h: float   = GoBuildGizmoPlugin.CONE_HEIGHT * s
 	var local_axes: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
 	for i: int in 3:
