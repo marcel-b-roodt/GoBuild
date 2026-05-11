@@ -537,7 +537,7 @@ func _handle_merge_key() -> int:
 	return 0
 
 
-## Intercept F in Edge mode only; triggers Bridge.  Pass through otherwise.
+## Intercept F in Edge mode only; triggers Bridge/Fill.  Pass through otherwise.
 func _handle_bridge_key() -> int:
 	if _edited_node != null and _panel != null \
 			and _edited_node.selection.get_mode() == SelectionManager.Mode.EDGE:

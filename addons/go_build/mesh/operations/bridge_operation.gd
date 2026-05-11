@@ -32,6 +32,7 @@ extends RefCounted
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FILL_SCRIPT := preload("res://addons/go_build/mesh/operations/fill_operation.gd")
 
 
 ## Bridge two open boundary edge loops selected by [param edge_indices].
@@ -61,35 +62,10 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> void:
 		return
 
 	# ── 2b. Fill-hole shortcut ──────────────────────────────────────────────
-	# If all selected edges belong to a SINGLE closed boundary loop (every
-	# vertex in the chain has degree 2 in the selection), fill the hole with a
-	# single face — no new vertices, no quad strip.  This handles triangles,
-	# quads, and arbitrary N-gon holes formed by the selected edges.
+	# If all selected edges belong to a SINGLE closed boundary loop, fill the
+	# hole with a single face via FillOperation instead of creating a quad strip.
 	if chains.size() == 1:
-		var chain: Array[int] = chains[0]
-		# _split_into_chains returns open chains with first != last.
-		# A closed loop is detected when the first and last vertex are
-		# connected by an edge in valid_edges that was not yet walked — OR
-		# when the chain already forms a closed ring (chain[0] == chain[-1]).
-		var is_closed: bool = false
-		if chain.size() >= 2 and chain[0] == chain[chain.size() - 1]:
-			is_closed = true
-			chain.resize(chain.size() - 1)  # Remove duplicate tail.
-		else:
-			# Check if there's a valid_edge directly connecting tail to head.
-			var tail: int = chain[chain.size() - 1]
-			var head: int = chain[0]
-			for ei: int in valid_edges:
-				var e: GoBuildEdge = mesh.edges[ei]
-				if (e.vertex_a == tail and e.vertex_b == head) \
-						or (e.vertex_a == head and e.vertex_b == tail):
-					is_closed = true
-					break
-		if is_closed and chain.size() >= 3:
-			_fill_hole(mesh, chain, valid_edges)
-			mesh.rebuild_edges()
-			return
-		# Open single chain — not a valid bridge input; do nothing.
+		FillOperation.apply(mesh, valid_edges)
 		return
 
 	# Use the two longest chains if more than two were found (e.g. user had
@@ -158,88 +134,6 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> void:
 		mesh.faces.append(quad)
 
 	mesh.rebuild_edges()
-
-
-# ---------------------------------------------------------------------------
-# Fill-hole
-# ---------------------------------------------------------------------------
-
-## Fill a closed boundary loop with a single N-gon face.
-##
-## [param chain] is an ordered Array[int] of vertex indices (no duplicate
-## tail) forming the boundary of the hole.  [param source_edges] is used to
-## inherit material and smooth-group from an adjacent face.
-static func _fill_hole(
-		mesh: GoBuildMesh,
-		chain: Array[int],
-		source_edges: Array[int],
-) -> void:
-	# Inherit material from the first adjacent face in the selection.
-	var mat_idx: int = 0
-	var smooth: int  = 0
-	for ei: int in source_edges:
-		if ei >= 0 and ei < mesh.edges.size():
-			for fi: int in mesh.edges[ei].face_indices:
-				mat_idx = mesh.faces[fi].material_index
-				smooth  = mesh.faces[fi].smooth_group
-				break
-		break
-
-	var fill := _FACE_SCRIPT.new()
-	fill.vertex_indices = []
-	for v: int in chain:
-		fill.vertex_indices.append(v)
-	fill.material_index = mat_idx
-	fill.smooth_group   = smooth
-
-	# Generate simple UV projection: normalize positions into [0,1] box.
-	var centroid := Vector3.ZERO
-	for v: int in chain:
-		centroid += mesh.vertices[v]
-	centroid /= float(chain.size())
-
-	# Build a local 2D frame from the first two vertices.
-	var u_axis: Vector3 = Vector3.RIGHT
-	var v_axis: Vector3 = Vector3.FORWARD
-	if chain.size() >= 2:
-		u_axis = (mesh.vertices[chain[1]] - mesh.vertices[chain[0]]).normalized()
-		# Compute a rough face normal via cross products of the chain.
-		var normal := Vector3.ZERO
-		for k: int in chain.size():
-			var p0: Vector3 = mesh.vertices[chain[k]] - centroid
-			var p1: Vector3 = mesh.vertices[chain[(k + 1) % chain.size()]] - centroid
-			normal += p0.cross(p1)
-		normal = normal.normalized()
-		if normal.length_squared() > 0.5:
-			v_axis = normal.cross(u_axis).normalized()
-
-	fill.uvs = []
-	for v: int in chain:
-		var p: Vector3 = mesh.vertices[v] - centroid
-		fill.uvs.append(Vector2(p.dot(u_axis), p.dot(v_axis)))
-
-	# ── Validate winding against adjacent faces ──────────────────────────────
-	# Build a set of all vertices in the hole chain for fast lookup.
-	var chain_set: Dictionary = {}
-	for v: int in chain:
-		chain_set[v] = true
-	# Average the normals of all faces that share at least one boundary vertex.
-	var neighbour_normal := Vector3.ZERO
-	for face: GoBuildFace in mesh.faces:
-		var shared: bool = false
-		for v: int in face.vertex_indices:
-			if chain_set.has(v):
-				shared = true
-				break
-		if shared:
-			neighbour_normal += mesh.compute_face_normal(face)
-	var fill_normal: Vector3 = mesh.compute_face_normal(fill)
-	if neighbour_normal.length_squared() > 1e-8 \
-			and fill_normal.dot(neighbour_normal) < 0.0:
-		fill.vertex_indices.reverse()
-		fill.uvs.reverse()
-
-	mesh.faces.append(fill)
 
 
 # ---------------------------------------------------------------------------

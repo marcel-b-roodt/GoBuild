@@ -1251,7 +1251,7 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
 				popup.add_separator()
 				popup.add_item("Bevel", 20)
 				popup.add_item("Loop Cut", 23)
-				popup.add_item("Bridge  (F)", 22)
+				popup.add_item("Bridge/Fill  (F)", 22)
 				popup.add_item("Extrude Edge", 21)
 				popup.add_separator()
 				popup.add_item("Hard Edge", 24)
@@ -1317,7 +1317,7 @@ func _on_context_menu_pressed(
 		21:  # Extrude edge
 			if _panel != null:
 				_panel.trigger_extrude_edge()
-		22:  # Bridge
+		22:  # Bridge/Fill
 			if _panel != null:
 				_panel.trigger_bridge()
 		23:  # Loop Cut

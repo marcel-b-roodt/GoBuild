@@ -1,6 +1,6 @@
 ## Edge-mode operations drawer for the GoBuild editor panel.
 ##
-## Hosts Extrude, Bevel, Bridge, Loop Cut, Hard, and Soft buttons.
+## Hosts Extrude, Bevel, Bridge/Fill, Loop Cut, Hard, and Soft buttons.
 ##
 ## Drop into any [VBoxContainer] with [method Node.add_child].  After adding:
 ##   - Call [method GoBuildDrawer.set_plugin] once.
@@ -62,9 +62,10 @@ func _ready() -> void:
 	grid.add_child(_bevel_btn)
 	_register_op(_bevel_btn, _cond_edge_any)
 
-	_bridge_btn = _op_button("Bridge",
-		"Bridge two open boundary edge loops with a quad strip (F).\n"
-		+ "Requires Edge mode with \u22652 boundary edges from two distinct loops.")
+	_bridge_btn = _op_button("Bridge/Fill",
+		"Bridge two boundary edge loops with a quad strip, or fill a closed\n"
+		+ "boundary loop with a single face (F). Auto-detects from topology.\n"
+		+ "Requires Edge mode with \u22652 boundary edges selected.")
 	_bridge_btn.pressed.connect(_on_bridge_pressed)
 	grid.add_child(_bridge_btn)
 	_register_op(_bridge_btn, _cond_edge_bridge)
