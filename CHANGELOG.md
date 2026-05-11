@@ -8,6 +8,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [0.6.0-dev1] — 2026-05-11
+
 ### Added
 - Unified drag/operation pipeline (`GoBuildDragController` + `GoBuildDragOperation`):
   param-preview operations (Extrude, Inset, Bevel, Loop Cut, Edge Extrude) and
