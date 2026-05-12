@@ -180,10 +180,6 @@ func process_input(
 					_right_click_press_pos.distance_squared_to(mm.position) \
 					> BOX_SELECT_DRAG_THRESHOLD_SQ:
 				_right_click_dragged = true
-			var in_edit_mode: bool = edited_node != null \
-					and edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT
-			if in_edit_mode:
-				return 1
 			return 0
 		return _handle_mouse_motion(edited_node, camera, mm)
 	if event is InputEventMouseButton:
@@ -404,11 +400,10 @@ func _handle_mouse_button(
 			_cancel_box_select(edited_node)
 			_right_click_press_pos = mb.position
 			_right_click_dragged   = false
-			if in_edit_mode:
-				return 1
 		elif not _right_click_dragged:
-			if _show_context_menu(edited_node, mb.position):
-				return 1
+			if in_edit_mode:
+				if _show_context_menu(edited_node, mb.position):
+					return 1
 		return 0
 	if mb.button_index == MOUSE_BUTTON_LEFT:
 		if mb.pressed:
