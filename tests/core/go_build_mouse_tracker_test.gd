@@ -154,7 +154,7 @@ func test_precision_offset_folded_on_shift_toggle() -> void:
 	# But the offset absorbs the difference: was 200*1.0, now needs 200*0.1 = 20.
 	# Offset += 200 * 0.005 * (1.0 - 0.1) = 200 * 0.005 * 0.9 = 0.9
 	# The offset_folding ensures position continuity.
-	assert_float(t.get_precision_offset()).is_not_equal_approx(0.0, 0.001)
+	assert_bool(not is_zero_approx(t.get_precision_offset())).is_true()
 
 
 func test_precision_multiplier_is_1_by_default() -> void:

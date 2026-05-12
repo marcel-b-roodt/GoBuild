@@ -116,6 +116,8 @@ func _enter_tree() -> void:
 	# (necessary when the file was just created on this run).
 	EditorInterface.get_resource_filesystem().update_file(
 			GoBuildProjectSettings.SETTINGS_PATH)
+	# Ensure at least one palette exists (creates Default if none found).
+	GoBuildProjectSettings.ensure_default_palette()
 
 	_panel = _PANEL_SCRIPT.new()
 	_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN

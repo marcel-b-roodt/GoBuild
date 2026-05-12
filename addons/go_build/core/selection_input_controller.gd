@@ -1525,5 +1525,3 @@ func _cleanup_preview_state() -> void:
 	_param_preview             = null
 	_param_preview_delta       = 0.0
 	_param_preview_precision_offset = 0.0
-
-

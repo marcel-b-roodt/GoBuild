@@ -70,7 +70,7 @@ func set_plugin(plugin: EditorPlugin) -> void:
 
 
 ## Called by the owning [EditorPlugin] after project settings are loaded.
-## Populates the palette dropdown from the project-wide palette library.
+## Triggers palette auto-discovery so the dropdown is populated.
 func set_project_settings(settings: GoBuildProjectSettings) -> void:
 	if _materials_drawer != null:
 		_materials_drawer.set_project_settings(settings)

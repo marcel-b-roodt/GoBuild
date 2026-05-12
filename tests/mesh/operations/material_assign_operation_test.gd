@@ -123,6 +123,68 @@ func test_noop_for_negative_material_index() -> void:
 func test_out_of_range_face_index_skipped() -> void:
 	var mesh := _make_mesh(2)
 	var indices: Array[int] = [0, 99]
-	# Should not crash; face 0 assigned, index 99 silently skipped.
 	MaterialAssignOperation.apply(mesh, indices, 1)
 	assert_int(mesh.faces[0].material_index).is_equal(1)
+
+
+# ---------------------------------------------------------------------------
+# apply_to_selected_faces — slot splitting
+# ---------------------------------------------------------------------------
+
+func test_apply_to_selected_faces_basic() -> void:
+	var mesh := _make_mesh(3)
+	var old_mat := StandardMaterial3D.new()
+	old_mat.albedo_color = Color.WHITE
+	mesh.material_slots.append(old_mat)
+	var new_mat := StandardMaterial3D.new()
+	new_mat.albedo_color = Color.RED
+	var selected: Array[int] = [0]
+	MaterialAssignOperation.apply_to_selected_faces(mesh, selected, 0, new_mat)
+	assert_int(mesh.faces[0].material_index).is_equal(0)
+	assert_object(mesh.material_slots[0]).is_equal(new_mat)
+	assert_int(mesh.faces[1].material_index).is_equal(1)
+	assert_int(mesh.faces[2].material_index).is_equal(1)
+	assert_object(mesh.material_slots[1]).is_equal(old_mat)
+
+
+func test_apply_to_selected_faces_no_split_when_only_selected_use_slot() -> void:
+	var mesh := _make_mesh(2)
+	mesh.faces[0].material_index = 0
+	mesh.faces[1].material_index = 1
+	mesh.material_slots.append(StandardMaterial3D.new())
+	mesh.material_slots.append(StandardMaterial3D.new())
+	var new_mat := StandardMaterial3D.new()
+	new_mat.albedo_color = Color.RED
+	var selected: Array[int] = [0]
+	MaterialAssignOperation.apply_to_selected_faces(mesh, selected, 0, new_mat)
+	assert_int(mesh.faces[0].material_index).is_equal(0)
+	assert_int(mesh.faces[1].material_index).is_equal(1)
+	assert_object(mesh.material_slots[0]).is_equal(new_mat)
+	assert_int(mesh.material_slots.size()).is_equal(2)
+
+
+func test_apply_to_selected_faces_noop_when_same_material() -> void:
+	var mesh := _make_mesh(3)
+	var mat := StandardMaterial3D.new()
+	mesh.material_slots.append(mat)
+	var selected: Array[int] = [0]
+	MaterialAssignOperation.apply_to_selected_faces(mesh, selected, 0, mat)
+	assert_int(mesh.faces[0].material_index).is_equal(0)
+	assert_int(mesh.faces[1].material_index).is_equal(0)
+	assert_int(mesh.faces[2].material_index).is_equal(0)
+	assert_int(mesh.material_slots.size()).is_equal(1)
+
+
+func test_apply_to_selected_faces_noop_null_mesh() -> void:
+	var new_mat := StandardMaterial3D.new()
+	var selected: Array[int] = [0]
+	MaterialAssignOperation.apply_to_selected_faces(null, selected, 0, new_mat)
+
+
+func test_apply_to_selected_faces_noop_null_material() -> void:
+	var mesh := _make_mesh(1)
+	mesh.material_slots.append(StandardMaterial3D.new())
+	var selected: Array[int] = [0]
+	MaterialAssignOperation.apply_to_selected_faces(mesh, selected, 0, null)
+	assert_int(mesh.faces[0].material_index).is_equal(0)
+	assert_int(mesh.material_slots.size()).is_equal(1)

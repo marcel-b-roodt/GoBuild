@@ -8,6 +8,38 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Palette auto-discovery: palettes are now scanned from the project filesystem
+  (`GoBuildProjectSettings.discover_palettes`) instead of stored in
+  `GoBuildProjectSettings.palettes`.  Any `GoBuildMaterialPalette` `.tres` file
+  in the project is detected automatically.
+- Default palette: shipped at `res://addons/go_build/default_palette.tres` with
+  metre checker, white, grey, and B&W checker materials on first run.
+- In-panel palette creation: [+ New] button opens a name dialog and creates a
+  `.tres` palette file at `res://materials/`.
+- In-panel palette deletion: [🗑 Delete] button removes the selected palette's
+  `.tres` from disk (with confirmation).
+- In-panel material addition: [EditorResourcePicker] allows adding materials to
+  the selected palette with full Inspector-quality previews.
+- Per-slot material removal: [×] button on each palette row removes the material
+  from the palette.
+- [Use] button works in Object mode: assigns the material to all faces (not just
+  selected faces), so the entire mesh can be re-materialled without switching
+  to Face mode.
+- `filesystem_changed` signal connected for live palette dropdown refresh when
+  `.tres` files change outside the panel.
+- Palette migration: on load, palettes in the deprecated `palettes` array are
+  saved to disk and the array is cleared.
+
+### Changed
+- Materials drawer overhauled: quickset buttons, slot spinbox, "Assign to
+  Faces" button, settings picker, and apply palette button removed.
+- Palette dropdown populated from auto-discovery, not `GoBuildProjectSettings`.
+
+### Deprecated
+- `GoBuildProjectSettings.palettes` array: kept for backward-compatible
+  deserialization only; migrated to disk on first load.
+
 ---
 
 ## [0.6.0-dev1] — 2026-05-11
