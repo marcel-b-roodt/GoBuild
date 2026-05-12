@@ -95,6 +95,7 @@ var _pending_edge_selection: Array[int] = []
 
 var _right_click_press_pos: Vector2 = Vector2.ZERO
 var _right_click_dragged:   bool    = false
+var _context_menu_open:     bool    = false
 
 # ── Parameter-preview state ─────────────────────────────────────────────────
 ## Active preview, or [code]null[/code] when idle.
@@ -175,6 +176,8 @@ func process_input(
 		return _handle_param_preview_input(edited_node, camera, event)
 	if event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
+		if _context_menu_open:
+			return 1
 		if mm.button_mask & MOUSE_BUTTON_MASK_RIGHT:
 			if not _right_click_dragged and \
 					_right_click_press_pos.distance_squared_to(mm.position) \
@@ -393,6 +396,8 @@ func _handle_mouse_button(
 		mb: InputEventMouseButton,
 ) -> int:
 	if mb.button_index == MOUSE_BUTTON_RIGHT:
+		if _context_menu_open:
+			return 1
 		var in_edit_mode: bool = edited_node != null \
 				and edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT
 		if mb.pressed:
@@ -400,10 +405,9 @@ func _handle_mouse_button(
 			_cancel_box_select(edited_node)
 			_right_click_press_pos = mb.position
 			_right_click_dragged   = false
-		elif not _right_click_dragged:
-			if in_edit_mode:
-				if _show_context_menu(edited_node, mb.position):
-					return 1
+		else:
+			if not _right_click_dragged and in_edit_mode:
+				_show_context_menu_deferred(edited_node, mb.position)
 		return 0
 	if mb.button_index == MOUSE_BUTTON_LEFT:
 		if mb.pressed:
@@ -1213,6 +1217,16 @@ func _cancel_box_select(edited_node: GoBuildMeshInstance) -> void:
 
 
 # ---------------------------------------------------------------------------
+# Deferred context menu
+# ---------------------------------------------------------------------------
+
+## Show the context menu on the next frame so Godot has time to process
+## the right-click release and restore the cursor from orbit mode.
+func _show_context_menu_deferred(edited_node: GoBuildMeshInstance, at: Vector2) -> void:
+	_show_context_menu.call_deferred(edited_node, at)
+
+
+# ---------------------------------------------------------------------------
 # DragController bridge — gizmo drags
 # ---------------------------------------------------------------------------
 
@@ -1258,6 +1272,10 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 	var sel: SelectionManager = edited_node.selection
 	var popup := PopupMenu.new()
 	EditorInterface.get_base_control().add_child(popup)
+	_context_menu_open = true
+	popup.popup_hide.connect(func() -> void:
+		_context_menu_open = false
+	)
 	popup.popup_hide.connect(popup.queue_free)
 
 	popup.add_item("Select All", 1)
