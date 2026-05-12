@@ -6,6 +6,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.0-dev2] — 2026-05-13
+
+### Added
+- Context menu in edit mode now suppresses all right-click input while the
+  popup is visible, preventing stray Godot viewport orbit events from
+  interfering with menu interaction.
+
+### Fixed
+- Right-click context menu no longer causes cursor jump or viewport pan when
+  opened in Vertex/Edge/Face mode. The fix uses deferred popup display
+  (`call_deferred`) to let Godot's editor camera finish its orbit-release
+  cursor restoration before the context menu appears.
+
+---
+
 ## [Unreleased]
 
 ### Added
