@@ -15,6 +15,9 @@
 class_name CubeGenerator
 extends RefCounted
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _UTILS_SCRIPT := preload("res://addons/go_build/mesh/generators/mesh_generator_utils.gd")
 
 ## Generate a cuboid [GoBuildMesh] centred at the origin.
 ##

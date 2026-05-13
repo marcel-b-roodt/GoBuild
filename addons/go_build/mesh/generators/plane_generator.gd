@@ -6,6 +6,9 @@
 class_name PlaneGenerator
 extends RefCounted
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _UTILS_SCRIPT := preload("res://addons/go_build/mesh/generators/mesh_generator_utils.gd")
 
 ## Generate an upward-facing plane [GoBuildMesh] centred at the origin.
 ##

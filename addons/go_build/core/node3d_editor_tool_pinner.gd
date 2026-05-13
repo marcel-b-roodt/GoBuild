@@ -32,6 +32,9 @@
 class_name Node3DEditorToolPinner
 extends RefCounted
 
+# Self-preloads — dependency order.
+const _SEL_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.gd")
+
 var _button: Button = null
 var _button_w: Button = null
 var _button_e: Button = null

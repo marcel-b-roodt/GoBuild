@@ -6,6 +6,10 @@
 class_name MeshGeneratorUtils
 extends RefCounted
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+
 
 ## Add a subdivided quad grid to [param mesh] spanning four CCW corners.
 ##

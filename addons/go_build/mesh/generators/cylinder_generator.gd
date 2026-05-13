@@ -8,6 +8,10 @@
 class_name CylinderGenerator
 extends RefCounted
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+
 ## Generate a cylinder [GoBuildMesh].
 ##
 ## [param radius]          radius of both caps (must be > 0)

@@ -5,6 +5,8 @@
 @tool
 extends GdUnitTestSuite
 
+# Self-preloads — dependency order.
+const _DRAG_OP_SCRIPT := preload("res://addons/go_build/core/go_build_drag_operation.gd")
 
 func _make() -> GoBuildDragOperation:
 	return GoBuildDragOperation.new()

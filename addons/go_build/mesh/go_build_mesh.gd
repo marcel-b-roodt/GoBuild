@@ -10,6 +10,14 @@
 class_name GoBuildMesh
 extends Resource
 
+# Self-preloads — dependency order.
+# GoBuildFace and GoBuildEdge are referenced as type annotations throughout this
+# script (Array[GoBuildFace], Array[GoBuildEdge], func params, typed locals).
+# Without explicit preloads, Godot's alphabetical scan may parse this file before
+# those classes are registered, causing "Could not find script" errors.
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
+
 ## All vertex positions. Faces reference these by index.
 @export var vertices: Array[Vector3] = []
 

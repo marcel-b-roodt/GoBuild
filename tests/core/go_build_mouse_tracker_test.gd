@@ -5,6 +5,8 @@
 @tool
 extends GdUnitTestSuite
 
+# Self-preloads — dependency order.
+const _MOUSE_TRACKER_SCRIPT := preload("res://addons/go_build/core/go_build_mouse_tracker.gd")
 
 func _make() -> GoBuildMouseTracker:
 	return GoBuildMouseTracker.new()

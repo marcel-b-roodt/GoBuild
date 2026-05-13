@@ -12,6 +12,8 @@ class_name GoBuildFaceDrawer
 extends GoBuildDrawer
 
 # Self-preloads — dependency order.
+const _FACE_SCRIPT_F           := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _MESH_SCRIPT_F           := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _SEL_MGR_SCRIPT_F       := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INST_SCRIPT_F     := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _DRAWER_SCRIPT_F        := preload("res://addons/go_build/core/go_build_drawer.gd")

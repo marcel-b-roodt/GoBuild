@@ -9,6 +9,10 @@
 class_name ArchGenerator
 extends RefCounted
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+
 ## Generate an arch [GoBuildMesh].
 ##
 ## [param outer_radius]    outer radius of the arch ring (must be > 0)

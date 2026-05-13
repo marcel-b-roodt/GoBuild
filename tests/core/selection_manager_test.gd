@@ -5,6 +5,9 @@
 @tool
 extends GdUnitTestSuite
 
+# Self-preloads — dependency order.
+const _SEL_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.gd")
+
 
 # ---------------------------------------------------------------------------
 # Helpers

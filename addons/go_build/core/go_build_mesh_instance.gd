@@ -22,6 +22,7 @@ const _PLANAR_UV_SCRIPT        := preload("res://addons/go_build/uv/planar_proje
 const _BOX_UV_SCRIPT           := preload("res://addons/go_build/uv/box_projection.gd")
 const _CYLINDRICAL_UV_SCRIPT   := preload("res://addons/go_build/uv/cylindrical_projection.gd")
 const _SPHERICAL_UV_SCRIPT     := preload("res://addons/go_build/uv/spherical_projection.gd")
+const _MESH_SCRIPT             := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_face.gd")
 
 ## The editable mesh resource. Assigning a new resource immediately bakes it.

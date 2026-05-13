@@ -24,6 +24,9 @@ enum DeltaMode {
 	PARAM_LINEAR,
 }
 
+# Self-preloads — dependency order.
+const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+
 var node: GoBuildMeshInstance = null
 var snapshot: Dictionary = {}
 var apply_fn: Callable = Callable()

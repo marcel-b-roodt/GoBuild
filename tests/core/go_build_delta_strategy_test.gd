@@ -6,6 +6,9 @@
 @tool
 extends GdUnitTestSuite
 
+# Self-preloads — dependency order.
+const _DELTA_STRATEGY_SCRIPT := preload("res://addons/go_build/core/go_build_delta_strategy.gd")
+
 
 # ---------------------------------------------------------------------------
 # Helper: make a StrategyResult for comparison

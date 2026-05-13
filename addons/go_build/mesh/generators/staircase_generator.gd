@@ -14,6 +14,10 @@
 class_name StaircaseGenerator
 extends RefCounted
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+
 ## Generate a staircase [GoBuildMesh].
 ##
 ## [param steps]          number of steps (must be >= 1)

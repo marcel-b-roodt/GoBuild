@@ -21,6 +21,9 @@
 class_name GoBuildParamPreview
 extends RefCounted
 
+# Self-preloads — dependency order.
+const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+
 ## Mesh node being modified.  Filled by [code]plugin.begin_param_preview[/code].
 var node: GoBuildMeshInstance = null
 ## Deep snapshot of the mesh taken before the preview started.

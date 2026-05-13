@@ -5,6 +5,12 @@
 @tool
 extends GdUnitTestSuite
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
+const _SEL_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.gd")
+
 
 # ---------------------------------------------------------------------------
 # Helpers

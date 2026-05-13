@@ -1,6 +1,11 @@
 ## CubeGenerator unit tests.
 extends GdUnitTestSuite
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _CUBE_SCRIPT := preload("res://addons/go_build/mesh/generators/cube_generator.gd")
+
 
 # ---------------------------------------------------------------------------
 # Helpers

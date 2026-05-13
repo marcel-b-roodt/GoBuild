@@ -7,6 +7,10 @@
 class_name TorusGenerator
 extends RefCounted
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+
 ## Generate a torus [GoBuildMesh].
 ##
 ## [param radius_major]   distance from origin to tube centre (must be > 0)

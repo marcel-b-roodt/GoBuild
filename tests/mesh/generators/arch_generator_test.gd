@@ -8,6 +8,11 @@
 ##   where s = segments
 extends GdUnitTestSuite
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _ARCH_SCRIPT := preload("res://addons/go_build/mesh/generators/arch_generator.gd")
+
 
 # ---------------------------------------------------------------------------
 # Helpers

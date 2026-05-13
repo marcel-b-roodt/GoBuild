@@ -4,6 +4,13 @@
 ## WeldOperation internally, which calls rebuild_edges).
 extends GdUnitTestSuite
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _CUBE_SCRIPT := preload("res://addons/go_build/mesh/generators/cube_generator.gd")
+const _AUTO_SMOOTH_SCRIPT := preload(
+		"res://addons/go_build/mesh/operations/auto_smooth_operation.gd")
+
 
 # ---------------------------------------------------------------------------
 # Cube: all-flat below 90° threshold

@@ -9,6 +9,11 @@
 ##   2*steps+3 = back       (normal +Z)
 extends GdUnitTestSuite
 
+# Self-preloads — dependency order.
+const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _STAIR_SCRIPT := preload("res://addons/go_build/mesh/generators/staircase_generator.gd")
+
 
 # ---------------------------------------------------------------------------
 # Helpers
