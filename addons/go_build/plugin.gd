@@ -288,6 +288,30 @@ func _notification(what: int) -> void:
 		_on_editor_focus_regained()
 
 
+## Global input handler.  When a param preview is active, this intercepts ALL
+## mouse motion and button events regardless of which panel has focus.
+## This is necessary because MOUSE_MODE_CAPTURED makes the editor viewport
+## stop forwarding events through _forward_3d_gui_input.  By capturing here,
+## we get mm.relative deltas from anywhere on screen, giving us infinite scroll.
+func _input(event: InputEvent) -> void:
+	if _input_controller == null:
+		return
+	if not _input_controller.has_active_param_preview():
+		return
+	if event is InputEventMouseMotion:
+		_input_controller.process_global_motion(event as InputEventMouseMotion)
+		get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
+			_input_controller.process_global_button(mb)
+			get_viewport().set_input_as_handled()
+	elif event is InputEventKey:
+		if (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
+			_input_controller.cancel_param_preview_via_controller(_edited_node)
+			get_viewport().set_input_as_handled()
+
+
 func _on_editor_focus_regained() -> void:
 	if _edited_node != null and not is_instance_valid(_edited_node):
 		GoBuildDebug.log("[GoBuild] PLUGIN._on_editor_focus_regained  edited_node gone — clearing")
@@ -857,7 +881,7 @@ func begin_param_preview(preview: GoBuildParamPreview) -> void:
 	op.preview_mode = true
 
 	_drag_controller.begin_with_initial_apply(op)
-	_input_controller.begin_param_preview(preview)
+	_input_controller.begin_param_preview(preview, _edited_node)
 	_refresh_panel_context()
 	update_overlays()
 

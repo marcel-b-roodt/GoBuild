@@ -51,6 +51,11 @@ const _VIEW_PLANE_PICK_RADIUS_SQ: float     = 196.0  # 14 px
 ## Multiplier applied to units_per_pixel when Shift is held during a
 ## param preview drag.  0.1 = precision mode (10% sensitivity).
 const _PRECISION_MULTIPLIER: float = 0.1
+## Param-preview operation IDs from the context menu.  These operations must
+## be deferred until the popup has fully closed and the viewport has reclaimed
+## input focus, otherwise MOUSE_MODE_CAPTURED is set while the popup still
+## owns focus and motion events never reach _forward_3d_gui_input.
+const _DEFERRED_OPS: Array[int] = [20, 21, 23, 30, 31]
 
 # ---------------------------------------------------------------------------
 # External references (set by setup())
@@ -60,6 +65,7 @@ var _gizmo_plugin: GoBuildGizmoPlugin = null
 var _panel: GoBuildPanel              = null
 var _editor_plugin: EditorPlugin      = null
 var _drag_controller: GoBuildDragController = null
+var _edited_node: GoBuildMeshInstance = null
 
 ## When true, the SIC skips drawing its param-preview indicator because the
 ## DragController is drawing its own.  Set by plugin.gd on each overlay draw.
@@ -277,10 +283,11 @@ func has_active_press() -> bool:
 
 ## Enter parameter-preview mode.  Called by [code]plugin.begin_param_preview[/code]
 ## after the snapshot and initial apply are already complete.
-func begin_param_preview(preview: GoBuildParamPreview) -> void:
+func begin_param_preview(preview: GoBuildParamPreview, edited_node: GoBuildMeshInstance) -> void:
 	_param_preview       = preview
 	_param_preview_delta = 0.0
 	_param_preview_precision_offset = 0.0
+	_edited_node         = edited_node
 	# Initialise apply target to param_start so that a commit with zero mouse
 	# movement applies the visible default rather than 0.
 	_preview_apply_target    = preview.param_start
@@ -293,17 +300,24 @@ func begin_param_preview(preview: GoBuildParamPreview) -> void:
 			_preview_vp_size = Vector2(vp_parent.size)
 	_preview_anchor_vp   = _preview_vp_size * 0.5
 	_preview_virtual_pos = _preview_anchor_vp
-	# No warp: the virtual cursor starts at the viewport centre in logic-space
-	# regardless of physical cursor position, so warping is never needed and
-	# only causes a visible jump when triggering from a context menu.
+	# Capture mouse: hides cursor and provides mm.relative deltas regardless of
+	# which panel has focus.  Events are intercepted globally by plugin._input()
+	# and routed here via process_global_motion/process_global_button, bypassing
+	# the viewport's _forward_3d_gui_input which breaks under MOUSE_MODE_CAPTURED
+	# after a context-menu popup close.
 	_preview_saved_mouse_mode = Input.mouse_mode
-	Input.mouse_mode          = Input.MOUSE_MODE_HIDDEN
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# Defer accepting motion so button-release events in this frame drain first.
-	# Layer-2 filter (_preview_filter_count) then skips any large synthetic
-	# events that arrive one frame later.
 	_preview_active          = true
 	_preview_accepting_motion = false
-	_preview_filter_count     = 4
+	_preview_filter_count     = 2
+	_preview_prev_shift      = Input.is_key_pressed(KEY_SHIFT)
+	# Defer accepting motion so button-release events drain before accumulation
+	# starts.  Filter count skips any large synthetic events that arrive on the
+	# first frame (e.g. from a context menu popup close).
+	_preview_active          = true
+	_preview_accepting_motion = false
+	_preview_filter_count     = 2
 	_preview_prev_shift      = Input.is_key_pressed(KEY_SHIFT)
 	# Sync the drag controller's viewport anchor so its overlay matches ours.
 	if _drag_controller != null and _drag_controller.is_active():
@@ -326,6 +340,40 @@ func has_active_param_preview() -> bool:
 ## is providing the indicator.
 func set_suppress_preview_indicator(suppress: bool) -> void:
 	_suppress_preview_indicator = suppress
+
+
+## Handle mouse motion during param preview, called from [method EditorPlugin._input]
+## when [member _param_preview] is active.  This bypasses the viewport's event
+## routing entirely, receiving events regardless of which panel has focus.
+## Necessary because MOUSE_MODE_CAPTURED stops forwarding events through
+## _forward_3d_gui_input.
+func process_global_motion(mm: InputEventMouseMotion) -> void:
+	if _param_preview == null:
+		return
+	if not _preview_accepting_motion:
+		return
+	if _preview_filter_count > 0:
+		if mm.relative.length_squared() > 50.0 * 50.0:
+			_preview_filter_count -= 1
+			return
+		_preview_filter_count = 0
+	_preview_virtual_pos += mm.relative
+	if _drag_controller != null and _drag_controller.is_active():
+		_drag_controller.handle_motion_event(mm)
+	_editor_plugin.update_overlays()
+
+
+## Handle mouse button during param preview, called from [method EditorPlugin._input].
+## Commit on LMB, cancel on RMB.
+func process_global_button(mb: InputEventMouseButton) -> void:
+	if _param_preview == null:
+		return
+	if not mb.pressed:
+		return
+	if mb.button_index == MOUSE_BUTTON_LEFT:
+		_commit_param_preview_via_controller(_edited_node)
+	elif mb.button_index == MOUSE_BUTTON_RIGHT:
+		_cancel_param_preview_via_controller(_edited_node)
 
 ## One-line overlay text for the active preview.
 ## Returns an empty string when idle.
@@ -1331,6 +1379,13 @@ func _on_context_menu_pressed(
 		return
 	var sel: SelectionManager = edited_node.selection
 	var gbm = edited_node.go_build_mesh
+	# Param-preview operations must be deferred until the popup has fully closed
+	# and the 3D viewport has reclaimed input focus.  Without deferral,
+	# MOUSE_MODE_CAPTURED is set while the popup still owns focus, so motion
+	# events never reach _forward_3d_gui_input and the drag is dead.
+	if id in _DEFERRED_OPS:
+		call_deferred("_deferred_context_op", id)
+		return
 	match id:
 		1:  # Select All
 			if gbm == null:
@@ -1354,24 +1409,9 @@ func _on_context_menu_pressed(
 		12:  # Weld (merge by distance)
 			if _panel != null:
 				_panel.trigger_weld()
-		20:  # Bevel edges
-			if _panel != null:
-				_panel.trigger_bevel()
-		21:  # Extrude edge
-			if _panel != null:
-				_panel.trigger_extrude_edge()
 		22:  # Bridge/Fill
 			if _panel != null:
 				_panel.trigger_bridge()
-		23:  # Loop Cut
-			if _panel != null:
-				_panel.trigger_loop_cut()
-		30:  # Extrude face
-			if _panel != null:
-				_panel.trigger_extrude()
-		31:  # Inset face
-			if _panel != null:
-				_panel.trigger_inset()
 		32:  # Flip Normals
 			if _panel != null:
 				_panel.trigger_flip_normals()
@@ -1393,6 +1433,17 @@ func _on_context_menu_pressed(
 		36:  # Auto smooth
 			if _panel != null:
 				_panel.trigger_auto_smooth()
+
+
+func _deferred_context_op(id: int) -> void:
+	if _panel == null:
+		return
+	match id:
+		20:  _panel.trigger_bevel()
+		21:  _panel.trigger_extrude_edge()
+		23:  _panel.trigger_loop_cut()
+		30:  _panel.trigger_extrude()
+		31:  _panel.trigger_inset()
 
 
 # ---------------------------------------------------------------------------

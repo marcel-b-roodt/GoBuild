@@ -193,15 +193,22 @@ func _reanchor_if_precision_changed(node: GoBuildMeshInstance, screen_pos: Vecto
 	if shift_now == _prev_precision_active:
 		return
 	_prev_precision_active = shift_now
+	_do_reanchor(node, screen_pos)
+
+
+## Re-anchor the drag reference point after a cursor warp or precision toggle.
+## Bakes current vertex positions into [member _drag_initial_verts] and resets
+## [member _drag_initial_t] so subsequent drag frames compute deltas from the
+## current position instead of the pre-warp anchor.
+func _do_reanchor(node: GoBuildMeshInstance, screen_pos: Vector2) -> void:
+	var gbm: GoBuildMesh = node.go_build_mesh
+	for idx: int in _drag_initial_verts:
+		_drag_initial_verts[idx] = gbm.vertices[idx]
+	_drag_initial_t = INF
 	if _inset_mode:
 		_inset_amount_offset = _current_inset_amount(node)
 		_drag_start_dir = Vector3(screen_pos.x, screen_pos.y, 0.0)
 		_drag_initial_t = 0.0
-	else:
-		var gbm: GoBuildMesh = node.go_build_mesh
-		for idx: int in _drag_initial_verts:
-			_drag_initial_verts[idx] = gbm.vertices[idx]
-		_drag_initial_t = INF
 
 
 # ---------------------------------------------------------------------------

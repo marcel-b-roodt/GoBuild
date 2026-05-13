@@ -5,20 +5,21 @@
 ## precision state, and snap state so that the controller never touches raw input
 ## directly.
 ##
-## This separation is the hook point for infinite-scroll / warp-to-center (task 2):
-## the tracker can hide the cursor, warp it to viewport center on each frame, and
-## accumulate [code]mm.relative[/code] deltas without the controller knowing or
-## caring about the physical mouse position.
-##
-## Currently (pre-task-2) the tracker simply accumulates [code]mm.relative[/code]
-## from an explicit start anchor. The infinite-scroll enhancement will swap in
-## [code]Input.MOUSE_MODE_CAPTURED[/code] + [code]Input.warp_mouse[/code] inside
-## [method begin] / [method feed] / [method end] without changing the public API.
+## Infinite scroll: when active, the tracker expects the cursor to be warped to
+## viewport center by the caller after each [method feed] call. After a warp,
+## the next [method feed] call will see a synthetic motion event whose position
+## is near the warp target. The tracker detects this via [member _warp_pending]
+## and discards the artefact. The caller is responsible for calling
+## [method Input.warp_mouse] and setting [member _warp_pending] to true, or
+## calling [method request_warp] which sets the flag.
 @tool
 class_name GoBuildMouseTracker
 extends RefCounted
 
 const PRECISION_MULTIPLIER: float = 0.1
+
+## Minimum distance from the viewport edge (in pixels) before warping kicks in.
+const WARP_MARGIN: float = 20.0
 
 var _active: bool = false
 var _anchor: Vector2 = Vector2.ZERO
@@ -35,6 +36,16 @@ var _screen_direction: Vector2 = Vector2(1.0, 0.0)
 
 var _viewport_size: Vector2 = Vector2(1280.0, 720.0)
 
+## When true, the next [method feed] call will discard its relative delta because
+## it is a synthetic motion caused by [method Input.warp_mouse] repositioning the
+## cursor back to center.
+var _warp_pending: bool = false
+
+## Screen position where the cursor was warped to. Used to detect the synthetic
+## warp event: if [code]event.position[/code] is close to this point, the event
+## is the warp artefact and should be discarded.
+var _warp_target: Vector2 = Vector2.ZERO
+
 
 func begin(anchor: Vector2, viewport_size: Vector2, radial: bool,
 		screen_direction: Vector2, sensitivity: float) -> void:
@@ -50,11 +61,18 @@ func begin(anchor: Vector2, viewport_size: Vector2, radial: bool,
 	_sensitivity = sensitivity
 	_radial = radial
 	_screen_direction = screen_direction
+	_warp_pending = false
+	_warp_target = _viewport_size * 0.5
 
 
 func feed(event: InputEventMouseMotion) -> void:
 	if not _active:
 		return
+	if _warp_pending:
+		if event.position.distance_squared_to(_warp_target) < 25.0 * 25.0:
+			_warp_pending = false
+			return
+		_warp_pending = false
 	if _filter_count > 0:
 		if event.relative.length_squared() > 50.0 * 50.0:
 			_filter_count -= 1
@@ -94,6 +112,7 @@ func end() -> void:
 	_current_precision = 1.0
 	_prev_shift = false
 	_filter_count = 0
+	_warp_pending = false
 
 
 func is_active() -> bool:
@@ -177,3 +196,14 @@ func _compute_delta() -> void:
 		_accumulated_delta = offset.length()
 	else:
 		_accumulated_delta = offset.dot(_screen_direction)
+
+
+## Mark that a cursor warp has just occurred. The next [method feed] call will
+## check [member _warp_pending] and discard the synthetic motion event whose
+## position is near [member _warp_target].
+##
+## The caller is responsible for calling [method Input.warp_mouse] to the
+## viewport center and then calling this method to set the flag.
+func request_warp() -> void:
+	_warp_target = _viewport_size * 0.5
+	_warp_pending = true

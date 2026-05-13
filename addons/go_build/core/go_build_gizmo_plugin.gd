@@ -442,6 +442,13 @@ func commit_drag(node: GoBuildMeshInstance, handle_id: int, cancel: bool) -> voi
 	_drag_handler.commit_drag(node, handle_id, cancel, _editor_plugin.get_undo_redo())
 
 
+## Re-anchor the drag reference after a cursor warp during gizmo infinite-scroll.
+## Bakes current vertex positions into initial state so deltas restart from the
+## post-warp position.
+func reanchor_drag(node: GoBuildMeshInstance, screen_pos: Vector2) -> void:
+	_drag_handler._do_reanchor(node, screen_pos)
+
+
 ## Compatibility passthrough for tests and legacy callers.
 ## The implementation now lives in [GoBuildDragHandler].
 func _get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]:

@@ -263,6 +263,28 @@ func set_param(value: float) -> void:
 		_op.param = value
 
 
+## Re-anchor the gizmo drag after a cursor warp.  Bakes the current delta into
+## [member GoBuildDragOperation.initial_vertex_positions] and resets the strategy
+## initial references so the next frame recomputes from the new screen position.
+## Must be called before feeding the post-warp [InputEventMouseMotion].
+func reanchor() -> void:
+	if _op == null or _op.node == null or not is_instance_valid(_op.node):
+		return
+	var gbm: GoBuildMesh = _op.node.go_build_mesh
+	if gbm == null:
+		return
+	for idx: int in _op.initial_vertex_positions:
+		if idx < gbm.vertices.size():
+			_op.initial_vertex_positions[idx] = gbm.vertices[idx]
+	if _is_gizmo_mode():
+		_strategy_needs_init = true
+		_strategy_initial_t = INF
+		_strategy_initial_hit = Vector3.ZERO
+		_strategy_ref_dir = Vector3.ZERO
+		_strategy_initial_dist = 0.0
+		_strategy_initial_dir = Vector3.ZERO
+
+
 func set_viewport_info(anchor: Vector2, vp_size: Vector2) -> void:
 	_overlay_anchor = anchor
 	_overlay_vp_size = vp_size
