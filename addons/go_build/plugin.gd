@@ -457,6 +457,8 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 	else:
 		_draw_mode_hint(overlay)
 	_draw_selection_dims(overlay)
+	# Legacy gizmo drag value — only used when DragController is not active
+	# (should never happen now that gizmo drags start the controller).
 	if not controller_active and _gizmo_plugin != null and _gizmo_plugin._drag_handler.is_dragging():
 		_draw_drag_value(overlay)
 
