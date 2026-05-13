@@ -136,7 +136,19 @@ func handle_motion_event(mm: InputEventMouseMotion) -> void:
 	# legitimate first events.
 	_tracker.reset_filter()
 	_tracker.feed(mm)
-	if not _is_gizmo_mode():
+	if _is_gizmo_mode():
+		# In MOUSE_MODE_CAPTURED, mm.position is the captured cursor (viewport
+		# centre).  Use the tracker's accumulated virtual position instead —
+		# it tracks the logical position based on mm.relative deltas and is
+		# not constrained by viewport edges.
+		var virtual_pos: Vector2 = _tracker.get_virtual_pos()
+		var shift_pressed: bool = mm.shift_pressed
+		var ctrl_pressed: bool = mm.ctrl_pressed
+		if _cached_camera != null:
+			_update_gizmo_drag(_cached_camera, virtual_pos, shift_pressed, ctrl_pressed)
+		if _editor_plugin != null:
+			_editor_plugin.update_overlays()
+	else:
 		_update_param_drag()
 		if _editor_plugin != null:
 			_editor_plugin.update_overlays()

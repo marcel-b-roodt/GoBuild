@@ -1371,7 +1371,8 @@ func _show_context_menu_deferred(edited_node: GoBuildMeshInstance, at: Vector2) 
 
 ## After a gizmo drag starts via [GoBuildDragHandler], create a matching
 ## [GoBuildDragOperation] and begin the [GoBuildDragController].
-## The controller will co-exist with the legacy handler during migration.
+## Also seeds the tracker with the viewport anchor so virtual-position
+## ray-casting works under MOUSE_MODE_CAPTURED.
 func _begin_drag_controller_for_gizmo(
 		edited_node: GoBuildMeshInstance,
 		handle_id: int,
@@ -1383,6 +1384,15 @@ func _begin_drag_controller_for_gizmo(
 	if op == null:
 		return
 	_drag_controller.begin(op, true)
+	# Seed the tracker's viewport anchor so the virtual cursor starts at
+	# viewport centre (where MOUSE_MODE_CAPTURED places the hidden cursor).
+	var vp_size := Vector2(1280.0, 720.0)
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if sv != null:
+		var vp_parent := sv.get_parent() as Control
+		if vp_parent != null:
+			vp_size = Vector2(vp_parent.size)
+	_drag_controller.set_viewport_info(vp_size * 0.5, vp_size)
 
 
 # ---------------------------------------------------------------------------
