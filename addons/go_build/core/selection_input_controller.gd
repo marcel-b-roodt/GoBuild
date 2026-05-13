@@ -342,6 +342,31 @@ func set_suppress_preview_indicator(suppress: bool) -> void:
 	_suppress_preview_indicator = suppress
 
 
+## Global input dispatch for param-preview events captured via [method EditorPlugin._input].
+##
+## Called from plugin.gd's [method _input].  When a param preview is active
+## (MOUSE_MODE_CAPTURED), the viewport stops forwarding events through
+## _forward_3d_gui_input, so the plugin intercepts them globally and routes
+## them here.  Returns [code]true[/code] if the event was consumed and should
+## be marked as handled, [code]false[/code] otherwise.
+func handle_global_input(event: InputEvent) -> bool:
+	if _param_preview == null:
+		return false
+	if event is InputEventMouseMotion:
+		process_global_motion(event as InputEventMouseMotion)
+		return true
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
+			process_global_button(mb)
+			return true
+	if event is InputEventKey:
+		if (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
+			_cancel_param_preview_via_controller(_edited_node)
+			return true
+	return false
+
+
 ## Handle mouse motion during param preview, called from [method EditorPlugin._input]
 ## when [member _param_preview] is active.  This bypasses the viewport's event
 ## routing entirely, receiving events regardless of which panel has focus.

@@ -290,26 +290,14 @@ func _notification(what: int) -> void:
 
 ## Global input handler.  When a param preview is active, this intercepts ALL
 ## mouse motion and button events regardless of which panel has focus.
-## This is necessary because MOUSE_MODE_CAPTURED makes the editor viewport
-## stop forwarding events through _forward_3d_gui_input.  By capturing here,
-## we get mm.relative deltas from anywhere on screen, giving us infinite scroll.
+## MOUSE_MODE_CAPTURED stops the viewport from forwarding events through
+## _forward_3d_gui_input, so the plugin intercepts them globally and delegates
+## to [method SelectionInputController.handle_global_input].
 func _input(event: InputEvent) -> void:
 	if _input_controller == null:
 		return
-	if not _input_controller.has_active_param_preview():
-		return
-	if event is InputEventMouseMotion:
-		_input_controller.process_global_motion(event as InputEventMouseMotion)
+	if _input_controller.handle_global_input(event):
 		get_viewport().set_input_as_handled()
-	elif event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
-			_input_controller.process_global_button(mb)
-			get_viewport().set_input_as_handled()
-	elif event is InputEventKey:
-		if (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
-			_input_controller.cancel_param_preview_via_controller(_edited_node)
-			get_viewport().set_input_as_handled()
 
 
 func _on_editor_focus_regained() -> void:
