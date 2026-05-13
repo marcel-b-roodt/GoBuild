@@ -288,9 +288,8 @@ func _notification(what: int) -> void:
 		_on_editor_focus_regained()
 
 
-## Global input handler.  When a param preview is active, this intercepts ALL
-## mouse motion and button events regardless of which panel has focus.
-## MOUSE_MODE_CAPTURED stops the viewport from forwarding events through
+## Global input handler.  When a param preview or gizmo drag is active
+## (MOUSE_MODE_CAPTURED), the viewport stops forwarding events through
 ## _forward_3d_gui_input, so the plugin intercepts them globally and delegates
 ## to [method SelectionInputController.handle_global_input].
 func _input(event: InputEvent) -> void:

@@ -92,6 +92,8 @@ var _active_handle_id:  int     = -1
 var _pressed_handle_id: int     = -1
 ## Screen position of the mouse-down that started the pending press.
 var _handle_press_pos:  Vector2 = Vector2.ZERO
+## Mouse mode saved when a gizmo drag starts, so it can be restored on end.
+var _gizmo_saved_mouse_mode: Input.MouseMode = Input.MOUSE_MODE_VISIBLE
 ## New edge indices to select after a gizmo drag completes (e.g. extrude edge).
 var _pending_edge_selection: Array[int] = []
 
@@ -342,28 +344,49 @@ func set_suppress_preview_indicator(suppress: bool) -> void:
 	_suppress_preview_indicator = suppress
 
 
-## Global input dispatch for param-preview events captured via [method EditorPlugin._input].
+## Global input dispatch for events captured via [method EditorPlugin._input].
 ##
-## Called from plugin.gd's [method _input].  When a param preview is active
-## (MOUSE_MODE_CAPTURED), the viewport stops forwarding events through
+## Called from plugin.gd's [method _input].  When a param preview or gizmo drag
+## is active (MOUSE_MODE_CAPTURED), the viewport stops forwarding events through
 ## _forward_3d_gui_input, so the plugin intercepts them globally and routes
 ## them here.  Returns [code]true[/code] if the event was consumed and should
 ## be marked as handled, [code]false[/code] otherwise.
 func handle_global_input(event: InputEvent) -> bool:
-	if _param_preview == null:
+	if _param_preview != null:
+		if event is InputEventMouseMotion:
+			process_global_motion(event as InputEventMouseMotion)
+			return true
+		if event is InputEventMouseButton:
+			var mb := event as InputEventMouseButton
+			if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
+				process_global_button(mb)
+				return true
+		if event is InputEventKey:
+			if (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
+				_cancel_param_preview_via_controller(_edited_node)
+				return true
 		return false
-	if event is InputEventMouseMotion:
-		process_global_motion(event as InputEventMouseMotion)
-		return true
-	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
-			process_global_button(mb)
+	# Gizmo drag: route motion events to DragController.  Button events
+	# (LMB commit, RMB cancel) are handled here because MOUSE_MODE_CAPTURED
+	# prevents them from reaching _forward_3d_gui_input.
+	if _dragging_handle:
+		if event is InputEventMouseMotion:
+			if _drag_controller != null and _drag_controller.is_active():
+				_drag_controller.handle_motion_event(event as InputEventMouseMotion)
 			return true
-	if event is InputEventKey:
-		if (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
-			_cancel_param_preview_via_controller(_edited_node)
-			return true
+		if event is InputEventMouseButton:
+			var mb := event as InputEventMouseButton
+			if not mb.pressed:
+				if mb.button_index == MOUSE_BUTTON_LEFT:
+					_commit_gizmo_drag()
+					return true
+				if mb.button_index == MOUSE_BUTTON_RIGHT:
+					_cancel_gizmo_drag()
+					return true
+		if event is InputEventKey:
+			if (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
+				_cancel_gizmo_drag()
+				return true
 	return false
 
 
@@ -521,6 +544,7 @@ func _handle_mouse_release(
 		_apply_pending_edge_selection(edited_node)
 		_dragging_handle  = false
 		_active_handle_id = -1
+		Input.mouse_mode = _gizmo_saved_mouse_mode
 		edited_node.update_gizmos()
 		return 1
 	if _pressed_handle_id != -1:
@@ -567,6 +591,10 @@ func _handle_mouse_motion(
 				_pressed_handle_id = -1
 				# Also start the DragController for the unified pipeline.
 				_begin_drag_controller_for_gizmo(edited_node, _active_handle_id)
+				# Capture mouse for infinite scroll: hide cursor and receive
+				# mm.relative deltas regardless of viewport edge or panel focus.
+				_gizmo_saved_mouse_mode = Input.mouse_mode
+				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 				_gizmo_plugin.update_drag(
 						edited_node, _active_handle_id, camera, mm.position)
 				_gizmo_plugin.schedule_gizmo_redraw(edited_node)
@@ -1269,6 +1297,7 @@ func _clear_hover(edited_node: GoBuildMeshInstance) -> void:
 # ---------------------------------------------------------------------------
 
 func _cancel_active_drag(edited_node: GoBuildMeshInstance) -> void:
+	var was_dragging_handle: bool = _dragging_handle
 	if _dragging_handle and _gizmo_plugin != null and edited_node != null:
 		_gizmo_plugin.commit_drag(edited_node, _active_handle_id, true)
 	if _drag_controller != null and _drag_controller.is_active():
@@ -1277,6 +1306,43 @@ func _cancel_active_drag(edited_node: GoBuildMeshInstance) -> void:
 	_active_handle_id  = -1
 	_pressed_handle_id = -1
 	_pending_edge_selection.clear()
+	if was_dragging_handle:
+		Input.mouse_mode = _gizmo_saved_mouse_mode
+	if _gizmo_plugin != null:
+		_gizmo_plugin.reset_drag_state()
+
+
+## Commit a gizmo drag initiated from global input (LMB release during
+## MOUSE_MODE_CAPTURED).  Restores mouse mode and cleans up state.
+func _commit_gizmo_drag() -> void:
+	if _edited_node == null or not is_instance_valid(_edited_node):
+		_dragging_handle = false
+		_active_handle_id = -1
+		Input.mouse_mode = _gizmo_saved_mouse_mode
+		return
+	if _gizmo_plugin != null:
+		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, false)
+	if _drag_controller != null and _drag_controller.is_active():
+		_drag_controller.commit()
+	_apply_pending_edge_selection(_edited_node)
+	_dragging_handle  = false
+	_active_handle_id = -1
+	Input.mouse_mode = _gizmo_saved_mouse_mode
+	_edited_node.update_gizmos()
+
+
+## Cancel a gizmo drag initiated from global input (RMB or ESC during
+## MOUSE_MODE_CAPTURED).  Restores mouse mode and cleans up state.
+func _cancel_gizmo_drag() -> void:
+	if _edited_node != null and is_instance_valid(_edited_node) and _gizmo_plugin != null:
+		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
+	if _drag_controller != null and _drag_controller.is_active():
+		_drag_controller.cancel()
+	_dragging_handle   = false
+	_active_handle_id  = -1
+	_pressed_handle_id = -1
+	_pending_edge_selection.clear()
+	Input.mouse_mode = _gizmo_saved_mouse_mode
 	if _gizmo_plugin != null:
 		_gizmo_plugin.reset_drag_state()
 
