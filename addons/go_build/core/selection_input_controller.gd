@@ -603,7 +603,7 @@ func _handle_mouse_motion(
 	if _dragging_handle:
 		if _drag_controller != null and _drag_controller.is_active():
 			_drag_controller.handle_motion_raw(
-					mm.shift_pressed, mm.ctrl_pressed, camera)
+					mm.relative, mm.shift_pressed, mm.ctrl_pressed, camera)
 			if _drag_controller.is_overlay_only():
 				_gizmo_plugin.update_drag(edited_node, _active_handle_id,
 						camera, mm.position)

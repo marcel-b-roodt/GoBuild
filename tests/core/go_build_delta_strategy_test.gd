@@ -303,53 +303,53 @@ func test_make_result_init_default_vec() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Accumulated-delta strategies
+# Per-frame delta strategies
 #
-# Camera-dependent strategies (axis_project_accumulated, plane_project_accumulated,
-# viewport_plane_project_accumulated, rotate_accumulated, scale_axis_accumulated,
-# scale_uniform_accumulated) require a Camera3D in the scene tree and are tested
+# Camera-dependent strategies (axis_project_frame, plane_project_frame,
+# viewport_plane_project_frame, rotate_frame, scale_axis_frame,
+# scale_uniform_frame) require a Camera3D in the scene tree and are tested
 # via integration tests in the editor.
 #
 # The following tests verify structural properties that can be asserted headless.
 # ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# compute_units_per_pixel / world_axis_to_screen structural tests
-# (require Camera3D — tested in editor; here we verify the static signature
-#  exists and returns StrategyResult with correct fields)
-# ---------------------------------------------------------------------------
-
-
-## Verify that axis_project_accumulated returns a valid StrategyResult for
-## zero pixel offset (the identity case).  Camera3D is required, so this is
-## an integration test note rather than a headless test.
-## TODO: Add scene-based integration tests for all accumulated strategies.
-
-
-## Verify the basic math: if pixel_offset is zero, any accumulated translate
-## strategy should return Vector3.ZERO regardless of other params.
-## We cannot test this headless (Camera3D required), so this is a marker
-## for integration testing.
-func test_accumulated_strategy_result_is_vec_type() -> void:
-	# Verify that axis_project_accumulated, plane_project_accumulated, etc.
-	# exist as static funcs returning StrategyResult (structural test only).
-	var ds: GoBuildDeltaStrategy = GoBuildDeltaStrategy.new()
-	assert_object(ds).is_not_null()
-	ds.free()
-
-
-## Verify that the accumulated strategies exist on the class.
-## This catches typos or missing functions early.
-func test_accumulated_strategy_functions_exist() -> void:
+## Verify the per-frame strategy functions exist on the class.
+func test_per_frame_strategy_functions_exist() -> void:
 	var script: GDScript = _DELTA_STRATEGY_SCRIPT
 	assert_object(script).is_not_null()
-	# Verify key static function names exist as methods.
-	assert_bool(script.has_method("axis_project_accumulated")).is_true()
-	assert_bool(script.has_method("plane_project_accumulated")).is_true()
-	assert_bool(script.has_method("viewport_plane_project_accumulated")).is_true()
-	assert_bool(script.has_method("rotate_accumulated")).is_true()
-	assert_bool(script.has_method("scale_axis_accumulated")).is_true()
-	assert_bool(script.has_method("scale_uniform_accumulated")).is_true()
+	assert_bool(script.has_method("axis_project_frame")).is_true()
+	assert_bool(script.has_method("plane_project_frame")).is_true()
+	assert_bool(script.has_method("viewport_plane_project_frame")).is_true()
+	assert_bool(script.has_method("rotate_frame")).is_true()
+	assert_bool(script.has_method("scale_axis_frame")).is_true()
+	assert_bool(script.has_method("scale_uniform_frame")).is_true()
+	assert_bool(script.has_method("inset_frame")).is_true()
 	assert_bool(script.has_method("compute_units_per_pixel")).is_true()
 	assert_bool(script.has_method("world_axis_to_screen")).is_true()
+
+
+## Per-frame inset strategy is pure-math (no Camera3D needed) and can be
+## tested headless.
+func test_inset_frame_basic() -> void:
+	var result := GoBuildDeltaStrategy.inset_frame(
+			Vector2(10.0, 0.0),
+			1.0
+	)
+	assert_float(result.float_value).is_equal_approx(0.05, 0.001)
+
+
+func test_inset_frame_negative_direction() -> void:
+	var result := GoBuildDeltaStrategy.inset_frame(
+			Vector2(-10.0, 0.0),
+			1.0
+	)
+	assert_float(result.float_value).is_equal_approx(-0.05, 0.001)
+
+
+func test_inset_frame_precision() -> void:
+	var result := GoBuildDeltaStrategy.inset_frame(
+			Vector2(10.0, 0.0),
+			0.1
+	)
+	assert_float(result.float_value).is_equal_approx(0.005, 0.001)

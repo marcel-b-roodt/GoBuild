@@ -45,6 +45,14 @@ var _apply_target_vec: Vector3 = Vector3.ZERO
 
 var _cached_camera: Camera3D = null
 
+## Cumulative world-space deltas accumulated from per-frame pixel projections.
+## These grow monotonically (or shrink when user reverses direction) but never
+## flip due to off-axis veering.
+var _cumul_translate: Vector3 = Vector3.ZERO
+var _cumul_angle: float = 0.0
+var _cumul_scale: float = 1.0
+var _cumul_inset: float = 0.0
+
 var _overlay_anchor: Vector2 = Vector2.ZERO
 var _overlay_vp_size: Vector2 = Vector2.ZERO
 
@@ -64,6 +72,10 @@ func begin(op: GoBuildDragOperation, overlay_only: bool = false) -> void:
 	_apply_target_param = 0.0
 	_apply_target_vec = Vector3.ZERO
 	_cached_camera = null
+	_cumul_translate = Vector3.ZERO
+	_cumul_angle = 0.0
+	_cumul_scale = 1.0
+	_cumul_inset = 0.0
 
 	_compute_initial_world_size(op)
 
@@ -122,11 +134,11 @@ func handle_motion_event(mm: InputEventMouseMotion) -> void:
 	_tracker.reset_filter()
 	_tracker.feed(mm)
 	if _is_gizmo_mode():
-		var pixel_offset: Vector2 = _tracker.get_raw_offset_from_anchor()
+		var frame_delta: Vector2 = mm.relative
 		var shift_pressed: bool = mm.shift_pressed
 		var ctrl_pressed: bool = mm.ctrl_pressed
 		if _cached_camera != null:
-			_update_gizmo_drag(_cached_camera, pixel_offset, shift_pressed, ctrl_pressed)
+			_update_gizmo_drag(_cached_camera, frame_delta, shift_pressed, ctrl_pressed)
 		if _editor_plugin != null:
 			_editor_plugin.update_overlays()
 	else:
@@ -135,18 +147,18 @@ func handle_motion_event(mm: InputEventMouseMotion) -> void:
 			_editor_plugin.update_overlays()
 
 
-## Feed a raw mouse motion event for non-CAPTURED gizmo drags.
-## Uses the tracker's accumulated offset for accumulated-delta strategies.
+## Feed a raw pixel delta for non-CAPTURED gizmo drags.
+## Uses the tracker for overlay display but takes per-frame delta directly.
 func handle_motion_raw(
+		frame_delta: Vector2,
 		shift_pressed: bool,
 		ctrl_pressed: bool,
 		camera: Camera3D,
 ) -> void:
 	if not _active or _op == null:
 		return
-	var pixel_offset: Vector2 = _tracker.get_raw_offset_from_anchor()
 	if _is_gizmo_mode():
-		_update_gizmo_drag(camera, pixel_offset, shift_pressed, ctrl_pressed)
+		_update_gizmo_drag(camera, frame_delta, shift_pressed, ctrl_pressed)
 	else:
 		_update_param_drag()
 
@@ -277,9 +289,10 @@ func set_param(value: float) -> void:
 		_op.param = value
 
 
-## Re-anchor the gizmo drag after a cursor warp.  Bakes the current delta into
-## [member GoBuildDragOperation.initial_vertex_positions] and resets the
-## tracker so the next frame starts from zero offset.
+## Re-anchor the gizmo drag after a cursor warp.  Bakes the current cumulative
+## delta into [member GoBuildDragOperation.initial_vertex_positions] so that
+## the mesh state is preserved, then resets the cumulative deltas and the
+## tracker so subsequent frames build from zero.
 func reanchor() -> void:
 	if _op == null or _op.node == null or not is_instance_valid(_op.node):
 		return
@@ -289,6 +302,10 @@ func reanchor() -> void:
 	for idx: int in _op.initial_vertex_positions:
 		if idx < gbm.vertices.size():
 			_op.initial_vertex_positions[idx] = gbm.vertices[idx]
+	_cumul_translate = Vector3.ZERO
+	_cumul_angle = 0.0
+	_cumul_scale = 1.0
+	_cumul_inset = 0.0
 	_tracker.begin(
 			_overlay_anchor,
 			_tracker.get_viewport_size(),
@@ -330,7 +347,7 @@ func _is_gizmo_mode() -> bool:
 
 func _update_gizmo_drag(
 		camera: Camera3D,
-		pixel_offset: Vector2,
+		frame_delta: Vector2,
 		shift_pressed: bool,
 		ctrl_pressed: bool,
 ) -> void:
@@ -348,7 +365,7 @@ func _update_gizmo_drag(
 	var world_centroid: Vector3 = node.global_transform * op.drag_centroid
 	var node_xform: Transform3D = node.global_transform
 
-	_apply_gizmo_strategy(op, camera, pixel_offset, world_centroid, node_xform,
+	_apply_gizmo_strategy(op, camera, frame_delta, world_centroid, node_xform,
 			precision_mult, snap_enabled, snap_step)
 	if not _overlay_only:
 		_schedule_gizmo_apply(node)
@@ -357,24 +374,24 @@ func _update_gizmo_drag(
 func _apply_gizmo_strategy(
 		op: GoBuildDragOperation,
 		camera: Camera3D,
-		pixel_offset: Vector2,
+		frame_delta: Vector2,
 		world_centroid: Vector3,
 		node_xform: Transform3D,
 		precision_mult: float,
 		snap_enabled: bool,
 		snap_step: float,
 ) -> void:
-	var result: GoBuildDeltaStrategy.StrategyResult = _compute_strategy_result(
-			op, camera, pixel_offset, world_centroid, node_xform,
+	var result: GoBuildDeltaStrategy.StrategyResult = _compute_frame_result(
+			op, camera, frame_delta, world_centroid, node_xform,
 			precision_mult, snap_enabled, snap_step)
 	if result != null:
 		_apply_strategy_result(op, result)
 
 
-func _compute_strategy_result(
+func _compute_frame_result(
 		op: GoBuildDragOperation,
 		camera: Camera3D,
-		pixel_offset: Vector2,
+		frame_delta: Vector2,
 		world_centroid: Vector3,
 		node_xform: Transform3D,
 		precision_mult: float,
@@ -382,46 +399,89 @@ func _compute_strategy_result(
 		snap_step: float,
 ) -> GoBuildDeltaStrategy.StrategyResult:
 	var world_axis: Vector3 = (node_xform.basis * op.world_axis).normalized()
+	# Accumulate per-frame delta into cumulative totals.
+	# Each strategy returns an incremental world-space delta (translate) or
+	# a new cumulative total (rotate, scale, inset).
+	var frame_result: GoBuildDeltaStrategy.StrategyResult
 	match op.delta_mode:
 		GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
-			return GoBuildDeltaStrategy.axis_project_accumulated(
-					pixel_offset, camera, world_centroid,
-					world_axis, node_xform, snap_step, snap_enabled, precision_mult)
+			frame_result = GoBuildDeltaStrategy.axis_project_frame(
+					frame_delta, camera, world_centroid,
+					world_axis, node_xform, precision_mult)
+			_cumul_translate += frame_result.vec_value
+			if snap_enabled:
+				_cumul_translate = _cumul_translate.snapped(Vector3.ONE * snap_step)
+			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
+			total_result.vec_value = _cumul_translate
+			return total_result
 
 		GoBuildDragOperation.DeltaMode.PLANE_PROJECT:
-			return GoBuildDeltaStrategy.plane_project_accumulated(
-					pixel_offset, camera, world_centroid,
-					world_axis, node_xform, snap_step, snap_enabled, precision_mult)
+			frame_result = GoBuildDeltaStrategy.plane_project_frame(
+					frame_delta, camera, world_centroid,
+					world_axis, node_xform, precision_mult)
+			_cumul_translate += frame_result.vec_value
+			if snap_enabled:
+				_cumul_translate = _cumul_translate.snapped(Vector3.ONE * snap_step)
+			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
+			total_result.vec_value = _cumul_translate
+			return total_result
 
 		GoBuildDragOperation.DeltaMode.VIEWPORT_PLANE_PROJECT:
-			return GoBuildDeltaStrategy.viewport_plane_project_accumulated(
-					pixel_offset, camera, world_centroid,
-					node_xform, snap_step, snap_enabled, precision_mult)
+			frame_result = GoBuildDeltaStrategy.viewport_plane_project_frame(
+					frame_delta, camera, world_centroid,
+					node_xform, precision_mult)
+			_cumul_translate += frame_result.vec_value
+			if snap_enabled:
+				_cumul_translate = _cumul_translate.snapped(Vector3.ONE * snap_step)
+			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
+			total_result.vec_value = _cumul_translate
+			return total_result
 
 		GoBuildDragOperation.DeltaMode.ROTATE:
-			var local_axis: Vector3 = _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)
-			var world_rot_axis: Vector3 = (node_xform.basis * local_axis).normalized()
-			return GoBuildDeltaStrategy.rotate_accumulated(
-					pixel_offset, camera, world_centroid,
-					world_rot_axis, deg_to_rad(snap_step), snap_enabled, precision_mult)
+			frame_result = GoBuildDeltaStrategy.rotate_frame(
+					frame_delta, camera, world_centroid,
+					(node_xform.basis * _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)).normalized(),
+					precision_mult)
+			_cumul_angle += frame_result.float_value
+			if snap_enabled:
+				_cumul_angle = snappedf(_cumul_angle, deg_to_rad(snap_step))
+			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
+			total_result.float_value = _cumul_angle
+			return total_result
 
 		GoBuildDragOperation.DeltaMode.SCALE_AXIS:
-			return GoBuildDeltaStrategy.scale_axis_accumulated(
-					pixel_offset, camera, world_centroid,
-					world_axis, op.initial_world_size,
-					snap_step, snap_enabled, precision_mult)
+			frame_result = GoBuildDeltaStrategy.scale_axis_frame(
+					frame_delta, camera, world_centroid,
+					world_axis, op.initial_world_size, precision_mult)
+			_cumul_scale += frame_result.float_value
+			if snap_enabled:
+				_cumul_scale = snappedf(_cumul_scale, snap_step)
+			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
+			total_result.float_value = _cumul_scale
+			return total_result
 
 		GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
-			var camera_forward: Vector3 = -camera.global_transform.basis.z
-			return GoBuildDeltaStrategy.scale_uniform_accumulated(
-					pixel_offset, camera, world_centroid,
-					camera_forward, op.initial_world_size,
-					snap_step, snap_enabled, precision_mult)
+			frame_result = GoBuildDeltaStrategy.scale_uniform_frame(
+					frame_delta, camera, world_centroid,
+					-camera.global_transform.basis.z,
+					op.initial_world_size, precision_mult)
+			_cumul_scale += frame_result.float_value
+			if snap_enabled:
+				_cumul_scale = snappedf(_cumul_scale, snap_step)
+			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
+			total_result.float_value = _cumul_scale
+			return total_result
 
 		GoBuildDragOperation.DeltaMode.INSET:
-			return GoBuildDeltaStrategy.inset_accumulated(
-					pixel_offset, snap_step, snap_enabled, precision_mult,
-					op._gizmo_inset_offset)
+			frame_result = GoBuildDeltaStrategy.inset_frame(
+					frame_delta, precision_mult)
+			_cumul_inset += frame_result.float_value
+			if snap_enabled:
+				_cumul_inset = snappedf(_cumul_inset, snap_step)
+			_cumul_inset = clampf(_cumul_inset, 0.0, 1.0)
+			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
+			total_result.float_value = _cumul_inset
+			return total_result
 
 	return null
 
@@ -651,6 +711,10 @@ func _end() -> void:
 	_apply_node = null
 	_apply_target_param = 0.0
 	_apply_target_vec = Vector3.ZERO
+	_cumul_translate = Vector3.ZERO
+	_cumul_angle = 0.0
+	_cumul_scale = 1.0
+	_cumul_inset = 0.0
 	_cached_camera = null
 
 
