@@ -45,13 +45,12 @@ var _apply_target_vec: Vector3 = Vector3.ZERO
 
 var _cached_camera: Camera3D = null
 
-## Cumulative world-space deltas accumulated from per-frame pixel projections.
-## These grow monotonically (or shrink when user reverses direction) but never
-## flip due to off-axis veering.
-var _cumul_translate: Vector3 = Vector3.ZERO
-var _cumul_angle: float = 0.0
-var _cumul_scale: float = 1.0
-var _cumul_inset: float = 0.0
+## Raw cumulative deltas — always accumulate, never snap.  These are the source
+## of truth for the total displacement since drag start.
+var _raw_translate: Vector3 = Vector3.ZERO
+var _raw_angle: float = 0.0
+var _raw_scale: float = 1.0
+var _raw_inset: float = 0.0
 
 var _overlay_anchor: Vector2 = Vector2.ZERO
 var _overlay_vp_size: Vector2 = Vector2.ZERO
@@ -72,10 +71,10 @@ func begin(op: GoBuildDragOperation, overlay_only: bool = false) -> void:
 	_apply_target_param = 0.0
 	_apply_target_vec = Vector3.ZERO
 	_cached_camera = null
-	_cumul_translate = Vector3.ZERO
-	_cumul_angle = 0.0
-	_cumul_scale = 1.0
-	_cumul_inset = 0.0
+	_raw_translate = Vector3.ZERO
+	_raw_angle = 0.0
+	_raw_scale = 1.0
+	_raw_inset = 0.0
 
 	_compute_initial_world_size(op)
 
@@ -302,10 +301,10 @@ func reanchor() -> void:
 	for idx: int in _op.initial_vertex_positions:
 		if idx < gbm.vertices.size():
 			_op.initial_vertex_positions[idx] = gbm.vertices[idx]
-	_cumul_translate = Vector3.ZERO
-	_cumul_angle = 0.0
-	_cumul_scale = 1.0
-	_cumul_inset = 0.0
+	_raw_translate = Vector3.ZERO
+	_raw_angle = 0.0
+	_raw_scale = 1.0
+	_raw_inset = 0.0
 	_tracker.begin(
 			_overlay_anchor,
 			_tracker.get_viewport_size(),
@@ -399,42 +398,46 @@ func _compute_frame_result(
 		snap_step: float,
 ) -> GoBuildDeltaStrategy.StrategyResult:
 	var world_axis: Vector3 = (node_xform.basis * op.world_axis).normalized()
-	# Accumulate per-frame delta into cumulative totals.
-	# Each strategy returns an incremental world-space delta (translate) or
-	# a new cumulative total (rotate, scale, inset).
+
+	# Raw accumulators always grow by the un-snapped per-frame delta.
+	# Snap is applied to a copy for display/mutation — never overwriting the
+	# raw total — so small deltas can cross grid boundaries over multiple frames.
 	var frame_result: GoBuildDeltaStrategy.StrategyResult
 	match op.delta_mode:
 		GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
 			frame_result = GoBuildDeltaStrategy.axis_project_frame(
 					frame_delta, camera, world_centroid,
 					world_axis, node_xform, precision_mult)
-			_cumul_translate += frame_result.vec_value
+			_raw_translate += frame_result.vec_value
+			var result_val: Vector3 = _raw_translate
 			if snap_enabled:
-				_cumul_translate = _cumul_translate.snapped(Vector3.ONE * snap_step)
+				result_val = result_val.snapped(Vector3.ONE * snap_step)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
-			total_result.vec_value = _cumul_translate
+			total_result.vec_value = result_val
 			return total_result
 
 		GoBuildDragOperation.DeltaMode.PLANE_PROJECT:
 			frame_result = GoBuildDeltaStrategy.plane_project_frame(
 					frame_delta, camera, world_centroid,
 					world_axis, node_xform, precision_mult)
-			_cumul_translate += frame_result.vec_value
+			_raw_translate += frame_result.vec_value
+			var result_val: Vector3 = _raw_translate
 			if snap_enabled:
-				_cumul_translate = _cumul_translate.snapped(Vector3.ONE * snap_step)
+				result_val = result_val.snapped(Vector3.ONE * snap_step)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
-			total_result.vec_value = _cumul_translate
+			total_result.vec_value = result_val
 			return total_result
 
 		GoBuildDragOperation.DeltaMode.VIEWPORT_PLANE_PROJECT:
 			frame_result = GoBuildDeltaStrategy.viewport_plane_project_frame(
 					frame_delta, camera, world_centroid,
 					node_xform, precision_mult)
-			_cumul_translate += frame_result.vec_value
+			_raw_translate += frame_result.vec_value
+			var result_val: Vector3 = _raw_translate
 			if snap_enabled:
-				_cumul_translate = _cumul_translate.snapped(Vector3.ONE * snap_step)
+				result_val = result_val.snapped(Vector3.ONE * snap_step)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
-			total_result.vec_value = _cumul_translate
+			total_result.vec_value = result_val
 			return total_result
 
 		GoBuildDragOperation.DeltaMode.ROTATE:
@@ -442,22 +445,24 @@ func _compute_frame_result(
 					frame_delta, camera, world_centroid,
 					(node_xform.basis * _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)).normalized(),
 					precision_mult)
-			_cumul_angle += frame_result.float_value
+			_raw_angle += frame_result.float_value
+			var result_val: float = _raw_angle
 			if snap_enabled:
-				_cumul_angle = snappedf(_cumul_angle, deg_to_rad(snap_step))
+				result_val = snappedf(result_val, deg_to_rad(snap_step))
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
-			total_result.float_value = _cumul_angle
+			total_result.float_value = result_val
 			return total_result
 
 		GoBuildDragOperation.DeltaMode.SCALE_AXIS:
 			frame_result = GoBuildDeltaStrategy.scale_axis_frame(
 					frame_delta, camera, world_centroid,
 					world_axis, op.initial_world_size, precision_mult)
-			_cumul_scale += frame_result.float_value
+			_raw_scale += frame_result.float_value
+			var result_val: float = _raw_scale
 			if snap_enabled:
-				_cumul_scale = snappedf(_cumul_scale, snap_step)
+				result_val = snappedf(result_val, snap_step)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
-			total_result.float_value = _cumul_scale
+			total_result.float_value = result_val
 			return total_result
 
 		GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
@@ -465,22 +470,23 @@ func _compute_frame_result(
 					frame_delta, camera, world_centroid,
 					-camera.global_transform.basis.z,
 					op.initial_world_size, precision_mult)
-			_cumul_scale += frame_result.float_value
+			_raw_scale += frame_result.float_value
+			var result_val: float = _raw_scale
 			if snap_enabled:
-				_cumul_scale = snappedf(_cumul_scale, snap_step)
+				result_val = snappedf(result_val, snap_step)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
-			total_result.float_value = _cumul_scale
+			total_result.float_value = result_val
 			return total_result
 
 		GoBuildDragOperation.DeltaMode.INSET:
 			frame_result = GoBuildDeltaStrategy.inset_frame(
 					frame_delta, precision_mult)
-			_cumul_inset += frame_result.float_value
+			_raw_inset += frame_result.float_value
+			var result_val: float = clampf(_raw_inset, 0.0, 1.0)
 			if snap_enabled:
-				_cumul_inset = snappedf(_cumul_inset, snap_step)
-			_cumul_inset = clampf(_cumul_inset, 0.0, 1.0)
+				result_val = snappedf(result_val, snap_step)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
-			total_result.float_value = _cumul_inset
+			total_result.float_value = result_val
 			return total_result
 
 	return null
@@ -713,10 +719,10 @@ func _end() -> void:
 	_apply_node = null
 	_apply_target_param = 0.0
 	_apply_target_vec = Vector3.ZERO
-	_cumul_translate = Vector3.ZERO
-	_cumul_angle = 0.0
-	_cumul_scale = 1.0
-	_cumul_inset = 0.0
+	_raw_translate = Vector3.ZERO
+	_raw_angle = 0.0
+	_raw_scale = 1.0
+	_raw_inset = 0.0
 	_cached_camera = null
 
 

@@ -151,18 +151,12 @@ var plane_quad_mesh_xz: ArrayMesh
 ## A single shared mesh — positioned and scaled per-axis at draw time.
 var scale_cube_mesh: ArrayMesh
 
-## Ctrl-snap step override — delegates to [GoBuildDragHandler].
-var snap_step_override: float:
-	get: return _drag_handler.snap_step_override
-	set(v): _drag_handler.snap_step_override = v
-## Ctrl-snap step for rotation (degrees) — delegates to [GoBuildDragHandler].
-var rot_snap_override: float:
-	get: return _drag_handler.rot_snap_override
-	set(v): _drag_handler.rot_snap_override = v
-## Ctrl-snap step for scale ratio — delegates to [GoBuildDragHandler].
-var scale_snap_override: float:
-	get: return _drag_handler.scale_snap_override
-	set(v): _drag_handler.scale_snap_override = v
+## Ctrl-snap step override.
+var snap_step_override: float = -1.0
+## Ctrl-snap step for rotation (degrees).
+var rot_snap_override: float = 15.0
+## Ctrl-snap step for scale ratio.
+var scale_snap_override: float = 0.1
 
 ## Currently hovered transform handle ID, or [code]-1[/code] when no handle is
 ## under the cursor.  Written by [code]plugin.gd[/code] via [method _update_hover]

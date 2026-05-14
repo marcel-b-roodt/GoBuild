@@ -1372,22 +1372,43 @@ func _show_context_menu_deferred(edited_node: GoBuildMeshInstance, at: Vector2) 
 # ---------------------------------------------------------------------------
 
 ## After a gizmo drag starts via [GoBuildDragHandler], create a matching
-## [GoBuildDragOperation] and begin the [GoBuildDragController].
-## Also seeds the tracker with the viewport anchor so virtual-position
-## ray-casting works under MOUSE_MODE_CAPTURED.
+## [GoBuildDragOperation] using [method GoBuildDragOperation.create_for_gizmo_handle]
+## and begin the [GoBuildDragController].
 func _begin_drag_controller_for_gizmo(
 		edited_node: GoBuildMeshInstance,
 		handle_id: int,
 ) -> void:
 	if _drag_controller == null or edited_node == null:
 		return
-	var op: GoBuildDragOperation = _gizmo_plugin._drag_handler.create_drag_operation(
-			edited_node, handle_id)
+	var dh: GoBuildDragHandler = _gizmo_plugin._drag_handler
+	if dh.is_drag_empty():
+		return
+	var initial_verts: Dictionary = dh.get_drag_initial_verts()
+	var snapshot: Dictionary = dh.get_drag_restore()
+	var action_override: String = dh.get_drag_action_name_override()
+	var action_name: String = action_override \
+			if not action_override.is_empty() \
+			else GoBuildDragOperation.action_name_for_handle(handle_id)
+	var snap_default: float = GoBuildTransformHelpers.get_snap_step(
+			_gizmo_plugin.snap_step_override)
+	var inset_centroids: Dictionary = dh.get_inset_centroids()
+	var inset_offset: float = dh.get_inset_amount_offset()
+	var op := GoBuildDragOperation.create_for_gizmo_handle(
+			edited_node,
+			handle_id,
+			initial_verts,
+			snapshot,
+			action_name,
+			snap_default,
+			_gizmo_plugin.rot_snap_override,
+			_gizmo_plugin.scale_snap_override,
+			inset_centroids,
+			inset_offset,
+			dh.is_vertex_update_mode(),
+			dh.is_preview_mode())
 	if op == null:
 		return
 	_drag_controller.begin(op, false)
-	# Seed the tracker's viewport anchor so the virtual cursor starts at
-	# viewport centre (where MOUSE_MODE_CAPTURED places the hidden cursor).
 	var vp_size := Vector2(1280.0, 720.0)
 	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
 	if sv != null:

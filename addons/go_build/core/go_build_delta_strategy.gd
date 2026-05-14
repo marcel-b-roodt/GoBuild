@@ -433,7 +433,7 @@ static func rotate_frame(
 		return make_result_float(0.0)
 	var screen_perp: Vector2 = Vector2(-screen_axis.y, screen_axis.x)
 	var angular_pixels: float = frame_delta.dot(screen_perp)
-	var radius_pixels: float = 100.0
+	var radius_pixels: float = 10.0
 	var angle: float = angular_pixels * upp / radius_pixels * precision_multiplier
 	return make_result_float(angle)
 
