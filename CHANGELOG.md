@@ -6,54 +6,61 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.6.0-dev2] — 2026-05-13
+## [0.6.0] — 2026-05-14
 
 ### Added
-- Context menu in edit mode now suppresses all right-click input while the
-  popup is visible, preventing stray Godot viewport orbit events from
-  interfering with menu interaction.
-
-### Fixed
-- Right-click context menu no longer causes cursor jump or viewport pan when
-  opened in Vertex/Edge/Face mode. The fix uses deferred popup display
-  (`call_deferred`) to let Godot's editor camera finish its orbit-release
-  cursor restoration before the context menu appears.
-
----
-
-## [Unreleased]
-
-### Added
-- Palette auto-discovery: palettes are now scanned from the project filesystem
-  (`GoBuildProjectSettings.discover_palettes`) instead of stored in
-  `GoBuildProjectSettings.palettes`.  Any `GoBuildMaterialPalette` `.tres` file
-  in the project is detected automatically.
-- Default palette: shipped at `res://addons/go_build/default_palette.tres` with
-  metre checker, white, grey, and B&W checker materials on first run.
-- In-panel palette creation: [+ New] button opens a name dialog and creates a
-  `.tres` palette file at `res://materials/`.
-- In-panel palette deletion: [🗑 Delete] button removes the selected palette's
-  `.tres` from disk (with confirmation).
-- In-panel material addition: [EditorResourcePicker] allows adding materials to
-  the selected palette with full Inspector-quality previews.
-- Per-slot material removal: [×] button on each palette row removes the material
-  from the palette.
-- [Use] button works in Object mode: assigns the material to all faces (not just
-  selected faces), so the entire mesh can be re-materialled without switching
-  to Face mode.
-- `filesystem_changed` signal connected for live palette dropdown refresh when
-  `.tres` files change outside the panel.
-- Palette migration: on load, palettes in the deprecated `palettes` array are
-  saved to disk and the array is cleared.
+- Infinite scroll for param-preview operations (Extrude, Inset, Bevel, Loop Cut,
+  Edge Extrude) — MOUSE_MODE_CAPTURED provides infinite relative deltas; events
+  are captured globally via EditorPlugin._input() to bypass the editor viewport
+  routing bug that broke context-menu param previews.
+- Infinite scroll for gizmo drags (Translate, Rotate, Scale, Plane, Viewport-plane)
+  — all gizmo drags now use MOUSE_MODE_CAPTURED with per-frame pixel delta
+  accumulation, matching the precision and responsiveness of param previews.
+- Unified drag pipeline — GoBuildDragController + GoBuildDragOperation replace the
+  legacy GoBuildDragHandler for all interactive drags. Single code path for delta
+  accumulation, precision mode, snap, commit, and cancel.
+- Raw accumulator snap fix — replaced the old `snappedf()` approach that overwrote
+  the per-frame accumulator with separate raw accumulators that always grow and
+  derive snapped display/mutation values, so small deltas can cross grid boundaries
+  over multiple frames.
+- Per-frame pixel delta strategies for gizmo drags — axis project, plane project,
+  viewport plane project, rotate, scale axis, scale uniform, and inset all use
+  accumulated screen-space deltas instead of ray-cast/project approaches.
+- 10x rotation sensitivity — rotate handles now produce usable angles per pixel
+  of mouse travel, matching the feel of Blender's rotation gizmo.
+- Auto UV parameter controls — Scale, U/V Offset, and Seam Rotation are now
+  exposed as editable spinboxes in the General drawer when Auto UV is active.
+  Seam Rotation only appears for Cylinder and Sphere modes. Changing any
+  parameter immediately re-projects and bakes. All values are @export and persist
+  in saved scenes.
+- UV projection buttons (Planar, Box, Cylinder, Sphere) now show the projection
+  result immediately on click — no need to nudge a spinbox first.
+- Show Backfaces toggle now works on all material types — ShaderMaterial and
+  other non-BaseMaterial3D surfaces get a semi-transparent blue double-sided
+  override instead of being silently skipped.
 
 ### Changed
-- Materials drawer overhauled: quickset buttons, slot spinbox, "Assign to
-  Faces" button, settings picker, and apply palette button removed.
-- Palette dropdown populated from auto-discovery, not `GoBuildProjectSettings`.
+- Retired GoBuildDragHandler — deleted entirely. GizmoPlugin, SIC, and plugin.gd
+  no longer delegate to it. All drag state and lifecycle is owned by
+  GoBuildDragController.
+- Removed legacy param-preview fallback paths — SIC's _commit_param_preview and
+  cancel_param_preview are replaced by direct DragController commit/cancel calls.
+  Dead deferred-apply methods (_schedule_preview_apply, _flush_preview_apply)
+  and variables removed.
+- All diagnostic prints now route through GoBuildDebug.log() — 4 bare print()
+  calls in GoBuildGizmoPlugin converted. No ungated debug output remains.
+- _apply_auto_uv now reads auto_uv_scale, auto_uv_offset, and
+  auto_uv_seam_rotation from the instance instead of hardcoded 1.0/0/0.
 
-### Deprecated
-- `GoBuildProjectSettings.palettes` array: kept for backward-compatible
-  deserialization only; migrated to disk on first load.
+### Fixed
+- Context menu no longer causes cursor jump or viewport pan when opened in
+  edit mode — deferred popup display lets Godot's camera finish its orbit-release
+  cursor restoration before the menu appears.
+- Gizmo handle picking uses the selection centroid for scale instead of the
+  node origin, eliminating the desync between drawn and clickable handles when
+  selection is far from origin.
+- Precision inset range — inset drags with Shift held can now reach the full
+  0–1 range instead of being limited by the old snap-overwrite bug.
 
 ---
 

@@ -57,10 +57,15 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Transform mode switch (W / E / R) | ✅ Complete | W=Translate, E=Rotate, R=Scale; intercepted in `_forward_3d_gui_input`; `GoBuildGizmoPlugin.transform_mode` drives gizmo drawing; stays in SELECT mode to suppress Godot's own widget |
 | Grid snap (Ctrl modifier) | ✅ Complete | `Ctrl` held during any drag type; snaps to `editors/3d/grid_step` from EditorSettings via `_get_snap_step()`; applied in all four drag types (translate, plane, viewport-plane, rotate does not snap — angle-based) |
 | Vertex snap | ✅ Complete | `V` held during any translate drag (axis, plane, viewport-plane); snaps selection centroid to nearest non-dragged mesh vertex; `_find_vertex_snap_world_pos` picks closest screen-space vertex |
-| Unified drag pipeline | ✅ Complete | `GoBuildDragController` + `GoBuildDragOperation`: single pipeline for all drag types (gizmo translate/rotate/scale, param-preview extrude/inset/bevel/loop-cut/edge-extrude); precision mode (Shift), snap (Ctrl), vertex snap (Alt); offset-folding for clamp bounds; `post_commit_fn` callback hook |
+| Unified drag pipeline | ✅ Complete | `GoBuildDragController` + `GoBuildDragOperation`: single pipeline for all drag types (gizmo translate/rotate/scale, param-preview extrude/inset/bevel/loop-cut/edge-extrude); precision mode (Shift), snap (Ctrl), vertex snap (Alt); offset-folding for clamp bounds; `post_commit_fn` callback hook; GoBuildDragHandler retired |
+| Infinite scroll (param-preview) | ✅ Complete | MOUSE_MODE_CAPTURED provides infinite relative deltas; events captured globally via EditorPlugin._input(); context menu uses call_deferred to avoid cursor jump |
+| Infinite scroll (gizmo drags) | ✅ Complete | All gizmo drags use MOUSE_MODE_CAPTURED with per-frame pixel delta accumulation matching param-preview responsiveness |
+| Accumulated-delta gizmo strategies | ✅ Complete | Axis project, plane project, viewport plane project, rotate, scale axis, scale uniform, inset — all use GoBuildDeltaStrategy per-frame pixel deltas instead of ray-cast/project |
 | Precision-mode indicator | ✅ Complete | Overlay anchor dot, directional colour line (green/red), and live parameter text during param-preview drags; seamless precision toggle mid-drag via anchor re-capture |
-| Directional extrude | ✅ Complete | New faces created by Extrude Face / Extrude Edge orient their outward normal toward the camera; negative extrude (drag inward) supported |
-| Post-commit auto-select | ✅ Complete | `GoBuildDrawer._make_select_*_fn` factory helpers; auto-select new edges after Extrude Edge commit; extensible to other operations |
+| Auto UV parameter controls | ✅ Complete | Scale, U/V Offset, Seam Rotation spinboxes in General drawer; active when Auto UV mode != None; Seam Rotation hidden for Planar/Box; changes trigger immediate re-projection; @export properties persist in scenes |
+| UV projection instant preview | ✅ Complete | Planar/Box/Cylinder/Sphere buttons show the projection result immediately on click; no need to nudge a spinbox |
+| Show back-faces toggle | ✅ Complete | Opt-in checkbox in panel; works on all material types (BaseMaterial3D duplicated with CULL_DISABLED; ShaderMaterial and null surfaces get semi-transparent blue override); clears on deselect |
+| Debug logging gate | ✅ Complete | All diagnostic prints route through GoBuildDebug.log(), gated by GoBuildDebug.enabled (panel checkbox); no ungated prints remain |
 
 ---
 
@@ -77,6 +82,9 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Fill (standalone) | ✅ Complete | `FillOperation.apply(mesh, edge_indices)`; fills a single closed boundary loop with an N-gon face; extracted from BridgeOperation; context menu "Bridge/Fill" auto-detects topology; 9 unit tests |
 | Loop cut | ✅ Complete | `LoopCutOperation.apply(mesh, edge_indices, t)`; walks the quad ring in both directions from each seed edge; splits each ring face into two quads at position `t` (default 0.5); shared cut vertices reused across adjacent faces (no T-junctions); ring walk stops at non-quad faces and mesh boundaries; panel button in Edge section + full undo/redo via `apply_operation`; 14 unit tests |
 | Delete geometry | ✅ Complete | `DeleteOperation.apply_faces/edges/vertices(mesh, indices)`; orphaned-vertex compaction + index remapping; panel button; `Delete`/`X` keyboard shortcut; right-click context menu (all sub-element modes); full undo/redo via `apply_operation` |
+| Directional extrude | ✅ Complete | New faces created by Extrude Face / Extrude Edge orient their outward normal toward the camera; negative extrude (drag inward) supported |
+| Post-commit auto-select | ✅ Complete | `GoBuildDrawer._make_select_*_fn` factory helpers; auto-select new edges after Extrude Edge commit; extensible to other operations |
+| Context menu (edit mode) | ✅ Complete | Right-click context menu per mode (Select All, Extrude, Flip Normals, etc.); suppresses stray viewport orbit events while open; deferred popup display avoids cursor jump |
 | Modifier-aware toolbar | ✅ Complete | Viewport overlay (`_build_overlay_hint` in `plugin.gd`): mode + op + available-shortcut hints drawn bottom-left of viewport; panel context label (`_context_label` in `go_build_panel.gd`, driven by `_build_panel_context` + `_refresh_panel_context` in `plugin.gd`): shows active op name (Move / ■ Extrude / ■ Extrude Edge / ■ Inset / ■ Snap / ■ Vertex Snap) below the mode buttons; updates on Shift/Ctrl/Alt/V key events, transform mode change, and mode switch |
 | Shift+drag → Extrude | ✅ Complete | `_should_extrude_drag` + `_begin_extrude_drag` in `selection_input_controller.gd`; extrudes at distance=0 then translates; undo restores pre-extrude state in one step |
 | Shift+drag → Inset | ✅ Complete | `_should_inset_drag` + `_begin_inset_drag` in `selection_input_controller.gd`; `InsetOperation.apply` at distance=0 then `_apply_inset_drag` (screen-space delta → lerp to centroid); undo restores pre-inset state in one step |
@@ -93,7 +101,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Auto UV — Box | ✅ Complete | `BoxProjection.apply(mesh, face_indices, units_per_tile, transform)`; world-space triplanar mapping; seamless tiling across adjacent axis-aligned faces; panel button; 8 unit tests |
 | Auto UV — Cylindrical | ✅ Complete | `CylindricalProjection.apply(mesh, face_indices, units_per_tile, transform)`; wraps U around Y axis (atan2); V scales with height; seam correction for faces straddling the discontinuity; panel button ("Cyl UV"); 11 unit tests |
 | Auto UV — Spherical | ✅ Complete | `SphericalProjection.apply(mesh, face_indices, units_per_tile, transform)`; equirectangular (lat/lon) mapping; U = longitude (atan2/TAU), V = latitude (acos/PI); seam correction for faces straddling the ±X seam; pole guard for degenerate vertices at origin; panel button ("Sphere UV") in Face UV section; 10 unit tests |
-| UV projection parameters (scale, offset, seam rotation) | ✅ Complete | `uv_scale`, `uv_offset`, `uv_seam_rotation` stored per-face; exposed via `GoBuildUvParamBox` live-preview for all four projection buttons; per-face params re-applied by `_apply_face_projection` on auto-UV refresh |
+| UV projection parameters (scale, offset, seam rotation) | ✅ Complete | `uv_scale`, `uv_offset`, `uv_seam_rotation` stored per-face; exposed via `GoBuildUvParamBox` live-preview for all four projection buttons; per-face params re-applied by `_apply_face_projection` on auto-UV refresh. Auto UV also has instance-level `auto_uv_scale`, `auto_uv_offset`, `auto_uv_seam_rotation` exposed as spinboxes in the General drawer. |
 | UV editor panel | ✅ Complete | `GoBuildUvCanvas` (pan/zoom, face wireframe + selection fill, click-select synced with 3D viewport, Shift/Ctrl add/toggle, rubber-band box select); `GoBuildUvPanel` dock at `DOCK_SLOT_LEFT_UL`; island drag (Move/Rotate/Scale via G/R/S keys or toolbar buttons); per-island pivot; full undo/redo with `take_snapshot`/`restore_and_bake`; Escape cancels drag |
 | UV background display | ✅ Complete | `GoBuildUvCanvas` draws checkerboard or texture background in the 0-1 UV tile; cycles via BG button (Checker / Texture / Off); Texture mode reads albedo_texture from first material slot |
 | UV pack islands | ✅ Complete | `UvPackIslands.apply(mesh, margin)` — flood-fill island detection, uniform scale-to-fit, shelf-based bin-packing into 0-1 tile; panel Pack button; full undo/redo |
@@ -154,7 +162,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Keyboard shortcut map | 📋 Planned | Configurable; Blender-compatible defaults |
 | Contextual tooltips | 📋 Planned | Status bar hints |
 | Right-click context menu | 📋 Planned | Quick-actions for selection |
-| Bug report recorder | 📋 Planned | Side-panel toggle captures the next operation(s) on a selected mesh and writes a replayable submission file (shape, selection context, operation deltas) |
+| Bug report recorder / replay system | 📋 Planned | `GoBuildReplayLogger` records operations (type, parameters, mesh snapshot hash) to JSON; `GoBuildReplayPlayer` replays them for bug reports; design needed before implementation |
 | Preferences panel | 📋 Planned | Snap, display, shortcut overrides |
 | In-editor documentation panel | 📋 Planned | Links to online docs |
 | Theme support | 📋 Planned | Respects dark/light editor theme |
@@ -165,7 +173,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 
 | Feature | Status | Notes |
 |---|---|---|
-| Semantic versioning + CHANGELOG | 📋 Planned | `CHANGELOG.md` per Keep a Changelog |
+| Semantic versioning + CHANGELOG | ✅ Complete | `CHANGELOG.md` per Keep a Changelog; version in `plugin.cfg` |
 | GitHub Actions CI | ✅ Complete | `ci.yml` — GdUnit4 headless on push/PR |
 | GitHub Actions release workflow | ✅ Complete | `release.yml` — tag `vX.Y.Z` → draft GitHub Release |
 | Godot Asset Library listing | 📋 Planned | Submitted at v1.0 |
