@@ -26,6 +26,11 @@ const _DEBUG_SCRIPT_G       := preload("res://addons/go_build/core/go_build_debu
 var _delete_btn:    Button    = null
 var _cull_check:    CheckBox  = null
 var _auto_uv_option: OptionButton = null
+var _auto_uv_scale_spin: SpinBox = null
+var _auto_uv_u_offset_spin: SpinBox = null
+var _auto_uv_v_offset_spin: SpinBox = null
+var _auto_uv_seam_rot_spin: SpinBox = null
+var _auto_uv_param_rows: VBoxContainer = null
 
 
 func _ready() -> void:
@@ -92,6 +97,79 @@ func _ready() -> void:
 	_auto_uv_option.item_selected.connect(_on_auto_uv_mode_selected)
 	uv_row.add_child(_auto_uv_option)
 
+	# ── Auto UV parameters (visible when mode != NONE) ──────────────────
+	_auto_uv_param_rows = VBoxContainer.new()
+	_content.add_child(_auto_uv_param_rows)
+
+	var scale_row := HBoxContainer.new()
+	_auto_uv_param_rows.add_child(scale_row)
+	var scale_lbl := Label.new()
+	scale_lbl.text = "Scale:"
+	scale_lbl.add_theme_font_size_override("font_size", 11)
+	scale_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scale_row.add_child(scale_lbl)
+	_auto_uv_scale_spin = SpinBox.new()
+	_auto_uv_scale_spin.min_value = 0.01
+	_auto_uv_scale_spin.max_value = 100.0
+	_auto_uv_scale_spin.step = 0.1
+	_auto_uv_scale_spin.value = 1.0
+	_auto_uv_scale_spin.add_theme_font_size_override("font_size", 11)
+	_auto_uv_scale_spin.tooltip_text = "UV scale. Higher values tile smaller."
+	_auto_uv_scale_spin.value_changed.connect(_on_auto_uv_param_changed)
+	scale_row.add_child(_auto_uv_scale_spin)
+
+	var u_row := HBoxContainer.new()
+	_auto_uv_param_rows.add_child(u_row)
+	var u_lbl := Label.new()
+	u_lbl.text = "U Offset:"
+	u_lbl.add_theme_font_size_override("font_size", 11)
+	u_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	u_row.add_child(u_lbl)
+	_auto_uv_u_offset_spin = SpinBox.new()
+	_auto_uv_u_offset_spin.min_value = -1.0
+	_auto_uv_u_offset_spin.max_value = 1.0
+	_auto_uv_u_offset_spin.step = 0.01
+	_auto_uv_u_offset_spin.value = 0.0
+	_auto_uv_u_offset_spin.add_theme_font_size_override("font_size", 11)
+	_auto_uv_u_offset_spin.tooltip_text = "Horizontal UV offset."
+	_auto_uv_u_offset_spin.value_changed.connect(_on_auto_uv_param_changed)
+	u_row.add_child(_auto_uv_u_offset_spin)
+
+	var v_row := HBoxContainer.new()
+	_auto_uv_param_rows.add_child(v_row)
+	var v_lbl := Label.new()
+	v_lbl.text = "V Offset:"
+	v_lbl.add_theme_font_size_override("font_size", 11)
+	v_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v_row.add_child(v_lbl)
+	_auto_uv_v_offset_spin = SpinBox.new()
+	_auto_uv_v_offset_spin.min_value = -1.0
+	_auto_uv_v_offset_spin.max_value = 1.0
+	_auto_uv_v_offset_spin.step = 0.01
+	_auto_uv_v_offset_spin.value = 0.0
+	_auto_uv_v_offset_spin.add_theme_font_size_override("font_size", 11)
+	_auto_uv_v_offset_spin.tooltip_text = "Vertical UV offset."
+	_auto_uv_v_offset_spin.value_changed.connect(_on_auto_uv_param_changed)
+	v_row.add_child(_auto_uv_v_offset_spin)
+
+	var seam_row := HBoxContainer.new()
+	_auto_uv_param_rows.add_child(seam_row)
+	var seam_lbl := Label.new()
+	seam_lbl.text = "Seam Rot:"
+	seam_lbl.add_theme_font_size_override("font_size", 11)
+	seam_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	seam_row.add_child(seam_lbl)
+	_auto_uv_seam_rot_spin = SpinBox.new()
+	_auto_uv_seam_rot_spin.min_value = -180.0
+	_auto_uv_seam_rot_spin.max_value = 180.0
+	_auto_uv_seam_rot_spin.step = 1.0
+	_auto_uv_seam_rot_spin.value = 0.0
+	_auto_uv_seam_rot_spin.suffix = "°"
+	_auto_uv_seam_rot_spin.add_theme_font_size_override("font_size", 11)
+	_auto_uv_seam_rot_spin.tooltip_text = "Seam rotation for Cylinder/Sphere modes (degrees)."
+	_auto_uv_seam_rot_spin.value_changed.connect(_on_auto_uv_param_changed)
+	seam_row.add_child(_auto_uv_seam_rot_spin)
+
 
 # ---------------------------------------------------------------------------
 # set_target override — syncs per-target UI state
@@ -110,6 +188,8 @@ func set_target(target: GoBuildMeshInstance) -> void:
 		# Sync Auto UV selector to reflect the new target's saved mode.
 		if _auto_uv_option != null:
 			_auto_uv_option.selected = target.auto_uv_mode
+		# Sync Auto UV params and show/hide.
+		_sync_auto_uv_params(target)
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +285,43 @@ func _on_auto_uv_mode_selected(index: int) -> void:
 		return
 	var new_mode := _auto_uv_option.get_item_id(index) as GoBuildFace.UvMode
 	_target.auto_uv_mode = new_mode
+	_sync_auto_uv_params_visibility()
 	if new_mode != GoBuildFace.UvMode.NONE and _plugin != null:
 		# Push a no-op action so _do_operation calls _apply_auto_uv() and
 		# re-projects all unoverridden faces with the new mode.
 		_run_op("Set Auto UV Mode", func(): pass, false)
+
+
+## Show or hide the Auto UV parameter spinboxes based on the current mode.
+## Also syncs the values from the target (without emitting signals).
+func _sync_auto_uv_params(target: GoBuildMeshInstance) -> void:
+	_auto_uv_scale_spin.set_value_no_signal(target.auto_uv_scale)
+	_auto_uv_u_offset_spin.set_value_no_signal(target.auto_uv_offset.x)
+	_auto_uv_v_offset_spin.set_value_no_signal(target.auto_uv_offset.y)
+	_auto_uv_seam_rot_spin.set_value_no_signal(rad_to_deg(target.auto_uv_seam_rotation))
+	_sync_auto_uv_params_visibility()
+
+
+func _sync_auto_uv_params_visibility() -> void:
+	var show_params: bool = _target != null and _target.auto_uv_mode != GoBuildFace.UvMode.NONE
+	_auto_uv_param_rows.visible = show_params
+	if show_params:
+		var is_seam: bool = _target.auto_uv_mode == GoBuildFace.UvMode.CYLINDRICAL \
+				or _target.auto_uv_mode == GoBuildFace.UvMode.SPHERICAL
+		_auto_uv_seam_rot_spin.get_parent().visible = is_seam
+
+
+## Called when any Auto UV parameter spinbox changes.
+## Writes the new value to the target and triggers an immediate re-projection.
+func _on_auto_uv_param_changed(_value: float) -> void:
+	if _target == null or _plugin == null:
+		return
+	var new_scale: float = _auto_uv_scale_spin.value
+	var new_offset: Vector2 = Vector2(
+			_auto_uv_u_offset_spin.value,
+			_auto_uv_v_offset_spin.value)
+	var new_seam_rot: float = deg_to_rad(_auto_uv_seam_rot_spin.value)
+	_target.auto_uv_scale = new_scale
+	_target.auto_uv_offset = new_offset
+	_target.auto_uv_seam_rotation = new_seam_rot
+	_run_op("Set Auto UV Params", func(): pass, false)

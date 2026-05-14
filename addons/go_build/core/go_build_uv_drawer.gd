@@ -215,6 +215,9 @@ func _uv_start_preview(
 		initial_offset   = first.uv_offset
 		initial_seam_rot = first.uv_seam_rotation
 	_uv_param_box.setup(action_name, has_seam, initial_scale, initial_offset, initial_seam_rot)
+	# Apply the initial projection so the user sees the result immediately
+	# without needing to nudge a spinbox first.
+	_on_uv_params_preview(_uv_param_box.get_params())
 
 
 ## Live-preview handler — restore snapshot, re-project, bake without mesh reassignment.

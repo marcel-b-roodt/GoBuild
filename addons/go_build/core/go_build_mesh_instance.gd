@@ -42,6 +42,15 @@ const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_f
 ## unchanged; they keep the projection that was last manually applied.
 @export var auto_uv_mode: GoBuildFace.UvMode = GoBuildFace.UvMode.PLANAR
 
+## Scale multiplier for auto-UV projection.  Higher values tile the UVs smaller.
+@export var auto_uv_scale: float = 1.0
+
+## UV offset applied during auto-UV projection.
+@export var auto_uv_offset: Vector2 = Vector2.ZERO
+
+## Seam rotation in radians for cylindrical / spherical auto-UV projection.
+@export var auto_uv_seam_rotation: float = 0.0
+
 ## Per-instance selection state: which mode is active and which elements are
 ## selected. The gizmo and panel both hold a reference to this object.
 var selection: SelectionManager = SelectionManager.new()
@@ -208,6 +217,10 @@ func _apply_auto_uv() -> void:
 	if go_build_mesh == null:
 		return
 	var projection_xform: Transform3D = _get_uv_projection_transform()
+	var mode: GoBuildFace.UvMode = auto_uv_mode
+	var scale: float = auto_uv_scale
+	var offset: Vector2 = auto_uv_offset
+	var seam_rot: float = auto_uv_seam_rotation
 	var auto_faces: Array[int] = []
 	for i: int in go_build_mesh.faces.size():
 		var face: GoBuildFace = go_build_mesh.faces[i]
@@ -215,17 +228,17 @@ func _apply_auto_uv() -> void:
 			auto_faces.append(i)
 		else:
 			_apply_face_projection(i, face, projection_xform)
-	if auto_faces.is_empty() or auto_uv_mode == GoBuildFace.UvMode.NONE:
+	if auto_faces.is_empty() or mode == GoBuildFace.UvMode.NONE:
 		return
-	match auto_uv_mode:
+	match mode:
 		GoBuildFace.UvMode.PLANAR:
-			PlanarProjection.apply(go_build_mesh, auto_faces, 1.0)
+			PlanarProjection.apply(go_build_mesh, auto_faces, scale, offset)
 		GoBuildFace.UvMode.BOX:
-			BoxProjection.apply(go_build_mesh, auto_faces, 1.0, projection_xform)
+			BoxProjection.apply(go_build_mesh, auto_faces, scale, projection_xform, offset)
 		GoBuildFace.UvMode.CYLINDRICAL:
-			CylindricalProjection.apply(go_build_mesh, auto_faces, 1.0, projection_xform)
+			CylindricalProjection.apply(go_build_mesh, auto_faces, scale, projection_xform, offset, seam_rot)
 		GoBuildFace.UvMode.SPHERICAL:
-			SphericalProjection.apply(go_build_mesh, auto_faces, 1.0, projection_xform)
+			SphericalProjection.apply(go_build_mesh, auto_faces, scale, projection_xform, offset, seam_rot)
 
 
 ## Re-project a single face using its stored per-face projection params.
