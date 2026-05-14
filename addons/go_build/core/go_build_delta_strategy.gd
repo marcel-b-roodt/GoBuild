@@ -494,6 +494,37 @@ static func inset_frame(
 	return make_result_float(offset)
 
 
+## Compute world-space distance per screen pixel at [param world_point].
+##
+## Projects two points 1 pixel apart at the depth of [param world_point] and
+## measures their separation in world space.  This adapts automatically to
+## camera zoom, perspective, and viewport size.
+static func compute_units_per_pixel(camera: Camera3D, world_point: Vector3) -> float:
+	var vp_size: Vector2 = camera.get_viewport().get_visible_rect().size
+	var depth: float = world_point.distance_to(camera.global_position)
+	if depth < 1e-4:
+		return 0.0
+	var p0: Vector3 = camera.project_position(vp_size * 0.5, depth)
+	var p1: Vector3 = camera.project_position(vp_size * 0.5 + Vector2(1.0, 0.0), depth)
+	return p0.distance_to(p1)
+
+
+## Project [param world_direction] into a 2D screen-space direction.
+##
+## Returns the normalised direction vector in screen coordinates.
+## This is the fundamental operation for per-frame delta strategies: it
+## converts a world-space axis to its appearance on screen, so per-frame
+## pixel displacement can be projected onto it.
+static func world_axis_to_screen(camera: Camera3D, world_origin: Vector3,
+		world_direction: Vector3) -> Vector2:
+	var p0: Vector2 = camera.unproject_position(world_origin)
+	var p1: Vector2 = camera.unproject_position(world_origin + world_direction)
+	var screen_dir: Vector2 = (p1 - p0).normalized()
+	if screen_dir.length_squared() < 1e-8:
+		return Vector2.ZERO
+	return screen_dir
+
+
 ## Compute a screen-perpendicular tangent to [param world_normal] as seen by
 ## [param camera].  Used by plane-project strategies to decompose pixel offset
 ## into two independent axes on the plane.
