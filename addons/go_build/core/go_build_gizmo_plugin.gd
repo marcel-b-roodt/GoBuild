@@ -23,7 +23,6 @@ const _EDGE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_edge
 const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT  := preload(_MESH_INSTANCE_SCRIPT_PATH)
-const _DRAG_HANDLER_SCRIPT   := preload("res://addons/go_build/core/go_build_drag_handler.gd")
 
 ## Must match [constant GoBuildGizmo.AXIS_HANDLE_OFFSET].
 const AXIS_HANDLE_OFFSET: int = 1_000_000
@@ -166,18 +165,10 @@ var _hovered_handle_id: int = -1
 
 var _editor_plugin: EditorPlugin = null
 
-## Drag handler — owns all drag state, apply methods, and the deferred-bake /
-## deferred-gizmo-redraw queues.  All drag API on this class delegates to it.
-var _drag_handler: GoBuildDragHandler = GoBuildDragHandler.new()
-
-## Passthrough properties: [code]selection_input_controller.gd[/code] sets these
-## directly on the plugin; actual storage lives on [GoBuildDragHandler].
-var _drag_restore: Dictionary:
-	get: return _drag_handler._drag_restore
-	set(v): _drag_handler._drag_restore = v
-var _drag_action_name_override: String:
-	get: return _drag_handler._drag_action_name_override
-	set(v): _drag_handler._drag_action_name_override = v
+## Deferred-gizmo-redraw state — coalesces multiple per-motion-event requests
+## into a single [method Node3D.update_gizmos] call per rendered frame.
+var _gizmo_redraw_pending_node: GoBuildMeshInstance = null
+var _gizmo_redraw_scheduled: bool = false
 
 func setup(plugin: EditorPlugin) -> void:
 	_editor_plugin      = plugin
@@ -253,14 +244,11 @@ func _has_gizmo(for_node_3d: Node3D) -> bool:
 	var s: Script = for_node_3d.get_script()
 	var result: bool = s != null \
 			and s.resource_path == _MESH_INSTANCE_SCRIPT_PATH
-	# Always print — this fires during add_node_3d_gizmo_plugin and node
-	# enter-tree; GoBuildDebug.enabled is typically false at those moments so
-	# using GoBuildDebug.log() would silently skip the message.
 	if s != null and "go_build" in s.resource_path.to_lower():
-		print("[GoBuild] GIZMO_PLUGIN._has_gizmo  node=%s  script=%s  result=%s" \
+		GoBuildDebug.log("[GoBuild] GIZMO_PLUGIN._has_gizmo  node=%s  script=%s  result=%s" \
 				% [for_node_3d.name, s.resource_path, str(result)])
 	elif "GoBuild" in for_node_3d.name:
-		print("[GoBuild] GIZMO_PLUGIN._has_gizmo  node=%s  script_null=%s  result=%s" \
+		GoBuildDebug.log("[GoBuild] GIZMO_PLUGIN._has_gizmo  node=%s  script_null=%s  result=%s" \
 				% [for_node_3d.name, str(s == null), str(result)])
 	return result
 
@@ -271,13 +259,12 @@ func _create_gizmo(for_node_3d: Node3D) -> EditorNode3DGizmo:
 			and s.resource_path == _MESH_INSTANCE_SCRIPT_PATH
 	if not is_match:
 		return null
-	# Prevent a duplicate if a gizmo was already attached via the manual
-	# Node3D.add_gizmo() path in plugin.gd — skip engine-side creation.
 	if has_our_gizmo(for_node_3d):
-		print("[GoBuild] GIZMO_PLUGIN._create_gizmo  node=%s  SKIP (manual gizmo already attached)" \
+		GoBuildDebug.log(
+				"[GoBuild] GIZMO._create_gizmo SKIP (manual gizmo already attached) node=%s" \
 				% for_node_3d.name)
 		return null
-	print("[GoBuild] GIZMO_PLUGIN._create_gizmo  node=%s  CREATING" % for_node_3d.name)
+	GoBuildDebug.log("[GoBuild] GIZMO_PLUGIN._create_gizmo  node=%s  CREATING" % for_node_3d.name)
 	return _GIZMO_SCRIPT.new()
 
 
@@ -332,131 +319,36 @@ func _get_handle_name(
 # Drag: capture initial state
 # ---------------------------------------------------------------------------
 
-## Called by the editor at the start of a handle drag.
-## Returns a full mesh snapshot used as the undo/cancel restore value.
-func _get_handle_value(
-		gizmo: EditorNode3DGizmo,
-		handle_id: int,
-		_secondary: bool,
-) -> Variant:
-	if handle_id < AXIS_HANDLE_OFFSET:
-		return null
-	var node := gizmo.get_node_3d() as GoBuildMeshInstance
-	if node == null or node.go_build_mesh == null:
-		return null
-
-	_drag_handler.init_drag_capture(node, handle_id)
-	return _drag_handler.get_drag_restore()
-
-
-# ---------------------------------------------------------------------------
-# Drag: live update
-# ---------------------------------------------------------------------------
-
-## Called every frame while the user drags a handle (native Godot pipeline).
-##
-## Guard: skips if [member _drag_initial_verts] is already populated — meaning
-## our custom [method begin_drag] path (plugin.gd) owns the current drag and
-## is already applying it.  Prevents two systems writing contradictory deltas.
-## In practice this guard is never hit: we run in SELECT mode (KEY_Q) which
-## suppresses the native drag pipeline entirely.
-func _set_handle(
-		gizmo: EditorNode3DGizmo,
-		handle_id: int,
-		_secondary: bool,
-		camera: Camera3D,
-		screen_pos: Vector2,
-) -> void:
-	if handle_id < AXIS_HANDLE_OFFSET or _drag_handler.is_drag_empty():
-		return
-	var node := gizmo.get_node_3d() as GoBuildMeshInstance
-	if node == null:
-		return
-	_drag_handler.update_drag(node, handle_id, camera, screen_pos)
-
-
-# ---------------------------------------------------------------------------
-# Drag: commit or cancel (native Godot pipeline path)
-# ---------------------------------------------------------------------------
-
-## Called when the drag ends.  On cancel, restores the mesh to [param restore].
-## On confirm, pushes a single undo/redo action.
-##
-## If [member _drag_initial_t] is still [constant @GDScript.INF] (meaning
-## [method _set_handle] was never called — i.e. the user clicked but did not
-## drag), no undo action is pushed and the mesh is left unchanged.
-func _commit_handle(
-		gizmo: EditorNode3DGizmo,
-		handle_id: int,
-		_secondary: bool,
-		_restore: Variant,
-		cancel: bool,
-) -> void:
-	if handle_id < AXIS_HANDLE_OFFSET:
-		return
-	var node := gizmo.get_node_3d() as GoBuildMeshInstance
-	if node == null:
-		return
-
-	_drag_handler.commit_drag(node, handle_id, cancel, _editor_plugin.get_undo_redo())
-
-
-## Delegates to [GoBuildDragHandler] — see [method GoBuildDragHandler.reset_drag_state].
-func reset_drag_state() -> void:
-	_drag_handler.reset_drag_state()
-
-
-## Delegates to [GoBuildDragHandler.schedule_gizmo_redraw].
-## Called from [code]plugin.gd[/code] via [SelectionInputController] hot-path.
+## Schedule a deferred gizmo redraw for [param node], coalescing multiple
+## per-motion-event requests into a single [method Node3D.update_gizmos] call
+## per rendered frame.
 func schedule_gizmo_redraw(node: GoBuildMeshInstance) -> void:
-	_drag_handler.schedule_gizmo_redraw(node)
+	_gizmo_redraw_pending_node = node
+	if not _gizmo_redraw_scheduled:
+		_gizmo_redraw_scheduled = true
+		call_deferred("_flush_pending_gizmo_redraw")
 
 
-# ---------------------------------------------------------------------------
-# Public drag API — delegates to GoBuildDragHandler (custom SELECT mode path)
-# ---------------------------------------------------------------------------
-
-## See [method GoBuildDragHandler.begin_drag].
-func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
-	return _drag_handler.begin_drag(node, handle_id)
-
-
-## See [method GoBuildDragHandler.update_drag].
-func update_drag(
-		node: GoBuildMeshInstance,
-		handle_id: int,
-		camera: Camera3D,
-		screen_pos: Vector2,
-) -> void:
-	_drag_handler.update_drag(node, handle_id, camera, screen_pos)
-
-
-## See [method GoBuildDragHandler.commit_drag].
-func commit_drag(node: GoBuildMeshInstance, handle_id: int, cancel: bool) -> void:
-	_drag_handler.commit_drag(node, handle_id, cancel, _editor_plugin.get_undo_redo())
-
-
-## Re-anchor the drag reference after a cursor warp during gizmo infinite-scroll.
-## Bakes current vertex positions into initial state so deltas restart from the
-## post-warp position.
-func reanchor_drag(node: GoBuildMeshInstance, screen_pos: Vector2) -> void:
-	_drag_handler._do_reanchor(node, screen_pos)
+func _flush_pending_gizmo_redraw() -> void:
+	_gizmo_redraw_scheduled = false
+	if _gizmo_redraw_pending_node != null and is_instance_valid(_gizmo_redraw_pending_node):
+		_gizmo_redraw_pending_node.update_gizmos()
+	_gizmo_redraw_pending_node = null
 
 
 ## Compatibility passthrough for tests and legacy callers.
-## The implementation now lives in [GoBuildDragHandler].
+## The implementation lives in [GoBuildTransformHelpers].
 func _get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]:
 	return GoBuildTransformHelpers.get_affected_vertex_indices(node)
 
 
 ## Compatibility passthrough for tests and legacy callers.
-## The implementation now lives in [GoBuildDragHandler].
+## The implementation lives in [GoBuildTransformHelpers].
 func _get_local_axis(axis_idx: int) -> Vector3:
 	return GoBuildTransformHelpers.get_local_axis(axis_idx)
 
 
 ## Compatibility passthrough for tests and legacy callers.
-## The implementation now lives in [GoBuildDragHandler].
 static func _ray_plane_intersect(
 		ray_origin: Vector3,
 		ray_dir: Vector3,
@@ -471,24 +363,6 @@ static func _ray_plane_intersect(
 ## Mirrors [method GoBuildTransformHelpers.get_snap_step] default behavior.
 static func _get_snap_step() -> float:
 	return GoBuildTransformHelpers.get_snap_step()
-
-
-## See [method GoBuildDragHandler.begin_inset_drag].
-func begin_inset_drag(
-		node: GoBuildMeshInstance,
-		handle_id: int,
-		centroids: Dictionary,
-) -> bool:
-	return _drag_handler.begin_inset_drag(node, handle_id, centroids)
-
-
-## See [method GoBuildDragHandler.begin_extrude_drag].
-func begin_extrude_drag(
-		node: GoBuildMeshInstance,
-		handle_id: int,
-		top_ring_indices: Array[int],
-) -> bool:
-	return _drag_handler.begin_extrude_drag(node, handle_id, top_ring_indices)
 
 
 # ---------------------------------------------------------------------------

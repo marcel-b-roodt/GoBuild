@@ -110,13 +110,6 @@ var _context_menu_open:     bool    = false
 var _param_preview: GoBuildParamPreview = null
 ## Accumulated horizontal mouse delta since the preview started.
 var _param_preview_delta: float = 0.0
-## Unified deferred apply — coalesces restore_snapshot + apply_fn + bake + update_gizmos
-## to at most once per frame so rapid motion events don't each trigger a full bake.
-var _preview_apply_scheduled: bool             = false
-var _preview_apply_node: GoBuildMeshInstance   = null
-var _preview_apply_target: float               = 0.0
-## True when motion arrived since the last flush — prevents infinite reschedule.
-var _preview_apply_dirty: bool                 = false
 ## Mouse mode saved at preview start so it can be restored on cancel/commit.
 var _preview_saved_mouse_mode: Input.MouseMode = Input.MOUSE_MODE_VISIBLE
 ## Ignored until call_deferred fires _accept_preview_motion.
@@ -253,9 +246,11 @@ func _draw_preview_indicator(overlay: Control) -> void:
 
 ## Cancel any in-progress handle drag.  Safe to call when idle.
 func cancel_drag(edited_node: GoBuildMeshInstance) -> void:
-	cancel_param_preview(edited_node)
-	if _drag_controller != null and _drag_controller.is_active():
+	if _param_preview != null:
+		_cancel_param_preview_via_controller(edited_node)
+	elif _drag_controller != null and _drag_controller.is_active():
 		_drag_controller.cancel()
+		_cleanup_preview_state()
 	_cancel_active_drag(edited_node)
 
 
@@ -290,9 +285,6 @@ func begin_param_preview(preview: GoBuildParamPreview, edited_node: GoBuildMeshI
 	_param_preview_delta = 0.0
 	_param_preview_precision_offset = 0.0
 	_edited_node         = edited_node
-	# Initialise apply target to param_start so that a commit with zero mouse
-	# movement applies the visible default rather than 0.
-	_preview_apply_target    = preview.param_start
 	# Capture viewport display size for the overlay indicator.
 	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
 	_preview_vp_size = Vector2(1280, 720)  # safe fallback
@@ -439,52 +431,6 @@ func get_param_preview_overlay_text() -> String:
 	return "%s: %.4f%s   LMB=accept   RMB/Esc=cancel" % [
 		_param_preview.param_label, _param_preview.param, snap_hint]
 
-## Cancel the active preview and restore the mesh.  Safe to call when idle.
-func cancel_param_preview(edited_node: GoBuildMeshInstance) -> void:
-	if _param_preview == null:
-		return
-	_preview_apply_scheduled  = false
-	_preview_apply_node       = null
-	_preview_apply_dirty      = false
-	_preview_apply_target     = 0.0
-	_preview_accepting_motion = false
-	_preview_filter_count     = 0
-	_preview_virtual_pos      = Vector2.ZERO
-	_preview_active           = false
-	Input.mouse_mode = _preview_saved_mouse_mode
-	if edited_node != null and is_instance_valid(edited_node):
-		edited_node.end_preview()
-		edited_node.restore_and_bake(_param_preview.snapshot)
-	_param_preview = null
-	_param_preview_delta = 0.0
-	_param_preview_precision_offset = 0.0
-	if _editor_plugin != null:
-		_editor_plugin.update_overlays()
-
-
-func _schedule_preview_apply(node: GoBuildMeshInstance, target: float) -> void:
-	_preview_apply_node   = node
-	_preview_apply_target = target
-	_preview_apply_dirty  = true
-	if not _preview_apply_scheduled:
-		_preview_apply_scheduled = true
-		call_deferred("_flush_preview_apply")
-
-
-func _flush_preview_apply() -> void:
-	_preview_apply_scheduled = false
-	var node := _preview_apply_node
-	var target := _preview_apply_target
-	_preview_apply_node  = null
-	_preview_apply_dirty = false
-	if node == null or not is_instance_valid(node) or _param_preview == null:
-		return
-	node.go_build_mesh.restore_snapshot(_param_preview.snapshot)
-	_param_preview.apply_fn.call(target)
-	if node.auto_uv_mode != GoBuildFace.UvMode.NONE:
-		node._apply_auto_uv()
-	node.bake_preview()
-	_editor_plugin.update_overlays()
 
 
 # ---------------------------------------------------------------------------
@@ -545,10 +491,6 @@ func _handle_mouse_release(
 	if _dragging_handle:
 		if _drag_controller != null and _drag_controller.is_active():
 			_drag_controller.commit()
-		else:
-			_gizmo_plugin.commit_drag(edited_node, _active_handle_id, false)
-		if _gizmo_plugin != null:
-			_gizmo_plugin.reset_drag_state()
 		_apply_pending_edge_selection(edited_node)
 		_dragging_handle  = false
 		_active_handle_id = -1
@@ -579,9 +521,6 @@ func _handle_mouse_motion(
 		if _drag_controller != null and _drag_controller.is_active():
 			_drag_controller.handle_motion_raw(
 					mm.relative, mm.shift_pressed, mm.ctrl_pressed, camera)
-		else:
-			_gizmo_plugin.update_drag(edited_node, _active_handle_id, camera, mm.position)
-			_gizmo_plugin.schedule_gizmo_redraw(edited_node)
 		return 1
 	if _pressed_handle_id != -1:
 		if _handle_press_pos.distance_squared_to(mm.position) > BOX_SELECT_DRAG_THRESHOLD_SQ:
@@ -654,7 +593,7 @@ func _should_extrude_drag(edited_node: GoBuildMeshInstance) -> bool:
 
 
 ## Perform an extrude(0) on the selected faces, then start a translate drag.
-## Builds the DragOperation directly without delegating to DragHandler.
+## Builds the DragOperation directly via GoBuildDragController.
 ## Overrides the snapshot with the pre-extrude state so undo restores the
 ## full pre-extrude mesh.  Returns false if anything fails.
 func _begin_extrude_drag(
@@ -709,7 +648,7 @@ func _should_inset_drag(edited_node: GoBuildMeshInstance) -> bool:
 
 
 ## Perform an inset(0) on the selected faces, then start an inset drag.
-## Builds the DragOperation directly without delegating to DragHandler.
+## Builds the DragOperation directly via GoBuildDragController.
 ## Returns false if anything fails.
 func _begin_inset_drag(
 		edited_node: GoBuildMeshInstance,
@@ -789,7 +728,7 @@ func _should_edge_extrude_drag(edited_node: GoBuildMeshInstance) -> bool:
 
 ## Perform EdgeExtrudeOperation on the selected edges, then start a translate
 ## drag restricted to the newly created boundary-edge vertices.
-## Builds the DragOperation directly without delegating to DragHandler.
+## Builds the DragOperation directly via GoBuildDragController.
 ## Returns false if anything fails.
 func _begin_edge_extrude_drag(
 		edited_node: GoBuildMeshInstance,
@@ -1318,8 +1257,6 @@ func _cancel_active_drag(_edited_node: GoBuildMeshInstance) -> void:
 	_pending_edge_selection.clear()
 	if was_dragging_handle:
 		Input.mouse_mode = _gizmo_saved_mouse_mode
-	if _gizmo_plugin != null:
-		_gizmo_plugin.reset_drag_state()
 
 
 ## Commit a gizmo drag initiated from global input (LMB release during
@@ -1332,8 +1269,6 @@ func _commit_gizmo_drag() -> void:
 		return
 	if _drag_controller != null and _drag_controller.is_active():
 		_drag_controller.commit()
-	if _gizmo_plugin != null:
-		_gizmo_plugin.reset_drag_state()
 	_apply_pending_edge_selection(_edited_node)
 	_dragging_handle  = false
 	_active_handle_id = -1
@@ -1345,8 +1280,6 @@ func _commit_gizmo_drag() -> void:
 func _cancel_gizmo_drag() -> void:
 	if _drag_controller != null and _drag_controller.is_active():
 		_drag_controller.cancel()
-	if _gizmo_plugin != null:
-		_gizmo_plugin.reset_drag_state()
 	_dragging_handle   = false
 	_active_handle_id  = -1
 	_pressed_handle_id = -1
@@ -1377,7 +1310,7 @@ func _show_context_menu_deferred(edited_node: GoBuildMeshInstance, at: Vector2) 
 # ---------------------------------------------------------------------------
 
 ## Start a normal gizmo drag by computing vertex data, snapshot, and DragOperation
-## directly, without delegating to [GoBuildDragHandler.begin_drag].
+## directly via [GoBuildDragController].
 ## Returns [code]true[/code] if the drag was started successfully.
 func _start_normal_gizmo_drag(
 		edited_node: GoBuildMeshInstance,
@@ -1664,96 +1597,26 @@ func _handle_param_preview_input(
 	return EditorPlugin.AFTER_GUI_INPUT_PASS
 
 
-func _commit_param_preview(edited_node: GoBuildMeshInstance) -> void:
-	if _param_preview == null:
-		return
-	_preview_apply_scheduled  = false
-	_preview_apply_node       = null
-	_preview_apply_dirty      = false
-	_preview_accepting_motion = false
-	_preview_filter_count     = 0
-	_preview_virtual_pos      = Vector2.ZERO
-	_preview_active           = false
-	Input.mouse_mode = _preview_saved_mouse_mode
-	# Capture all needed refs before nulling _param_preview.
-	var action_name  := _param_preview.action_name
-	var before       := _param_preview.snapshot
-	var apply_fn     := _param_preview.apply_fn
-	var final_target := _preview_apply_target
-	var commit_fn    := _param_preview.post_commit_fn
-	_param_preview        = null
-	_param_preview_delta  = 0.0
-	_param_preview_precision_offset = 0.0
-	_preview_apply_target = 0.0
-	if edited_node == null or not is_instance_valid(edited_node):
-		return
-	# Apply final state synchronously so the mesh is always up-to-date even if
-	# the last deferred flush hasn't fired yet (or was throttled).
-	edited_node.go_build_mesh.restore_snapshot(before)
-	apply_fn.call(final_target)
-	if edited_node.auto_uv_mode != GoBuildFace.UvMode.NONE:
-		edited_node._apply_auto_uv()
-	edited_node.end_preview()
-	edited_node.bake()
-	# Capture the post-operation snapshot to store as the redo state.
-	var final_snapshot := edited_node.go_build_mesh.take_snapshot()
-	edited_node.update_gizmos()
-	var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
-	ur.create_action(action_name)
-	ur.add_do_method(edited_node, "restore_and_bake", final_snapshot)
-	ur.add_undo_method(edited_node, "restore_and_bake", before)
-	# NOTE: do NOT call add_do_reference / add_undo_reference here.
-	# Those methods hand lifetime ownership to the UndoRedo system, which calls
-	# free() when the action is discarded (e.g. when create_action() clears
-	# forward history after an undo).  edited_node is a permanent scene node
-	# managed by the scene tree, not by UndoRedo — freeing it via the undo
-	# system crashes the editor the next time the node is accessed.
-	# commit_action(false): mesh is already in final state — do NOT re-execute
-	# the do-method.  Calling it again would bake a second bevel on an already-
-	# beveled mesh before the undo system restores final_snapshot, causing a crash.
-	ur.commit_action(false)
-	if commit_fn.is_valid():
-		commit_fn.call()
-	if _editor_plugin != null:
-		_editor_plugin.update_overlays()
-
-
-# ---------------------------------------------------------------------------
-# DragController bridge — commit / cancel via controller when available
-# ---------------------------------------------------------------------------
-
-## Commit the active param preview through the [GoBuildDragController] if it
-## is active, falling back to the legacy [_commit_param_preview] path otherwise.
-func _commit_param_preview_via_controller(edited_node: GoBuildMeshInstance) -> void:
+func _commit_param_preview_via_controller(_edited_node: GoBuildMeshInstance) -> void:
 	if _drag_controller != null and _drag_controller.is_active():
 		_drag_controller.commit()
-		_cleanup_preview_state()
-	else:
-		_commit_param_preview(edited_node)
+	_cleanup_preview_state()
 
 
-## Cancel the active param preview through the [GoBuildDragController] if it
-## is active, falling back to the legacy [method cancel_param_preview] path otherwise.
 func _cancel_param_preview_via_controller(edited_node: GoBuildMeshInstance) -> void:
 	if _drag_controller != null and _drag_controller.is_active():
 		_drag_controller.cancel()
-		_cleanup_preview_state()
-		if edited_node != null and is_instance_valid(edited_node):
-			edited_node.update_gizmos()
-		if _editor_plugin != null:
-			_editor_plugin.update_overlays()
-	else:
-		cancel_param_preview(edited_node)
+	_cleanup_preview_state()
+	if edited_node != null and is_instance_valid(edited_node):
+		edited_node.update_gizmos()
+	if _editor_plugin != null:
+		_editor_plugin.update_overlays()
 
 
 ## Reset SIC-side preview bookkeeping after the controller has handled
 ## commit/cancel.  The controller owns mesh mutation; this only clears
 ## mouse mode and SIC tracking state.
 func _cleanup_preview_state() -> void:
-	_preview_apply_scheduled  = false
-	_preview_apply_node       = null
-	_preview_apply_dirty      = false
-	_preview_apply_target     = 0.0
 	_preview_accepting_motion = false
 	_preview_filter_count     = 0
 	_preview_virtual_pos      = Vector2.ZERO

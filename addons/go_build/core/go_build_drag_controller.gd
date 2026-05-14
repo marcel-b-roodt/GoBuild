@@ -2,7 +2,7 @@
 ##
 ## Owns the full begin → update → commit/cancel lifecycle for both gizmo-handle
 ## drags and param-preview operations.  Replaces the duplicated logic that was
-## spread across [GoBuildDragHandler] and [SelectionInputController].
+## spread across [SelectionInputController].
 ##
 ## Each interaction creates a [GoBuildDragOperation] and passes it to [method begin].
 ## The controller drives the [GoBuildMouseTracker], selects the correct

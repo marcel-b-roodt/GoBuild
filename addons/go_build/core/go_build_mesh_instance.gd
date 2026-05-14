@@ -331,11 +331,12 @@ func _apply_cull_overrides() -> void:
 			var dup: BaseMaterial3D = (orig as BaseMaterial3D).duplicate()
 			dup.cull_mode = BaseMaterial3D.CULL_DISABLED
 			set_surface_override_material(i, dup)
-		elif orig == null:
+		else:
 			var mat := StandardMaterial3D.new()
 			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.albedo_color = Color(0.7, 0.85, 1.0, 0.6)
 			set_surface_override_material(i, mat)
-		# ShaderMaterial: leave override empty — cull is shader-controlled.
 
 
 ## Clear all surface override materials set by [method _apply_cull_overrides].
