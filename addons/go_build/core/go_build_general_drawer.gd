@@ -111,7 +111,7 @@ func _ready() -> void:
 	_auto_uv_scale_spin = SpinBox.new()
 	_auto_uv_scale_spin.min_value = 0.01
 	_auto_uv_scale_spin.max_value = 100.0
-	_auto_uv_scale_spin.step = 0.1
+	_auto_uv_scale_spin.step = 0.01
 	_auto_uv_scale_spin.value = 1.0
 	_auto_uv_scale_spin.add_theme_font_size_override("font_size", 11)
 	_auto_uv_scale_spin.tooltip_text = "UV scale. Higher values tile smaller."

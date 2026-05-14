@@ -51,6 +51,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   calls in GoBuildGizmoPlugin converted. No ungated debug output remains.
 - _apply_auto_uv now reads auto_uv_scale, auto_uv_offset, and
   auto_uv_seam_rotation from the instance instead of hardcoded 1.0/0/0.
+- Materials drawer overhauled: quickset buttons removed, replaced by
+  auto-discovered palettes with in-panel CRUD, per-slot [Use] and [x],
+  and Object-mode [Use] that assigns to all faces. Palette migration from
+  deprecated array to disk on first load.
 
 ### Fixed
 - Context menu no longer causes cursor jump or viewport pan when opened in
