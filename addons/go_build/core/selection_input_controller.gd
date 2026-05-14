@@ -581,7 +581,7 @@ func _handle_mouse_motion(
 					mm.relative, mm.shift_pressed, mm.ctrl_pressed, camera)
 		else:
 			_gizmo_plugin.update_drag(edited_node, _active_handle_id, camera, mm.position)
-		_gizmo_plugin.schedule_gizmo_redraw(edited_node)
+			_gizmo_plugin.schedule_gizmo_redraw(edited_node)
 		return 1
 	if _pressed_handle_id != -1:
 		if _handle_press_pos.distance_squared_to(mm.position) > BOX_SELECT_DRAG_THRESHOLD_SQ:
@@ -604,7 +604,6 @@ func _handle_mouse_motion(
 				_begin_drag_controller_for_gizmo(edited_node, _active_handle_id)
 				_gizmo_saved_mouse_mode = Input.mouse_mode
 				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-				_gizmo_plugin.schedule_gizmo_redraw(edited_node)
 				return 1
 			# begin_drag failed (e.g. nothing selected) — fall back to box-select
 			# so subsequent motion events are consumed and do not leak to Godot's
