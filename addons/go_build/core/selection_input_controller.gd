@@ -601,12 +601,9 @@ func _handle_mouse_motion(
 		mm: InputEventMouseMotion,
 ) -> int:
 	if _dragging_handle:
-		# DragController owns geometry mutation for non-overlay gizmo drags.
-		# DragHandler owns mutation for overlay-only (inset/extrude/edge-extrude).
-		# Both may need updating; DragController is always called for the overlay.
 		if _drag_controller != null and _drag_controller.is_active():
 			_drag_controller.handle_motion_raw(
-					mm.position, mm.shift_pressed, mm.ctrl_pressed, camera)
+					mm.shift_pressed, mm.ctrl_pressed, camera)
 			if _drag_controller.is_overlay_only():
 				_gizmo_plugin.update_drag(edited_node, _active_handle_id,
 						camera, mm.position)

@@ -32,7 +32,6 @@ var _op: GoBuildDragOperation = null
 var _tracker: GoBuildMouseTracker = GoBuildMouseTracker.new()
 
 var _active: bool = false
-var _initialised: bool = false
 
 ## When true, the controller only drives overlay display — the SIC or legacy
 ## handler owns mesh mutation, deferred bakes, and undo wiring.  The controller
@@ -44,15 +43,7 @@ var _apply_node: GoBuildMeshInstance = null
 var _apply_target_param: float = 0.0
 var _apply_target_vec: Vector3 = Vector3.ZERO
 
-var _strategy_initial_t: float = INF
-var _strategy_initial_hit: Vector3 = Vector3.ZERO
-var _strategy_ref_dir: Vector3 = Vector3.ZERO
-var _strategy_initial_dist: float = 0.0
-var _strategy_initial_dir: Vector3 = Vector3.ZERO
-var _strategy_needs_init: bool = true
-
 var _cached_camera: Camera3D = null
-var _cached_screen_pos: Vector2 = Vector2.ZERO
 
 var _overlay_anchor: Vector2 = Vector2.ZERO
 var _overlay_vp_size: Vector2 = Vector2.ZERO
@@ -68,22 +59,15 @@ func begin(op: GoBuildDragOperation, overlay_only: bool = false) -> void:
 	_op = op
 	_active = true
 	_overlay_only = overlay_only
-	_initialised = false
-	_strategy_initial_t = INF
-	_strategy_initial_hit = Vector3.ZERO
-	_strategy_ref_dir = Vector3.ZERO
-	_strategy_initial_dist = 0.0
-	_strategy_initial_dir = Vector3.ZERO
-	_strategy_needs_init = true
 	_apply_scheduled = false
 	_apply_node = null
 	_apply_target_param = 0.0
 	_apply_target_vec = Vector3.ZERO
 	_cached_camera = null
-	_cached_screen_pos = Vector2.ZERO
+
+	_compute_initial_world_size(op)
 
 	if _is_gizmo_mode():
-		_initialised = true
 		if op.node != null and is_instance_valid(op.node):
 			op.node.begin_preview()
 			op.preview_mode = true
@@ -114,14 +98,18 @@ func begin_with_initial_apply(op: GoBuildDragOperation) -> void:
 		op.node.update_gizmos()
 
 
-func update(camera: Camera3D, screen_pos: Vector2, shift_pressed: bool, ctrl_pressed: bool) -> void:
+func update(
+		camera: Camera3D,
+		pixel_offset: Vector2,
+		shift_pressed: bool,
+		ctrl_pressed: bool,
+) -> void:
 	if not _active or _op == null:
 		return
 	_cached_camera = camera
-	_cached_screen_pos = screen_pos
 
 	if _is_gizmo_mode():
-		_update_gizmo_drag(camera, screen_pos, shift_pressed, ctrl_pressed)
+		_update_gizmo_drag(camera, pixel_offset, shift_pressed, ctrl_pressed)
 	else:
 		_update_param_drag()
 
@@ -131,25 +119,14 @@ func handle_motion_event(mm: InputEventMouseMotion) -> void:
 		return
 	if not _tracker.is_active():
 		return
-	# The SIC pre-filters synthetic/warp events for param previews, so the
-	# tracker's own startup filter should be bypassed to avoid swallowing
-	# legitimate first events.
 	_tracker.reset_filter()
 	_tracker.feed(mm)
 	if _is_gizmo_mode():
-		# In MOUSE_MODE_CAPTURED, mm.position is the captured cursor (viewport
-		# centre).  Use the tracker's accumulated virtual position instead —
-		# it tracks the logical position based on mm.relative deltas and is
-		# not constrained by viewport edges.
-		var virtual_pos: Vector2 = _tracker.get_virtual_pos()
-		GoBuildDebug.log("[GoBuild] DC.motion  gizmo  "
-				+ "rel=(%.1f,%.1f)  vpos=(%.1f,%.1f)  d=%.3f" % [
-				mm.relative.x, mm.relative.y, virtual_pos.x, virtual_pos.y,
-				_tracker.get_delta()])
+		var pixel_offset: Vector2 = _tracker.get_raw_offset_from_anchor()
 		var shift_pressed: bool = mm.shift_pressed
 		var ctrl_pressed: bool = mm.ctrl_pressed
 		if _cached_camera != null:
-			_update_gizmo_drag(_cached_camera, virtual_pos, shift_pressed, ctrl_pressed)
+			_update_gizmo_drag(_cached_camera, pixel_offset, shift_pressed, ctrl_pressed)
 		if _editor_plugin != null:
 			_editor_plugin.update_overlays()
 	else:
@@ -158,12 +135,18 @@ func handle_motion_event(mm: InputEventMouseMotion) -> void:
 			_editor_plugin.update_overlays()
 
 
-func handle_motion_raw(screen_pos: Vector2, shift_pressed: bool, ctrl_pressed: bool,
-		camera: Camera3D) -> void:
+## Feed a raw mouse motion event for non-CAPTURED gizmo drags.
+## Uses the tracker's accumulated offset for accumulated-delta strategies.
+func handle_motion_raw(
+		shift_pressed: bool,
+		ctrl_pressed: bool,
+		camera: Camera3D,
+) -> void:
 	if not _active or _op == null:
 		return
+	var pixel_offset: Vector2 = _tracker.get_raw_offset_from_anchor()
 	if _is_gizmo_mode():
-		_update_gizmo_drag(camera, screen_pos, shift_pressed, ctrl_pressed)
+		_update_gizmo_drag(camera, pixel_offset, shift_pressed, ctrl_pressed)
 	else:
 		_update_param_drag()
 
@@ -295,9 +278,8 @@ func set_param(value: float) -> void:
 
 
 ## Re-anchor the gizmo drag after a cursor warp.  Bakes the current delta into
-## [member GoBuildDragOperation.initial_vertex_positions] and resets the strategy
-## initial references so the next frame recomputes from the new screen position.
-## Must be called before feeding the post-warp [InputEventMouseMotion].
+## [member GoBuildDragOperation.initial_vertex_positions] and resets the
+## tracker so the next frame starts from zero offset.
 func reanchor() -> void:
 	if _op == null or _op.node == null or not is_instance_valid(_op.node):
 		return
@@ -307,13 +289,12 @@ func reanchor() -> void:
 	for idx: int in _op.initial_vertex_positions:
 		if idx < gbm.vertices.size():
 			_op.initial_vertex_positions[idx] = gbm.vertices[idx]
-	if _is_gizmo_mode():
-		_strategy_needs_init = true
-		_strategy_initial_t = INF
-		_strategy_initial_hit = Vector3.ZERO
-		_strategy_ref_dir = Vector3.ZERO
-		_strategy_initial_dist = 0.0
-		_strategy_initial_dir = Vector3.ZERO
+	_tracker.begin(
+			_overlay_anchor,
+			_tracker.get_viewport_size(),
+			_tracker._radial,
+			_tracker._screen_direction,
+			_tracker._sensitivity)
 
 
 func set_viewport_info(anchor: Vector2, vp_size: Vector2) -> void:
@@ -349,7 +330,7 @@ func _is_gizmo_mode() -> bool:
 
 func _update_gizmo_drag(
 		camera: Camera3D,
-		screen_pos: Vector2,
+		pixel_offset: Vector2,
 		shift_pressed: bool,
 		ctrl_pressed: bool,
 ) -> void:
@@ -367,118 +348,82 @@ func _update_gizmo_drag(
 	var world_centroid: Vector3 = node.global_transform * op.drag_centroid
 	var node_xform: Transform3D = node.global_transform
 
-	if _apply_gizmo_strategy(op, camera, screen_pos, world_centroid, node_xform,
-			precision_mult, snap_enabled, snap_step):
-		if not _overlay_only:
-			_schedule_gizmo_apply(node)
+	_apply_gizmo_strategy(op, camera, pixel_offset, world_centroid, node_xform,
+			precision_mult, snap_enabled, snap_step)
+	if not _overlay_only:
+		_schedule_gizmo_apply(node)
 
 
 func _apply_gizmo_strategy(
 		op: GoBuildDragOperation,
 		camera: Camera3D,
-		screen_pos: Vector2,
+		pixel_offset: Vector2,
 		world_centroid: Vector3,
 		node_xform: Transform3D,
 		precision_mult: float,
 		snap_enabled: bool,
 		snap_step: float,
-) -> bool:
+) -> void:
 	var result: GoBuildDeltaStrategy.StrategyResult = _compute_strategy_result(
-			op, camera, screen_pos, world_centroid, node_xform,
+			op, camera, pixel_offset, world_centroid, node_xform,
 			precision_mult, snap_enabled, snap_step)
-	if result == null:
-		return false
-	if result.needs_initialise:
-		_store_strategy_init(op, result)
-		return false
-	_apply_strategy_result(op, result)
-	return true
+	if result != null:
+		_apply_strategy_result(op, result)
 
 
 func _compute_strategy_result(
 		op: GoBuildDragOperation,
 		camera: Camera3D,
-		screen_pos: Vector2,
+		pixel_offset: Vector2,
 		world_centroid: Vector3,
 		node_xform: Transform3D,
 		precision_mult: float,
 		snap_enabled: bool,
 		snap_step: float,
 ) -> GoBuildDeltaStrategy.StrategyResult:
+	var world_axis: Vector3 = (node_xform.basis * op.world_axis).normalized()
 	match op.delta_mode:
 		GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
-			return GoBuildDeltaStrategy.axis_project(
-					camera, screen_pos, world_centroid,
-					(node_xform.basis * op.world_axis).normalized(),
-					node_xform, snap_step, snap_enabled, precision_mult,
-					_strategy_initial_t)
+			return GoBuildDeltaStrategy.axis_project_accumulated(
+					pixel_offset, camera, world_centroid,
+					world_axis, node_xform, snap_step, snap_enabled, precision_mult)
 
 		GoBuildDragOperation.DeltaMode.PLANE_PROJECT:
-			return GoBuildDeltaStrategy.plane_project(
-					camera, screen_pos, world_centroid,
-					(node_xform.basis * op.world_axis).normalized(),
-					node_xform, snap_step, snap_enabled, precision_mult,
-					_strategy_initial_hit, _strategy_needs_init)
+			return GoBuildDeltaStrategy.plane_project_accumulated(
+					pixel_offset, camera, world_centroid,
+					world_axis, node_xform, snap_step, snap_enabled, precision_mult)
 
 		GoBuildDragOperation.DeltaMode.VIEWPORT_PLANE_PROJECT:
-			return GoBuildDeltaStrategy.viewport_plane_project(
-					camera, screen_pos, world_centroid,
-					-camera.global_transform.basis.z,
-					node_xform, snap_step, snap_enabled, precision_mult,
-					_strategy_initial_hit, _strategy_needs_init)
+			return GoBuildDeltaStrategy.viewport_plane_project_accumulated(
+					pixel_offset, camera, world_centroid,
+					node_xform, snap_step, snap_enabled, precision_mult)
 
 		GoBuildDragOperation.DeltaMode.ROTATE:
 			var local_axis: Vector3 = _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)
-			return GoBuildDeltaStrategy.rotate(
-					camera, screen_pos, world_centroid,
-					(node_xform.basis * local_axis).normalized(),
-					deg_to_rad(op.snap_step), snap_enabled, precision_mult,
-					_strategy_ref_dir, _strategy_needs_init)
+			var world_rot_axis: Vector3 = (node_xform.basis * local_axis).normalized()
+			return GoBuildDeltaStrategy.rotate_accumulated(
+					pixel_offset, camera, world_centroid,
+					world_rot_axis, deg_to_rad(snap_step), snap_enabled, precision_mult)
 
 		GoBuildDragOperation.DeltaMode.SCALE_AXIS:
-			return GoBuildDeltaStrategy.scale_axis(
-					camera, screen_pos, world_centroid,
-					(node_xform.basis * op.world_axis).normalized(),
-					snap_step, snap_enabled, precision_mult, _strategy_initial_t)
+			return GoBuildDeltaStrategy.scale_axis_accumulated(
+					pixel_offset, camera, world_centroid,
+					world_axis, op.initial_world_size,
+					snap_step, snap_enabled, precision_mult)
 
 		GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
-			return GoBuildDeltaStrategy.scale_uniform(
-					camera, screen_pos, world_centroid,
-					-camera.global_transform.basis.z,
-					snap_step, snap_enabled, precision_mult,
-					_strategy_initial_dist, _strategy_initial_dir, _strategy_needs_init)
+			var camera_forward: Vector3 = -camera.global_transform.basis.z
+			return GoBuildDeltaStrategy.scale_uniform_accumulated(
+					pixel_offset, camera, world_centroid,
+					camera_forward, op.initial_world_size,
+					snap_step, snap_enabled, precision_mult)
 
 		GoBuildDragOperation.DeltaMode.INSET:
-			return GoBuildDeltaStrategy.inset(
-					screen_pos, snap_step, snap_enabled, precision_mult,
-					Vector2(_strategy_initial_hit.x, _strategy_initial_hit.y),
+			return GoBuildDeltaStrategy.inset_accumulated(
+					pixel_offset, snap_step, snap_enabled, precision_mult,
 					op._gizmo_inset_offset)
 
 	return null
-
-
-func _store_strategy_init(
-		op: GoBuildDragOperation,
-		result: GoBuildDeltaStrategy.StrategyResult,
-) -> void:
-	match op.delta_mode:
-		GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
-			_strategy_initial_t = result.float_value
-		GoBuildDragOperation.DeltaMode.PLANE_PROJECT:
-			_strategy_initial_hit = result.vec_value
-			_strategy_needs_init = false
-		GoBuildDragOperation.DeltaMode.VIEWPORT_PLANE_PROJECT:
-			_strategy_initial_hit = result.vec_value
-			_strategy_needs_init = false
-		GoBuildDragOperation.DeltaMode.ROTATE:
-			_strategy_ref_dir = result.vec_value
-			_strategy_needs_init = false
-		GoBuildDragOperation.DeltaMode.SCALE_AXIS:
-			_strategy_initial_t = result.float_value
-		GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
-			_strategy_initial_dist = result.float_value
-			_strategy_initial_dir = result.vec_value
-			_strategy_needs_init = false
 
 
 func _apply_strategy_result(
@@ -702,24 +647,47 @@ func _end() -> void:
 	_active = false
 	_overlay_only = false
 	_op = null
-	_strategy_initial_t = INF
-	_strategy_initial_hit = Vector3.ZERO
-	_strategy_ref_dir = Vector3.ZERO
-	_strategy_initial_dist = 0.0
-	_strategy_initial_dir = Vector3.ZERO
-	_strategy_needs_init = true
 	_apply_scheduled = false
 	_apply_node = null
 	_apply_target_param = 0.0
 	_apply_target_vec = Vector3.ZERO
 	_cached_camera = null
-	_cached_screen_pos = Vector2.ZERO
 
 
 func _clear_deferred_state() -> void:
 	_apply_scheduled = false
 	_apply_node = null
 	_apply_target_param = 0.0
+
+
+## Compute the world-space extent of the selected vertices along the drag axis.
+## Used as [member GoBuildDragOperation.initial_world_size] for scale strategies.
+func _compute_initial_world_size(op: GoBuildDragOperation) -> void:
+	op.initial_world_size = 1.0
+	if op.node == null or not is_instance_valid(op.node):
+		return
+	if op.initial_vertex_positions.is_empty():
+		return
+	var min_p: float = INF
+	var max_p: float = -INF
+	var axis: Vector3
+	match op.delta_mode:
+		GoBuildDragOperation.DeltaMode.SCALE_AXIS:
+			axis = op.world_axis.normalized()
+		GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
+			axis = Vector3.ONE.normalized()
+		_:
+			return
+	for idx: int in op.initial_vertex_positions:
+		var proj: float = op.initial_vertex_positions[idx].dot(axis)
+		if proj < min_p:
+			min_p = proj
+		if proj > max_p:
+			max_p = proj
+	var size: float = max_p - min_p
+	if size < 1e-5:
+		size = 1.0
+	op.initial_world_size = size
 
 
 func _capture_viewport_info() -> void:

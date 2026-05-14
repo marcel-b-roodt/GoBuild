@@ -336,3 +336,256 @@ static func param_linear(
 	if snap_to_start and absf(param - param_start) < snap_threshold:
 		param = param_start
 	return make_result_float(param)
+
+
+# ---------------------------------------------------------------------------
+# Accumulated-delta strategies (replacing ray-cast strategies)
+# ---------------------------------------------------------------------------
+
+
+## Compute world-space distance per screen pixel at [param world_point].
+##
+## Projects two points 1 pixel apart at the depth of [param world_point] and
+## measures their separation in world space.  This adapts automatically to
+## camera zoom, perspective, and viewport size.
+static func compute_units_per_pixel(camera: Camera3D, world_point: Vector3) -> float:
+	var vp_size: Vector2 = camera.get_viewport().get_visible_rect().size
+	var depth: float = world_point.distance_to(camera.global_position)
+	if depth < 1e-4:
+		return 0.0
+	var p0: Vector3 = camera.project_position(vp_size * 0.5, depth)
+	var p1: Vector3 = camera.project_position(vp_size * 0.5 + Vector2(1.0, 0.0), depth)
+	return p0.distance_to(p1)
+
+
+## Project [param world_direction] into a 2D screen-space direction.
+##
+## Returns the normalised direction vector in screen coordinates.
+## This is the fundamental operation for accumulated-delta strategies: it
+## converts a world-space axis to its appearance on screen, so pixel
+## displacement can be projected onto it.
+static func world_axis_to_screen(camera: Camera3D, world_origin: Vector3,
+		world_direction: Vector3) -> Vector2:
+	var p0: Vector2 = camera.unproject_position(world_origin)
+	var p1: Vector2 = camera.unproject_position(world_origin + world_direction)
+	var screen_dir: Vector2 = (p1 - p0).normalized()
+	if screen_dir.length_squared() < 1e-8:
+		return Vector2.ZERO
+	return screen_dir
+
+
+## Accumulated-delta axis-project translate.
+##
+## Projects [param pixel_offset] (screen-space displacement from anchor) onto
+## the screen-space direction of [param world_axis] to get a signed pixel
+## distance.  Converts to world-space using [method compute_units_per_pixel]
+## and returns a local-space translation delta.
+##
+## Key property: veering the mouse off-axis can only reduce the projected
+## magnitude, never flip the sign.  This eliminates the axis-reversal bug
+## inherent in ray-cast strategies.
+static func axis_project_accumulated(
+		pixel_offset: Vector2,
+		camera: Camera3D,
+		world_centroid: Vector3,
+		world_axis: Vector3,
+		node_xform: Transform3D,
+		snap_step: float,
+		snap_enabled: bool,
+		precision_multiplier: float,
+) -> StrategyResult:
+	var upp: float = compute_units_per_pixel(camera, world_centroid)
+	if upp < 1e-7:
+		return make_result_vec(Vector3.ZERO)
+	var screen_dir: Vector2 = world_axis_to_screen(camera, world_centroid, world_axis)
+	if screen_dir.length_squared() < 1e-8:
+		return make_result_vec(Vector3.ZERO)
+	var projected_pixels: float = pixel_offset.dot(screen_dir)
+	var world_delta: float = projected_pixels * upp * precision_multiplier
+	if snap_enabled:
+		world_delta = snappedf(world_delta, snap_step)
+	var delta_world: Vector3 = world_axis.normalized() * world_delta
+	var delta_local: Vector3 = node_xform.basis.inverse() * delta_world
+	return make_result_vec(delta_local)
+
+
+## Accumulated-delta plane-project translate.
+##
+## Decomposes [param pixel_offset] into two screen-space tangent directions of
+## the plane defined by [param world_normal] through [param world_centroid],
+## converts each to world-space offset, and returns a local-space delta.
+static func plane_project_accumulated(
+		pixel_offset: Vector2,
+		camera: Camera3D,
+		world_centroid: Vector3,
+		world_normal: Vector3,
+		node_xform: Transform3D,
+		snap_step: float,
+		snap_enabled: bool,
+		precision_multiplier: float,
+) -> StrategyResult:
+	var upp: float = compute_units_per_pixel(camera, world_centroid)
+	if upp < 1e-7:
+		return make_result_vec(Vector3.ZERO)
+	var tangent_a: Vector3 = _plane_tangent_a(camera, world_normal)
+	if tangent_a.length_squared() < 1e-10:
+		return make_result_vec(Vector3.ZERO)
+	var tangent_b: Vector3 = world_normal.cross(tangent_a).normalized()
+	var screen_ea: Vector2 = world_axis_to_screen(camera, world_centroid, tangent_a)
+	var screen_eb: Vector2 = world_axis_to_screen(camera, world_centroid, tangent_b)
+	var proj_a: float = pixel_offset.dot(screen_ea) * upp * precision_multiplier
+	var proj_b: float = pixel_offset.dot(screen_eb) * upp * precision_multiplier
+	if snap_enabled:
+		proj_a = snappedf(proj_a, snap_step)
+		proj_b = snappedf(proj_b, snap_step)
+	var delta_world: Vector3 = tangent_a * proj_a + tangent_b * proj_b
+	var delta_local: Vector3 = node_xform.basis.inverse() * delta_world
+	return make_result_vec(delta_local)
+
+
+## Accumulated-delta viewport-plane translate.
+##
+## Like [method plane_project_accumulated] but uses the camera's forward
+## direction as the plane normal.
+static func viewport_plane_project_accumulated(
+		pixel_offset: Vector2,
+		camera: Camera3D,
+		world_centroid: Vector3,
+		node_xform: Transform3D,
+		snap_step: float,
+		snap_enabled: bool,
+		precision_multiplier: float,
+) -> StrategyResult:
+	var camera_forward: Vector3 = -camera.global_transform.basis.z
+	return plane_project_accumulated(pixel_offset, camera, world_centroid,
+			camera_forward, node_xform, snap_step, snap_enabled, precision_multiplier)
+
+
+## Accumulated-delta rotate.
+##
+## Computes a rotation angle from the angular displacement of
+## [param pixel_offset] around [param world_centroid] as seen on screen.
+## The angle is proportional to pixel distance from the anchor projected onto
+## a screen-space circle, measured in radians.
+##
+## Uses the cross product of screen-space displacement with the projected
+## rotation-axis direction to determine sign.
+static func rotate_accumulated(
+		pixel_offset: Vector2,
+		camera: Camera3D,
+		world_centroid: Vector3,
+		rotation_axis: Vector3,
+		snap_step_rad: float,
+		snap_enabled: bool,
+		precision_multiplier: float,
+) -> StrategyResult:
+	var upp: float = compute_units_per_pixel(camera, world_centroid)
+	if upp < 1e-7:
+		return make_result_float(0.0)
+	var screen_axis: Vector2 = world_axis_to_screen(camera, world_centroid, rotation_axis)
+	if screen_axis.length_squared() < 1e-8:
+		return make_result_float(0.0)
+	var screen_perp: Vector2 = Vector2(-screen_axis.y, screen_axis.x)
+	var angular_pixels: float = pixel_offset.dot(screen_perp)
+	var radius_pixels: float = 100.0
+	var angle: float = angular_pixels * upp / radius_pixels * precision_multiplier
+	if snap_enabled:
+		angle = snappedf(angle, snap_step_rad)
+	return make_result_float(angle)
+
+
+## Accumulated-delta per-axis scale.
+##
+## Projects [param pixel_offset] onto the screen-space direction of
+## [param world_axis], converts to a scale ratio from
+## [param initial_world_size].
+static func scale_axis_accumulated(
+		pixel_offset: Vector2,
+		camera: Camera3D,
+		world_centroid: Vector3,
+		world_axis: Vector3,
+		initial_world_size: float,
+		snap_step: float,
+		snap_enabled: bool,
+		precision_multiplier: float,
+) -> StrategyResult:
+	if initial_world_size < 1e-5:
+		return make_result_float(1.0)
+	var upp: float = compute_units_per_pixel(camera, world_centroid)
+	if upp < 1e-7:
+		return make_result_float(1.0)
+	var screen_dir: Vector2 = world_axis_to_screen(camera, world_centroid, world_axis)
+	if screen_dir.length_squared() < 1e-8:
+		return make_result_float(1.0)
+	var projected_pixels: float = pixel_offset.dot(screen_dir)
+	var world_delta: float = projected_pixels * upp
+	var scale_ratio: float = (initial_world_size + world_delta * precision_multiplier) \
+			/ initial_world_size
+	if snap_enabled:
+		scale_ratio = snappedf(scale_ratio, snap_step)
+	return make_result_float(scale_ratio)
+
+
+## Accumulated-delta uniform scale.
+##
+## Projects [param pixel_offset] onto a screen-space radial direction from
+## anchor, converts to a scale ratio from [param initial_world_size].
+static func scale_uniform_accumulated(
+		pixel_offset: Vector2,
+		camera: Camera3D,
+		world_centroid: Vector3,
+		camera_forward: Vector3,
+		initial_world_size: float,
+		snap_step: float,
+		snap_enabled: bool,
+		precision_multiplier: float,
+) -> StrategyResult:
+	if initial_world_size < 1e-5:
+		return make_result_float(1.0)
+	var upp: float = compute_units_per_pixel(camera, world_centroid)
+	if upp < 1e-7:
+		return make_result_float(1.0)
+	var screen_up: Vector2 = world_axis_to_screen(camera, world_centroid,
+			camera_forward.cross(Vector3.UP).normalized() + Vector3.UP)
+	if screen_up.length_squared() < 1e-8:
+		screen_up = Vector2.UP
+	var projected_pixels: float = pixel_offset.dot(screen_up.normalized())
+	var world_delta: float = projected_pixels * upp
+	var scale_ratio: float = (initial_world_size + world_delta * precision_multiplier) \
+			/ initial_world_size
+	if snap_enabled:
+		scale_ratio = snappedf(scale_ratio, snap_step)
+	return make_result_float(scale_ratio)
+
+
+## Accumulated-delta inset.
+##
+## Converts [param pixel_offset] to an inset amount using the horizontal
+## component and a fixed sensitivity.  The result is clamped to [0, 1].
+static func inset_accumulated(
+		pixel_offset: Vector2,
+		snap_step: float,
+		snap_enabled: bool,
+		precision_multiplier: float,
+		inset_offset: float,
+) -> StrategyResult:
+	var offset: float = pixel_offset.dot(Vector2(1.0, 0.0))
+	var amount: float = offset * 0.005 * precision_multiplier
+	if snap_enabled:
+		amount = snappedf(amount, snap_step)
+	amount = clampf(amount + inset_offset, 0.0, 1.0)
+	return make_result_float(amount)
+
+
+## Compute a screen-perpendicular tangent to [param world_normal] as seen by
+## [param camera].  Used by plane-project strategies to decompose pixel offset
+## into two independent axes on the plane.
+static func _plane_tangent_a(camera: Camera3D, world_normal: Vector3) -> Vector3:
+	var cam_up: Vector3 = camera.global_transform.basis.y
+	var tangent: Vector3 = cam_up - world_normal * cam_up.dot(world_normal)
+	if tangent.length_squared() < 1e-10:
+		cam_up = camera.global_transform.basis.x
+		tangent = cam_up - world_normal * cam_up.dot(world_normal)
+	if tangent.length_squared() < 1e-10:
+		return Vector3.RIGHT
+	return tangent.normalized()

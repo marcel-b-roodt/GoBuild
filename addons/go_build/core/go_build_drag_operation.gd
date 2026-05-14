@@ -73,6 +73,12 @@ var post_commit_fn: Callable = Callable()
 
 var handle_id: int = -1
 
+## World-space size of the selected geometry along [member world_axis] at drag
+## start.  Used by accumulated scale strategies to convert pixel offset to a
+## scale ratio.  Computed from [member initial_vertex_positions] once at drag
+## start.
+var initial_world_size: float = 1.0
+
 var _gizmo_cumulative_translate: Vector3 = Vector3.ZERO
 var _gizmo_cumulative_angle: float = 0.0
 var _gizmo_cumulative_scale: float = 1.0
