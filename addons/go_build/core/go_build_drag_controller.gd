@@ -603,6 +603,8 @@ func _flush_gizmo_apply_deferred() -> void:
 	var node: GoBuildMeshInstance = _apply_node
 	_apply_node = null
 	if _op.preview_mode:
+		if node.auto_uv_mode != GoBuildFace.UvMode.NONE:
+			node._apply_auto_uv()
 		node.bake_preview()
 	elif _op.vertex_update_mode:
 		node.bake_vertex_positions()
