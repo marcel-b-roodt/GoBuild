@@ -226,6 +226,7 @@ func begin_drag(node: GoBuildMeshInstance, handle_id: int) -> bool:
 	var affected: Array[int] = _get_affected_vertex_indices(node)
 	if affected.is_empty():
 		return false
+	GoBuildDebug.log("[GoBuild] DH.begin_drag  handle=%d  verts=%d" % [handle_id, affected.size()])
 
 	_drag_initial_verts.clear()
 	_drag_initial_t   = INF
@@ -261,9 +262,14 @@ func update_drag(
 		screen_pos: Vector2,
 ) -> void:
 	if handle_id < AXIS_HANDLE_OFFSET or _drag_initial_verts.is_empty():
+		GoBuildDebug.log("[GoBuild] DH.update_drag  EARLY RETURN  handle=%d  verts=%d" \
+				% [handle_id, _drag_initial_verts.size()])
 		return
 	if node == null:
 		return
+	var cam_name: String = "null" if camera == null else camera.name
+	GoBuildDebug.log("[GoBuild] DH.update_drag  handle=%d  cam=%s"
+			% [handle_id, cam_name])
 	_drag_current_handle_id = handle_id
 	precision_active = Input.is_key_pressed(KEY_SHIFT)
 	_reanchor_if_precision_changed(node, screen_pos)
@@ -475,6 +481,8 @@ func _schedule_bake(node: GoBuildMeshInstance) -> void:
 	_bake_pending_node = node
 	if not _bake_scheduled:
 		_bake_scheduled = true
+		GoBuildDebug.log("[GoBuild] DH._schedule_bake  preview=%s  vu=%s" \
+				% [_drag_preview_mode, _drag_vertex_update_mode])
 		call_deferred("_flush_pending_bake")
 
 

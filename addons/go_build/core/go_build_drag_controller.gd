@@ -85,8 +85,8 @@ func begin(op: GoBuildDragOperation, overlay_only: bool = false) -> void:
 	if _is_gizmo_mode():
 		_initialised = true
 		if op.node != null and is_instance_valid(op.node):
-			if op.preview_mode:
-				op.node.begin_preview()
+			op.node.begin_preview()
+			op.preview_mode = true
 
 	var radial: bool = op.delta_mode == GoBuildDragOperation.DeltaMode.PARAM_RADIAL \
 			or op.delta_mode == GoBuildDragOperation.DeltaMode.INSET
@@ -142,6 +142,10 @@ func handle_motion_event(mm: InputEventMouseMotion) -> void:
 		# it tracks the logical position based on mm.relative deltas and is
 		# not constrained by viewport edges.
 		var virtual_pos: Vector2 = _tracker.get_virtual_pos()
+		GoBuildDebug.log("[GoBuild] DC.motion  gizmo  "
+				+ "rel=(%.1f,%.1f)  vpos=(%.1f,%.1f)  d=%.3f" % [
+				mm.relative.x, mm.relative.y, virtual_pos.x, virtual_pos.y,
+				_tracker.get_delta()])
 		var shift_pressed: bool = mm.shift_pressed
 		var ctrl_pressed: bool = mm.ctrl_pressed
 		if _cached_camera != null:
@@ -178,6 +182,7 @@ func commit() -> void:
 		if not _is_gizmo_mode():
 			_flush_param_apply_sync(op.node, op.param)
 		else:
+			GoBuildDebug.log("[GoBuild] DC.commit  gizmo mode  preview=%s" % op.preview_mode)
 			_flush_gizmo_apply_sync(op.node)
 
 		if op.preview_mode:
@@ -208,6 +213,8 @@ func cancel() -> void:
 		return
 	var op: GoBuildDragOperation = _op
 
+	GoBuildDebug.log("[GoBuild] DC.cancel  overlay=%s  preview=%s" % [
+			_overlay_only, op.preview_mode])
 	if not _overlay_only:
 		if op.node != null and is_instance_valid(op.node):
 			if op.preview_mode:
@@ -220,6 +227,18 @@ func cancel() -> void:
 
 func is_active() -> bool:
 	return _active
+
+
+func is_overlay_only() -> bool:
+	return _overlay_only
+
+
+func get_cached_camera() -> Camera3D:
+	if _cached_camera == null and Engine.is_editor_hint():
+		var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+		if sv != null:
+			_cached_camera = sv.get_camera_3d()
+	return _cached_camera
 
 
 func get_operation() -> GoBuildDragOperation:
@@ -584,6 +603,7 @@ func _flush_gizmo_apply_deferred() -> void:
 		node.bake_vertex_positions()
 	else:
 		node.bake()
+	node.update_gizmos()
 	if _editor_plugin != null:
 		_editor_plugin.update_overlays()
 
@@ -711,6 +731,8 @@ func _capture_viewport_info() -> void:
 		var vp_parent := sv.get_parent() as Control
 		if vp_parent != null:
 			_overlay_vp_size = Vector2(vp_parent.size)
+		if sv.get_camera_3d() != null:
+			_cached_camera = sv.get_camera_3d()
 	_overlay_anchor = _overlay_vp_size * 0.5
 
 

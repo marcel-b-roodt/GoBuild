@@ -353,6 +353,8 @@ func set_suppress_preview_indicator(suppress: bool) -> void:
 ## be marked as handled, [code]false[/code] otherwise.
 func handle_global_input(event: InputEvent) -> bool:
 	if _param_preview != null:
+		GoBuildDebug.log("[GoBuild] SIC  handle_global_input  "
+				+ "_param_preview != null — routed to param preview")
 		if event is InputEventMouseMotion:
 			process_global_motion(event as InputEventMouseMotion)
 			return true
@@ -373,6 +375,25 @@ func handle_global_input(event: InputEvent) -> bool:
 		if event is InputEventMouseMotion:
 			if _drag_controller != null and _drag_controller.is_active():
 				_drag_controller.handle_motion_event(event as InputEventMouseMotion)
+			# When DragController is overlay-only (inset/extrude/edge-extrude),
+			# DragHandler owns geometry mutation and must also receive the event.
+			if _drag_controller != null and _drag_controller.is_active() \
+					and _drag_controller.is_overlay_only() \
+					and _gizmo_plugin != null and _edited_node != null \
+					and is_instance_valid(_edited_node):
+				var vp: Vector2 = _drag_controller.get_tracker().get_virtual_pos()
+				var cam: Camera3D = _drag_controller.get_cached_camera()
+				GoBuildDebug.log("[GoBuild] SIC  overlay motion  vp=(%.1f,%.1f)  cam=%s" % [
+						vp.x, vp.y, "null" if cam == null else cam.name])
+				_gizmo_plugin.update_drag(_edited_node, _active_handle_id,
+						cam, vp)
+				_gizmo_plugin.schedule_gizmo_redraw(_edited_node)
+			else:
+				GoBuildDebug.log("[GoBuild] SIC  SKIP overlay  dc=%s  overlay=%s  gizmo=%s  node=%s" % [
+						_drag_controller.is_active() if _drag_controller != null else false,
+						_drag_controller.is_overlay_only() if _drag_controller != null else false,
+						_gizmo_plugin != null,
+						is_instance_valid(_edited_node) if _edited_node != null else false])
 			return true
 		if event is InputEventMouseButton:
 			var mb := event as InputEventMouseButton
@@ -538,9 +559,21 @@ func _handle_mouse_release(
 		mb: InputEventMouseButton,
 ) -> int:
 	if _dragging_handle:
-		_gizmo_plugin.commit_drag(edited_node, _active_handle_id, false)
-		if _drag_controller != null and _drag_controller.is_active():
+		var dc_overlay: bool = _drag_controller != null \
+				and _drag_controller.is_active() \
+				and _drag_controller.is_overlay_only()
+		if dc_overlay:
+			_gizmo_plugin.commit_drag(edited_node, _active_handle_id, false)
+			if _drag_controller != null and _drag_controller.is_active():
+				_drag_controller.commit()
+		elif _drag_controller != null and _drag_controller.is_active():
 			_drag_controller.commit()
+			if _gizmo_plugin != null:
+				_gizmo_plugin.reset_drag_state()
+		else:
+			_gizmo_plugin.commit_drag(edited_node, _active_handle_id, false)
+			if _gizmo_plugin != null:
+				_gizmo_plugin.reset_drag_state()
 		_apply_pending_edge_selection(edited_node)
 		_dragging_handle  = false
 		_active_handle_id = -1
@@ -568,11 +601,18 @@ func _handle_mouse_motion(
 		mm: InputEventMouseMotion,
 ) -> int:
 	if _dragging_handle:
-		_gizmo_plugin.update_drag(edited_node, _active_handle_id, camera, mm.position)
-		_gizmo_plugin.schedule_gizmo_redraw(edited_node)
+		# DragController owns geometry mutation for non-overlay gizmo drags.
+		# DragHandler owns mutation for overlay-only (inset/extrude/edge-extrude).
+		# Both may need updating; DragController is always called for the overlay.
 		if _drag_controller != null and _drag_controller.is_active():
 			_drag_controller.handle_motion_raw(
 					mm.position, mm.shift_pressed, mm.ctrl_pressed, camera)
+			if _drag_controller.is_overlay_only():
+				_gizmo_plugin.update_drag(edited_node, _active_handle_id,
+						camera, mm.position)
+		else:
+			_gizmo_plugin.update_drag(edited_node, _active_handle_id, camera, mm.position)
+		_gizmo_plugin.schedule_gizmo_redraw(edited_node)
 		return 1
 	if _pressed_handle_id != -1:
 		if _handle_press_pos.distance_squared_to(mm.position) > BOX_SELECT_DRAG_THRESHOLD_SQ:
@@ -589,14 +629,22 @@ func _handle_mouse_motion(
 				_dragging_handle   = true
 				_active_handle_id  = _pressed_handle_id
 				_pressed_handle_id = -1
+				_edited_node      = edited_node
+				GoBuildDebug.log("[GoBuild] SIC  gizmo drag start  handle=%d  CAPTURED" \
+						% _active_handle_id)
 				# Also start the DragController for the unified pipeline.
 				_begin_drag_controller_for_gizmo(edited_node, _active_handle_id)
 				# Capture mouse for infinite scroll: hide cursor and receive
 				# mm.relative deltas regardless of viewport edge or panel focus.
 				_gizmo_saved_mouse_mode = Input.mouse_mode
 				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-				_gizmo_plugin.update_drag(
-						edited_node, _active_handle_id, camera, mm.position)
+				# For overlay-only drags (inset/extrude/edge-extrude), DragHandler
+				# owns geometry mutation and must receive the first update.  For
+				# non-overlay drags, DragController owns geometry — skip to avoid
+				# dual-mutation race.
+				if _drag_controller != null and _drag_controller.is_overlay_only():
+					_gizmo_plugin.update_drag(
+							edited_node, _active_handle_id, camera, mm.position)
 				_gizmo_plugin.schedule_gizmo_redraw(edited_node)
 				return 1
 			# begin_drag failed (e.g. nothing selected) — fall back to box-select
@@ -1298,10 +1346,17 @@ func _clear_hover(edited_node: GoBuildMeshInstance) -> void:
 
 func _cancel_active_drag(edited_node: GoBuildMeshInstance) -> void:
 	var was_dragging_handle: bool = _dragging_handle
-	if _dragging_handle and _gizmo_plugin != null and edited_node != null:
-		_gizmo_plugin.commit_drag(edited_node, _active_handle_id, true)
-	if _drag_controller != null and _drag_controller.is_active():
-		_drag_controller.cancel()
+	var dc_overlay: bool = _drag_controller != null \
+			and _drag_controller.is_active() \
+			and _drag_controller.is_overlay_only()
+	if dc_overlay:
+		if _dragging_handle and _gizmo_plugin != null and edited_node != null:
+			_gizmo_plugin.commit_drag(edited_node, _active_handle_id, true)
+		if _drag_controller != null and _drag_controller.is_active():
+			_drag_controller.cancel()
+	else:
+		if _drag_controller != null and _drag_controller.is_active():
+			_drag_controller.cancel()
 	_dragging_handle   = false
 	_active_handle_id  = -1
 	_pressed_handle_id = -1
@@ -1312,18 +1367,34 @@ func _cancel_active_drag(edited_node: GoBuildMeshInstance) -> void:
 		_gizmo_plugin.reset_drag_state()
 
 
-## Commit a gizmo drag initiated from global input (LMB release during
+# Commit a gizmo drag initiated from global input (LMB release during
 ## MOUSE_MODE_CAPTURED).  Restores mouse mode and cleans up state.
+## When DragController owns geometry (non-overlay), it handles bake + undo.
+## When overlay-only (inset/extrude legacy path), DragHandler owns geometry.
 func _commit_gizmo_drag() -> void:
 	if _edited_node == null or not is_instance_valid(_edited_node):
 		_dragging_handle = false
 		_active_handle_id = -1
 		Input.mouse_mode = _gizmo_saved_mouse_mode
 		return
-	if _gizmo_plugin != null:
-		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, false)
-	if _drag_controller != null and _drag_controller.is_active():
-		_drag_controller.commit()
+	var dc_overlay: bool = _drag_controller != null \
+			and _drag_controller.is_active() \
+			and _drag_controller.is_overlay_only()
+	GoBuildDebug.log("[GoBuild] SIC._commit_gizmo_drag  dc_active=%s  dc_overlay=%s" % [
+			_drag_controller != null and _drag_controller.is_active(), dc_overlay])
+	if dc_overlay:
+		# Overlay-only: DragController drew indicators; DragHandler owns geometry.
+		if _gizmo_plugin != null:
+			_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, false)
+		if _drag_controller != null and _drag_controller.is_active():
+			_drag_controller.commit()
+	else:
+		# DragController owns commit: bake + undo.
+		if _drag_controller != null and _drag_controller.is_active():
+			_drag_controller.commit()
+		# DragHandler did not drive the drag, so only reset its caches.
+		if _gizmo_plugin != null:
+			_gizmo_plugin.reset_drag_state()
 	_apply_pending_edge_selection(_edited_node)
 	_dragging_handle  = false
 	_active_handle_id = -1
@@ -1334,17 +1405,27 @@ func _commit_gizmo_drag() -> void:
 ## Cancel a gizmo drag initiated from global input (RMB or ESC during
 ## MOUSE_MODE_CAPTURED).  Restores mouse mode and cleans up state.
 func _cancel_gizmo_drag() -> void:
-	if _edited_node != null and is_instance_valid(_edited_node) and _gizmo_plugin != null:
-		_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
-	if _drag_controller != null and _drag_controller.is_active():
-		_drag_controller.cancel()
+	var dc_overlay: bool = _drag_controller != null \
+			and _drag_controller.is_active() \
+			and _drag_controller.is_overlay_only()
+	GoBuildDebug.log("[GoBuild] SIC._cancel_gizmo_drag  dc_active=%s  dc_overlay=%s" % [
+			_drag_controller != null and _drag_controller.is_active(), dc_overlay])
+	if dc_overlay:
+		if _edited_node != null and is_instance_valid(_edited_node) \
+				and _gizmo_plugin != null:
+			_gizmo_plugin.commit_drag(_edited_node, _active_handle_id, true)
+		if _drag_controller != null and _drag_controller.is_active():
+			_drag_controller.cancel()
+	else:
+		if _drag_controller != null and _drag_controller.is_active():
+			_drag_controller.cancel()
+		if _gizmo_plugin != null:
+			_gizmo_plugin.reset_drag_state()
 	_dragging_handle   = false
 	_active_handle_id  = -1
 	_pressed_handle_id = -1
 	_pending_edge_selection.clear()
 	Input.mouse_mode = _gizmo_saved_mouse_mode
-	if _gizmo_plugin != null:
-		_gizmo_plugin.reset_drag_state()
 
 
 func _cancel_box_select(edited_node: GoBuildMeshInstance) -> void:
