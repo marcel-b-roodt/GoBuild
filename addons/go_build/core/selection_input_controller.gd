@@ -16,7 +16,7 @@ const _SEL_MGR_SCRIPT        := preload("res://addons/go_build/core/selection_ma
 const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
 const _MESH_INSTANCE_SCRIPT  := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _GIZMO_PLUGIN_SCRIPT   := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
-const _DRAG_HANDLER_SCRIPT   := preload("res://addons/go_build/core/go_build_drag_handler.gd")
+
 const _PANEL_SCRIPT          := preload("res://addons/go_build/core/go_build_panel.gd")
 const _EXTRUDE_SCRIPT       := preload(
 		"res://addons/go_build/mesh/operations/extrude_operation.gd")
@@ -586,16 +586,12 @@ func _handle_mouse_motion(
 	if _pressed_handle_id != -1:
 		if _handle_press_pos.distance_squared_to(mm.position) > BOX_SELECT_DRAG_THRESHOLD_SQ:
 			var started := false
-			var needs_dh_bridge := false
 			if _should_inset_drag(edited_node):
 				started = _begin_inset_drag(edited_node, _pressed_handle_id)
-				needs_dh_bridge = true
 			elif _should_extrude_drag(edited_node):
 				started = _begin_extrude_drag(edited_node, _pressed_handle_id)
-				needs_dh_bridge = true
 			elif _should_edge_extrude_drag(edited_node):
 				started = _begin_edge_extrude_drag(edited_node, _pressed_handle_id)
-				needs_dh_bridge = true
 			else:
 				started = _start_normal_gizmo_drag(edited_node, _pressed_handle_id)
 			if started:
@@ -605,8 +601,6 @@ func _handle_mouse_motion(
 				_edited_node      = edited_node
 				GoBuildDebug.log("[GoBuild] SIC  gizmo drag start  handle=%d  CAPTURED" \
 						% _active_handle_id)
-				if needs_dh_bridge:
-					_begin_drag_controller_for_gizmo(edited_node, _active_handle_id)
 				_gizmo_saved_mouse_mode = Input.mouse_mode
 				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 				return 1
@@ -660,8 +654,9 @@ func _should_extrude_drag(edited_node: GoBuildMeshInstance) -> bool:
 
 
 ## Perform an extrude(0) on the selected faces, then start a translate drag.
-## Overrides _drag_restore with the pre-extrude snapshot so undo restores the
-## mesh to before the extrude.  Returns false if anything fails.
+## Builds the DragOperation directly without delegating to DragHandler.
+## Overrides the snapshot with the pre-extrude state so undo restores the
+## full pre-extrude mesh.  Returns false if anything fails.
 func _begin_extrude_drag(
 		edited_node: GoBuildMeshInstance,
 		handle_id: int,
@@ -677,38 +672,27 @@ func _begin_extrude_drag(
 	var pre_snap: Dictionary = gbm.take_snapshot()
 
 	# Extrude with distance 0: creates top-ring verts at the same positions.
-	# ExtrudeOperation.apply also calls mesh.rebuild_edges().
 	ExtrudeOperation.apply(gbm, faces, 0.0)
-
-	# Bake so begin_extrude_drag reads the updated (post-extrude) vertex positions.
 	edited_node.bake()
 
 	# Collect top-ring vertex indices from the selected faces AFTER the extrude.
-	# ExtrudeOperation.apply replaced each face's vertex_indices with the new
-	# cap (top-ring) verts. We pass these to begin_extrude_drag so it can
-	# restrict _drag_initial_verts to only the cap — see that method's doc for why.
 	var top_ring: Array[int] = []
 	for fidx: int in faces:
 		for vidx: int in gbm.faces[fidx].vertex_indices:
 			if not top_ring.has(vidx):
 				top_ring.append(vidx)
 
-	var started: bool = _gizmo_plugin.begin_extrude_drag(edited_node, handle_id, top_ring)
+	# Build initial_verts dict from only the top-ring (moving) vertices.
+	var initial_verts: Dictionary = {}
+	for vidx: int in top_ring:
+		initial_verts[vidx] = gbm.vertices[vidx]
+
+	var started: bool = _start_gizmo_drag_with_verts(
+			edited_node, handle_id, initial_verts, pre_snap, "Extrude Face")
 	if not started:
-		# Couldn't start the drag — roll back the extrude and bail.
 		edited_node.restore_and_bake(pre_snap)
-		return false
+	return started
 
-	# Override the snapshot begin_drag stored (post-extrude) with the pre-extrude
-	# one so that commit_drag's undo action restores the full pre-extrude state.
-	_gizmo_plugin._drag_restore                = pre_snap
-	_gizmo_plugin._drag_action_name_override   = "Extrude Face"
-	return true
-
-
-# ---------------------------------------------------------------------------
-# Shift+drag → Inset (Scale mode, Face mode)
-# ---------------------------------------------------------------------------
 
 ## Returns true when a scale drag should inset instead of scale.
 ## Conditions: Shift held + Face mode + Scale gizmo + faces selected + scale handle.
@@ -725,8 +709,8 @@ func _should_inset_drag(edited_node: GoBuildMeshInstance) -> bool:
 
 
 ## Perform an inset(0) on the selected faces, then start an inset drag.
-## Overrides _drag_restore with the pre-inset snapshot so undo restores the
-## mesh to before the inset.  Returns false if anything fails.
+## Builds the DragOperation directly without delegating to DragHandler.
+## Returns false if anything fails.
 func _begin_inset_drag(
 		edited_node: GoBuildMeshInstance,
 		handle_id: int,
@@ -741,18 +725,40 @@ func _begin_inset_drag(
 	var pre_snap: Dictionary = gbm.take_snapshot()
 
 	# Inset at amount=0: creates inner-ring verts at same positions as outer.
-	# Populates centroids_out so the drag can animate each inner vert.
 	var centroids_out: Dictionary = {}
 	InsetOperation.apply(gbm, faces, 0.0, centroids_out)
 	edited_node.bake()
 
-	var started: bool = _gizmo_plugin.begin_inset_drag(edited_node, handle_id, centroids_out)
-	if not started:
+	# Build initial_verts from all affected vertices.
+	var affected: Array[int] = GoBuildTransformHelpers.get_affected_vertex_indices(edited_node)
+	if affected.is_empty():
 		edited_node.restore_and_bake(pre_snap)
 		return false
+	var initial_verts: Dictionary = {}
+	for idx: int in affected:
+		initial_verts[idx] = gbm.vertices[idx]
 
-	_gizmo_plugin._drag_restore              = pre_snap
-	_gizmo_plugin._drag_action_name_override = "Inset Face"
+	var snap_default: float = GoBuildTransformHelpers.get_snap_step(
+			_gizmo_plugin.snap_step_override)
+	var preview_mode: bool = edited_node.auto_uv_mode != GoBuildFace.UvMode.NONE
+	var op := GoBuildDragOperation.create_for_gizmo_handle(
+			edited_node,
+			handle_id,
+			initial_verts,
+			pre_snap,
+			"Inset Face",
+			snap_default,
+			_gizmo_plugin.rot_snap_override,
+			_gizmo_plugin.scale_snap_override,
+			centroids_out,
+			0.0,
+			true,
+			preview_mode)
+	if op == null:
+		edited_node.restore_and_bake(pre_snap)
+		return false
+	_drag_controller.begin(op, false)
+	_seed_drag_controller_viewport()
 	return true
 
 
@@ -783,8 +789,7 @@ func _should_edge_extrude_drag(edited_node: GoBuildMeshInstance) -> bool:
 
 ## Perform EdgeExtrudeOperation on the selected edges, then start a translate
 ## drag restricted to the newly created boundary-edge vertices.
-## Mirrors [method _begin_extrude_drag] exactly — does NOT touch selection
-## mid-setup to avoid firing selection_changed signals during drag init.
+## Builds the DragOperation directly without delegating to DragHandler.
 ## Returns false if anything fails.
 func _begin_edge_extrude_drag(
 		edited_node: GoBuildMeshInstance,
@@ -806,17 +811,13 @@ func _begin_edge_extrude_drag(
 	var pre_snap: Dictionary = gbm.take_snapshot()
 
 	# Apply at distance 0: new na/nb verts are coincident with va/vb.
-	# Returns the new boundary edge indices (na-nb per extruded edge).
 	var new_edge_indices: Array[int] = EdgeExtrudeOperation.apply(gbm, source_edges)
 	if new_edge_indices.is_empty():
 		return false
 
 	edited_node.bake()
 
-	# Collect the vertex indices for the new boundary edge endpoints (na and nb
-	# per extruded edge) — these are the only vertices that should move.
-	# Do NOT update the selection here; doing so fires selection_changed which
-	# calls update_gizmos() synchronously and interferes with drag setup.
+	# Collect the vertex indices for the new boundary edge endpoints.
 	_pending_edge_selection.clear()
 	_pending_edge_selection.assign(new_edge_indices)
 	var new_verts: Array[int] = []
@@ -827,16 +828,16 @@ func _begin_edge_extrude_drag(
 		if not new_verts.has(edge.vertex_b):
 			new_verts.append(edge.vertex_b)
 
-	var started: bool = _gizmo_plugin.begin_extrude_drag(edited_node, handle_id, new_verts)
-	if not started:
-		# Roll back to pre-extrude state.
-		edited_node.restore_and_bake(pre_snap)
-		return false
+	# Build initial_verts dict from only the new edge vertices.
+	var initial_verts: Dictionary = {}
+	for vidx: int in new_verts:
+		initial_verts[vidx] = gbm.vertices[vidx]
 
-	# Override snap with the pre-operation snapshot so undo returns to before extrude.
-	_gizmo_plugin._drag_restore              = pre_snap
-	_gizmo_plugin._drag_action_name_override = "Extrude Edge"
-	return true
+	var started: bool = _start_gizmo_drag_with_verts(
+			edited_node, handle_id, initial_verts, pre_snap, "Extrude Edge")
+	if not started:
+		edited_node.restore_and_bake(pre_snap)
+	return started
 
 
 # ---------------------------------------------------------------------------
@@ -1417,27 +1418,25 @@ func _start_normal_gizmo_drag(
 	return true
 
 
-## After a gizmo drag starts via [GoBuildDragHandler], create a matching
-## [GoBuildDragOperation] and begin the [GoBuildDragController].
-func _begin_drag_controller_for_gizmo(
+## Start a gizmo drag with a custom set of initial vertex positions and
+## snapshot.  Used for extrude and edge-extrude where only a subset of
+## vertices should move.  The snapshot should be the pre-operation state so
+## undo restores the full pre-operation mesh.
+## Returns [code]true[/code] if the drag was started successfully.
+func _start_gizmo_drag_with_verts(
 		edited_node: GoBuildMeshInstance,
 		handle_id: int,
-) -> void:
-	if _drag_controller == null or edited_node == null:
-		return
-	var dh: GoBuildDragHandler = _gizmo_plugin._drag_handler
-	if dh.is_drag_empty():
-		return
-	var initial_verts: Dictionary = dh.get_drag_initial_verts()
-	var snapshot: Dictionary = dh.get_drag_restore()
-	var action_override: String = dh.get_drag_action_name_override()
-	var action_name: String = action_override \
-			if not action_override.is_empty() \
-			else GoBuildDragOperation.action_name_for_handle(handle_id)
+		initial_verts: Dictionary,
+		snapshot: Dictionary,
+		action_name: String,
+) -> bool:
+	if edited_node == null or edited_node.go_build_mesh == null:
+		return false
+	if initial_verts.is_empty():
+		return false
 	var snap_default: float = GoBuildTransformHelpers.get_snap_step(
 			_gizmo_plugin.snap_step_override)
-	var inset_centroids: Dictionary = dh.get_inset_centroids()
-	var inset_offset: float = dh.get_inset_amount_offset()
+	var preview_mode: bool = edited_node.auto_uv_mode != GoBuildFace.UvMode.NONE
 	var op := GoBuildDragOperation.create_for_gizmo_handle(
 			edited_node,
 			handle_id,
@@ -1447,14 +1446,15 @@ func _begin_drag_controller_for_gizmo(
 			snap_default,
 			_gizmo_plugin.rot_snap_override,
 			_gizmo_plugin.scale_snap_override,
-			inset_centroids,
-			inset_offset,
-			dh.is_vertex_update_mode(),
-			dh.is_preview_mode())
+			{},  # no inset centroids
+			0.0,  # no inset offset
+			true,  # vertex_update_mode
+			preview_mode)
 	if op == null:
-		return
+		return false
 	_drag_controller.begin(op, false)
 	_seed_drag_controller_viewport()
+	return true
 
 
 func _seed_drag_controller_viewport() -> void:
