@@ -586,14 +586,18 @@ func _handle_mouse_motion(
 	if _pressed_handle_id != -1:
 		if _handle_press_pos.distance_squared_to(mm.position) > BOX_SELECT_DRAG_THRESHOLD_SQ:
 			var started := false
+			var needs_dh_bridge := false
 			if _should_inset_drag(edited_node):
 				started = _begin_inset_drag(edited_node, _pressed_handle_id)
+				needs_dh_bridge = true
 			elif _should_extrude_drag(edited_node):
 				started = _begin_extrude_drag(edited_node, _pressed_handle_id)
+				needs_dh_bridge = true
 			elif _should_edge_extrude_drag(edited_node):
 				started = _begin_edge_extrude_drag(edited_node, _pressed_handle_id)
+				needs_dh_bridge = true
 			else:
-				started = _gizmo_plugin.begin_drag(edited_node, _pressed_handle_id)
+				started = _start_normal_gizmo_drag(edited_node, _pressed_handle_id)
 			if started:
 				_dragging_handle   = true
 				_active_handle_id  = _pressed_handle_id
@@ -601,7 +605,8 @@ func _handle_mouse_motion(
 				_edited_node      = edited_node
 				GoBuildDebug.log("[GoBuild] SIC  gizmo drag start  handle=%d  CAPTURED" \
 						% _active_handle_id)
-				_begin_drag_controller_for_gizmo(edited_node, _active_handle_id)
+				if needs_dh_bridge:
+					_begin_drag_controller_for_gizmo(edited_node, _active_handle_id)
 				_gizmo_saved_mouse_mode = Input.mouse_mode
 				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 				return 1
@@ -1370,9 +1375,50 @@ func _show_context_menu_deferred(edited_node: GoBuildMeshInstance, at: Vector2) 
 # DragController bridge — gizmo drags
 # ---------------------------------------------------------------------------
 
+## Start a normal gizmo drag by computing vertex data, snapshot, and DragOperation
+## directly, without delegating to [GoBuildDragHandler.begin_drag].
+## Returns [code]true[/code] if the drag was started successfully.
+func _start_normal_gizmo_drag(
+		edited_node: GoBuildMeshInstance,
+		handle_id: int,
+) -> bool:
+	if edited_node == null or edited_node.go_build_mesh == null:
+		return false
+	var gbm: GoBuildMesh = edited_node.go_build_mesh
+	var affected: Array[int] = GoBuildTransformHelpers.get_affected_vertex_indices(edited_node)
+	if affected.is_empty():
+		return false
+	var initial_verts: Dictionary = {}
+	for idx: int in affected:
+		initial_verts[idx] = gbm.vertices[idx]
+	var snapshot: Dictionary = gbm.take_snapshot()
+	var action_name: String = GoBuildDragOperation.action_name_for_handle(handle_id)
+	var snap_default: float = GoBuildTransformHelpers.get_snap_step(
+			_gizmo_plugin.snap_step_override)
+	var vertex_update_mode: bool = true
+	var preview_mode: bool = edited_node.auto_uv_mode != GoBuildFace.UvMode.NONE
+	var op := GoBuildDragOperation.create_for_gizmo_handle(
+			edited_node,
+			handle_id,
+			initial_verts,
+			snapshot,
+			action_name,
+			snap_default,
+			_gizmo_plugin.rot_snap_override,
+			_gizmo_plugin.scale_snap_override,
+			{},  # no inset centroids
+			0.0,  # no inset offset
+			vertex_update_mode,
+			preview_mode)
+	if op == null:
+		return false
+	_drag_controller.begin(op, false)
+	_seed_drag_controller_viewport()
+	return true
+
+
 ## After a gizmo drag starts via [GoBuildDragHandler], create a matching
-## [GoBuildDragOperation] using [method GoBuildDragOperation.create_for_gizmo_handle]
-## and begin the [GoBuildDragController].
+## [GoBuildDragOperation] and begin the [GoBuildDragController].
 func _begin_drag_controller_for_gizmo(
 		edited_node: GoBuildMeshInstance,
 		handle_id: int,
@@ -1408,6 +1454,10 @@ func _begin_drag_controller_for_gizmo(
 	if op == null:
 		return
 	_drag_controller.begin(op, false)
+	_seed_drag_controller_viewport()
+
+
+func _seed_drag_controller_viewport() -> void:
 	var vp_size := Vector2(1280.0, 720.0)
 	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
 	if sv != null:
