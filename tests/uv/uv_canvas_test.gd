@@ -17,7 +17,8 @@ func test_uv_to_canvas_round_trip() -> void:
 	var uv_pos := Vector2(0.5, 0.5)
 	var canvas_pos := centre + pan + uv_pos * zoom
 	var round_trip := (canvas_pos - centre - pan) / zoom
-	assert_vector(round_trip).is_equal_approx(uv_pos, 0.001)
+	assert_float(round_trip.x).is_equal_approx(uv_pos.x, 0.001)
+	assert_float(round_trip.y).is_equal_approx(uv_pos.y, 0.001)
 
 
 func test_uv_to_canvas_with_pan() -> void:
