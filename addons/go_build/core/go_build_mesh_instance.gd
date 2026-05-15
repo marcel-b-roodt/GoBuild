@@ -298,9 +298,7 @@ func needs_world_space_uv_refresh() -> bool:
 ## Called by the undo/redo system; also callable directly for programmatic revert.
 ##
 ## Calls [method Node3D.update_gizmos] so the selection-highlight gizmo overlay
-## is refreshed to match the restored vertex positions.  Without this call, the
-## gizmo retains the pre-restore (pre-undo/redo) element positions, making
-## selected vertices / edges / faces appear at the wrong location or invisible.
+## is refreshed to match the restored vertex positions.
 func restore_and_bake(snapshot: Dictionary) -> void:
 	go_build_mesh.restore_snapshot(snapshot)
 	bake()

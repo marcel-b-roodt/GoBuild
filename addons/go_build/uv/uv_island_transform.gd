@@ -106,6 +106,12 @@ static func apply(
 						rel.x * sin_a + rel.y * cos_a
 					)
 			ds.cumulative_angle += delta_angle
+			# Fold cumulative angle into [-2*PI, 2*PI] (±360°) so the display
+			# wraps around instead of growing without bound.
+			if ds.cumulative_angle > TAU:
+				ds.cumulative_angle -= TAU
+			elif ds.cumulative_angle < -TAU:
+				ds.cumulative_angle += TAU
 			ds.prev_angle = angle_now
 			changed = true
 

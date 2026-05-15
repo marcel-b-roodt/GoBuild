@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="GoBuildMaterialPalette" format=3 uid="uid://dxl61gvevjasc"]
+
+[ext_resource type="Material" uid="uid://ck57phxhhyl85" path="res://test_scenarios/material_palette_test/metal_wall.tres" id="1_3hg2j"]
+[ext_resource type="Script" uid="uid://djcpef37rrnlt" path="res://addons/go_build/core/go_build_material_palette.gd" id="1_itv23"]
+[ext_resource type="Material" uid="uid://cfeos7wys18s3" path="res://test_scenarios/material_palette_test/dark_wood.tres" id="2_a62tj"]
+
+[resource]
+script = ExtResource("1_itv23")
+palette_name = "AnotherPalette"
+materials = Array[Material]([ExtResource("1_3hg2j"), ExtResource("2_a62tj")])

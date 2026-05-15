@@ -21,16 +21,26 @@ const _FACE_SCRIPT_G        := preload("res://addons/go_build/mesh/go_build_face
 const _DELETE_SCRIPT_G      := \
 		preload("res://addons/go_build/mesh/operations/delete_operation.gd")
 const _DEBUG_SCRIPT_G       := preload("res://addons/go_build/core/go_build_debug.gd")
+const _UNDO_SPIN_SCRIPT_G   := preload("res://addons/go_build/core/go_build_undo_spin_box.gd")
 
 # Widgets — exposed for tests where useful.
 var _delete_btn:    Button    = null
 var _cull_check:    CheckBox  = null
 var _auto_uv_option: OptionButton = null
-var _auto_uv_scale_spin: SpinBox = null
-var _auto_uv_u_offset_spin: SpinBox = null
-var _auto_uv_v_offset_spin: SpinBox = null
-var _auto_uv_seam_rot_spin: SpinBox = null
+var _auto_uv_scale_spin: GoBuildUndoSpinBox = null
+var _auto_uv_u_offset_spin: GoBuildUndoSpinBox = null
+var _auto_uv_v_offset_spin: GoBuildUndoSpinBox = null
+var _auto_uv_seam_rot_spin: GoBuildUndoSpinBox = null
 var _auto_uv_param_rows: VBoxContainer = null
+
+# Auto UV parameter live-edit state.
+var _auto_uv_editing: bool = false
+var _auto_uv_committing: bool = false
+var _auto_uv_snapshot: Dictionary = {}
+var _auto_uv_old_scale: float = 1.0
+var _auto_uv_old_offset: Vector2 = Vector2.ZERO
+var _auto_uv_old_seam_rot: float = 0.0
+var _auto_uv_commit_timer: Timer = null
 
 
 func _ready() -> void:
@@ -108,14 +118,12 @@ func _ready() -> void:
 	scale_lbl.add_theme_font_size_override("font_size", 11)
 	scale_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scale_row.add_child(scale_lbl)
-	_auto_uv_scale_spin = SpinBox.new()
-	_auto_uv_scale_spin.min_value = 0.01
-	_auto_uv_scale_spin.max_value = 100.0
-	_auto_uv_scale_spin.step = 0.01
-	_auto_uv_scale_spin.value = 1.0
+	_auto_uv_scale_spin = GoBuildUndoSpinBox.new()
+	_auto_uv_scale_spin.configure(0.01, 100.0, 0.01, 1.0)
 	_auto_uv_scale_spin.add_theme_font_size_override("font_size", 11)
 	_auto_uv_scale_spin.tooltip_text = "UV scale. Higher values tile smaller."
 	_auto_uv_scale_spin.value_changed.connect(_on_auto_uv_param_changed)
+	_auto_uv_scale_spin.spin_committed.connect(_on_auto_uv_spin_committed)
 	scale_row.add_child(_auto_uv_scale_spin)
 
 	var u_row := HBoxContainer.new()
@@ -125,14 +133,12 @@ func _ready() -> void:
 	u_lbl.add_theme_font_size_override("font_size", 11)
 	u_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	u_row.add_child(u_lbl)
-	_auto_uv_u_offset_spin = SpinBox.new()
-	_auto_uv_u_offset_spin.min_value = -1.0
-	_auto_uv_u_offset_spin.max_value = 1.0
-	_auto_uv_u_offset_spin.step = 0.01
-	_auto_uv_u_offset_spin.value = 0.0
+	_auto_uv_u_offset_spin = GoBuildUndoSpinBox.new()
+	_auto_uv_u_offset_spin.configure(-1.0, 1.0, 0.01, 0.0)
 	_auto_uv_u_offset_spin.add_theme_font_size_override("font_size", 11)
 	_auto_uv_u_offset_spin.tooltip_text = "Horizontal UV offset."
 	_auto_uv_u_offset_spin.value_changed.connect(_on_auto_uv_param_changed)
+	_auto_uv_u_offset_spin.spin_committed.connect(_on_auto_uv_spin_committed)
 	u_row.add_child(_auto_uv_u_offset_spin)
 
 	var v_row := HBoxContainer.new()
@@ -142,14 +148,12 @@ func _ready() -> void:
 	v_lbl.add_theme_font_size_override("font_size", 11)
 	v_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v_row.add_child(v_lbl)
-	_auto_uv_v_offset_spin = SpinBox.new()
-	_auto_uv_v_offset_spin.min_value = -1.0
-	_auto_uv_v_offset_spin.max_value = 1.0
-	_auto_uv_v_offset_spin.step = 0.01
-	_auto_uv_v_offset_spin.value = 0.0
+	_auto_uv_v_offset_spin = GoBuildUndoSpinBox.new()
+	_auto_uv_v_offset_spin.configure(-1.0, 1.0, 0.01, 0.0)
 	_auto_uv_v_offset_spin.add_theme_font_size_override("font_size", 11)
 	_auto_uv_v_offset_spin.tooltip_text = "Vertical UV offset."
 	_auto_uv_v_offset_spin.value_changed.connect(_on_auto_uv_param_changed)
+	_auto_uv_v_offset_spin.spin_committed.connect(_on_auto_uv_spin_committed)
 	v_row.add_child(_auto_uv_v_offset_spin)
 
 	var seam_row := HBoxContainer.new()
@@ -159,16 +163,21 @@ func _ready() -> void:
 	seam_lbl.add_theme_font_size_override("font_size", 11)
 	seam_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	seam_row.add_child(seam_lbl)
-	_auto_uv_seam_rot_spin = SpinBox.new()
-	_auto_uv_seam_rot_spin.min_value = -180.0
-	_auto_uv_seam_rot_spin.max_value = 180.0
-	_auto_uv_seam_rot_spin.step = 1.0
-	_auto_uv_seam_rot_spin.value = 0.0
-	_auto_uv_seam_rot_spin.suffix = "°"
+	_auto_uv_seam_rot_spin = GoBuildUndoSpinBox.new()
+	_auto_uv_seam_rot_spin.configure(-180.0, 180.0, 1.0, 0.0, "°")
 	_auto_uv_seam_rot_spin.add_theme_font_size_override("font_size", 11)
 	_auto_uv_seam_rot_spin.tooltip_text = "Seam rotation for Cylinder/Sphere modes (degrees)."
 	_auto_uv_seam_rot_spin.value_changed.connect(_on_auto_uv_param_changed)
+	_auto_uv_seam_rot_spin.spin_committed.connect(_on_auto_uv_spin_committed)
 	seam_row.add_child(_auto_uv_seam_rot_spin)
+
+	# Safety timer: if spin_committed is not emitted (unlikely edge case),
+	# commit after 2 seconds of inactivity as a fallback.
+	_auto_uv_commit_timer = Timer.new()
+	_auto_uv_commit_timer.one_shot = true
+	_auto_uv_commit_timer.wait_time = 2.0
+	_auto_uv_commit_timer.timeout.connect(commit_auto_uv_params)
+	add_child(_auto_uv_commit_timer)
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +185,10 @@ func _ready() -> void:
 # ---------------------------------------------------------------------------
 
 ## Override so the back-face and Auto UV widgets track the new target.
+## Commits any active Auto UV param preview before switching.
 func set_target(target: GoBuildMeshInstance) -> void:
+	if _auto_uv_editing:
+		commit_auto_uv_params()
 	# Clear the cull override on the old target before switching.
 	if _target != null and is_instance_valid(_target):
 		_target.set_edit_cull_override(false)
@@ -279,10 +291,13 @@ func _on_cull_check_toggled(enabled: bool) -> void:
 
 
 ## Write the new Auto UV mode to the active target.
-## Triggers an immediate undoable re-projection of all unoverridden faces.
+## Commits any active param preview first, then triggers an immediate
+## undoable re-projection of all unoverridden faces.
 func _on_auto_uv_mode_selected(index: int) -> void:
 	if _target == null:
 		return
+	if _auto_uv_editing:
+		commit_auto_uv_params()
 	var new_mode := _auto_uv_option.get_item_id(index) as GoBuildFace.UvMode
 	_target.auto_uv_mode = new_mode
 	_sync_auto_uv_params_visibility()
@@ -312,10 +327,19 @@ func _sync_auto_uv_params_visibility() -> void:
 
 
 ## Called when any Auto UV parameter spinbox changes.
-## Writes the new value to the target and triggers an immediate re-projection.
+## Enters preview mode on first change, then live-updates without creating
+## undo entries on every tick.  Undo is created once when the user commits
+## (focus leaves the spinboxes or the drawer switches targets).
 func _on_auto_uv_param_changed(_value: float) -> void:
-	if _target == null or _plugin == null:
+	if _target == null or _plugin == null or _auto_uv_committing:
 		return
+	if not _auto_uv_editing:
+		_auto_uv_editing = true
+		_auto_uv_snapshot = _target.go_build_mesh.take_snapshot()
+		_auto_uv_old_scale = _target.auto_uv_scale
+		_auto_uv_old_offset = _target.auto_uv_offset
+		_auto_uv_old_seam_rot = _target.auto_uv_seam_rotation
+		_target.begin_preview()
 	var new_scale: float = _auto_uv_scale_spin.value
 	var new_offset: Vector2 = Vector2(
 			_auto_uv_u_offset_spin.value,
@@ -324,4 +348,115 @@ func _on_auto_uv_param_changed(_value: float) -> void:
 	_target.auto_uv_scale = new_scale
 	_target.auto_uv_offset = new_offset
 	_target.auto_uv_seam_rotation = new_seam_rot
-	_run_op("Set Auto UV Params", func(): pass, false)
+	_target.go_build_mesh.restore_snapshot(_auto_uv_snapshot)
+	_target._apply_auto_uv()
+	_target.bake_preview()
+	# Restart the auto-commit timer — if the user stops adjusting for 0.8s,
+	# the preview is committed as a single undoable action.
+	_auto_uv_commit_timer.start()
+
+
+## Called when any GoBuildUndoSpinBox emits spin_committed (mouse-up after drag
+## or Enter in the LineEdit).  Commits the param preview immediately.
+func _on_auto_uv_spin_committed(_value: float) -> void:
+	if _auto_uv_editing:
+		_auto_uv_commit_timer.stop()
+		commit_auto_uv_params()
+
+
+## Commit the Auto UV parameter preview as a single undoable action.
+## The undo path restores both the mesh snapshot and the old param values,
+## then re-projects UVs and bakes.  The do path re-applies the new params,
+## re-projects, and bakes.  Both paths sync the sidebar spinboxes.
+func commit_auto_uv_params() -> void:
+	if not _auto_uv_editing or _target == null or _plugin == null:
+		_auto_uv_commit_timer.stop()
+		return
+	_auto_uv_editing = false
+	_auto_uv_committing = true
+	_auto_uv_commit_timer.stop()
+	_target.end_preview()
+	# Restore pre-edit mesh state from the snapshot taken at the start of editing.
+	_target.go_build_mesh.restore_snapshot(_auto_uv_snapshot)
+	# We already have the pre-edit snapshot — use it directly.  No need to
+	# re-apply old params and bake first; the do method will apply final params.
+	var snapshot: Dictionary = _auto_uv_snapshot
+	_auto_uv_snapshot = {}
+	var old_scale: float = _auto_uv_old_scale
+	var old_offset: Vector2 = _auto_uv_old_offset
+	var old_seam_rot: float = _auto_uv_old_seam_rot
+	var final_scale: float = _auto_uv_scale_spin.value
+	var final_offset: Vector2 = Vector2(
+			_auto_uv_u_offset_spin.value,
+			_auto_uv_v_offset_spin.value)
+	var final_seam_rot: float = deg_to_rad(_auto_uv_seam_rot_spin.value)
+	var target_ref: GoBuildMeshInstance = _target
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	ur.create_action("Set Auto UV Params")
+	# Tell Godot's undo system about the @export property changes so they are
+	# tracked correctly and undo/redo restores them in the Inspector too.
+	ur.add_do_property(target_ref, "auto_uv_scale", final_scale)
+	ur.add_do_property(target_ref, "auto_uv_offset", final_offset)
+	ur.add_do_property(target_ref, "auto_uv_seam_rotation", final_seam_rot)
+	ur.add_undo_property(target_ref, "auto_uv_scale", old_scale)
+	ur.add_undo_property(target_ref, "auto_uv_offset", old_offset)
+	ur.add_undo_property(target_ref, "auto_uv_seam_rotation", old_seam_rot)
+	ur.add_do_method(self, "_auto_uv_do_apply",
+			target_ref, snapshot)
+	ur.add_undo_method(self, "_auto_uv_undo_apply",
+			target_ref, snapshot)
+	ur.commit_action()
+	_auto_uv_committing = false
+
+
+## Do-path: restore pre-edit mesh, re-apply UVs with new params, and bake.
+## [param target_ref] is captured at commit time so undo/redo always targets the
+## correct node even if the drawer has since switched to a different instance.
+## Properties (auto_uv_scale, auto_uv_offset, auto_uv_seam_rotation) are already
+## set by EditorUndoRedoManager via add_do_property before this method runs.
+func _auto_uv_do_apply(
+		target_ref: GoBuildMeshInstance,
+		snapshot: Dictionary,
+) -> void:
+	if target_ref == null or not is_instance_valid(target_ref):
+		return
+	target_ref.go_build_mesh.restore_snapshot(snapshot)
+	if target_ref.auto_uv_mode != GoBuildFace.UvMode.NONE:
+		target_ref._apply_auto_uv()
+	target_ref.bake()
+	target_ref.update_gizmos()
+	if target_ref == _target:
+		_sync_auto_uv_params(target_ref)
+
+
+## Undo-path: restore pre-edit mesh, re-apply UVs with old params, and bake.
+## Properties are already restored by add_undo_property before this method runs.
+func _auto_uv_undo_apply(
+		target_ref: GoBuildMeshInstance,
+		snapshot: Dictionary,
+) -> void:
+	if target_ref == null or not is_instance_valid(target_ref):
+		return
+	target_ref.go_build_mesh.restore_snapshot(snapshot)
+	if target_ref.auto_uv_mode != GoBuildFace.UvMode.NONE:
+		target_ref._apply_auto_uv()
+	target_ref.bake()
+	target_ref.update_gizmos()
+	if target_ref == _target:
+		_sync_auto_uv_params(target_ref)
+
+
+## Cancel the Auto UV parameter preview and restore the pre-edit state.
+func cancel_auto_uv_params() -> void:
+	if not _auto_uv_editing or _target == null:
+		return
+	_auto_uv_editing = false
+	_target.end_preview()
+	_target.go_build_mesh.restore_snapshot(_auto_uv_snapshot)
+	_target.auto_uv_scale = _auto_uv_old_scale
+	_target.auto_uv_offset = _auto_uv_old_offset
+	_target.auto_uv_seam_rotation = _auto_uv_old_seam_rot
+	_target._apply_auto_uv()
+	_target.bake()
+	_auto_uv_snapshot = {}
+	_sync_auto_uv_params(_target)

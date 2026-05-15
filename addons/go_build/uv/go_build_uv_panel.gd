@@ -64,9 +64,19 @@ func refresh() -> void:
 # ---------------------------------------------------------------------------
 
 func _ready() -> void:
+	# Toolbar rows wrapped in a horizontal ScrollContainer so they scroll
+	# if the dock is narrow, while the canvas below expands normally.
+	var toolbar_scroll := ScrollContainer.new()
+	toolbar_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	toolbar_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	toolbar_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var toolbar_vbox := VBoxContainer.new()
+	toolbar_scroll.add_child(toolbar_vbox)
+
 	# Toolbar row 1.
 	var header := HBoxContainer.new()
-	add_child(header)
+	toolbar_vbox.add_child(header)
 
 	var title := Label.new()
 	title.text = "UV View"
@@ -91,11 +101,11 @@ func _ready() -> void:
 	reset_btn.pressed.connect(_on_reset_pressed)
 	header.add_child(reset_btn)
 
-	add_child(HSeparator.new())
+	toolbar_vbox.add_child(HSeparator.new())
 
 	# Toolbar row 2 — transform mode buttons.
 	var xform_bar := HBoxContainer.new()
-	add_child(xform_bar)
+	toolbar_vbox.add_child(xform_bar)
 
 	_select_mode_btn = Button.new()
 	_select_mode_btn.text = "Face"
@@ -138,11 +148,11 @@ func _ready() -> void:
 	_bg_btn.pressed.connect(_on_bg_pressed)
 	xform_bar.add_child(_bg_btn)
 
-	add_child(HSeparator.new())
+	toolbar_vbox.add_child(HSeparator.new())
 
 	# Toolbar row 3 — island operations.
 	var island_bar := HBoxContainer.new()
-	add_child(island_bar)
+	toolbar_vbox.add_child(island_bar)
 
 	_pack_btn = Button.new()
 	_pack_btn.text = "Pack"
@@ -181,6 +191,7 @@ func _ready() -> void:
 	spacer2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	xform_bar.add_child(spacer2)
 
+	add_child(toolbar_scroll)
 	add_child(HSeparator.new())
 
 	# Canvas — occupies all remaining vertical space.

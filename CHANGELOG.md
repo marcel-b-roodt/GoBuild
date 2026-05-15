@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.6.0] — 2026-05-14
+## [0.6.0] — 2026-05-15
 
 ### Added
 - Infinite scroll for param-preview operations (Extrude, Inset, Bevel, Loop Cut,
@@ -28,16 +28,50 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   accumulated screen-space deltas instead of ray-cast/project approaches.
 - 10x rotation sensitivity — rotate handles now produce usable angles per pixel
   of mouse travel, matching the feel of Blender's rotation gizmo.
+- Precision-scaled overlay indicator with anchor dot, directional colour line,
+  and live parameter text. Precision mode (Shift) scales sensitivity to 10%
+  and seamlessly toggles mid-drag via anchor re-capture.
+- Clamp folding — when a drag parameter hits min/max bounds, excess delta is
+  folded back so reversing direction responds instantly with no dead zone.
+- Directional extrude — new shapes created by Extrude Face or Extrude Edge
+  orient their outward normal toward the camera, matching modeller expectation.
+- Negative extrude support — drag left/down from the anchor to extrude inward.
+- Inset and bevel preview — Shift+drag on scale handles starts an inset preview;
+  the inset amount responds to mouse movement in real time.
+- Fill/Bridge operation — fills a closed boundary loop with a new face, or bridges
+  two open boundary chains. Single "Bridge/Fill" button auto-detects topology.
+- Auto-select after Extrude Edge — newly created edges are automatically selected
+  when the extrude commits, ready for further modelling.
+- Post-commit selection callbacks on DragOperation and ParamPreview, with reusable
+  `_make_select_edges_fn`, `_make_select_faces_fn`, `_make_select_vertices_fn`
+  helpers in GoBuildDrawer.
 - Auto UV parameter controls — Scale, U/V Offset, and Seam Rotation are now
-  exposed as editable spinboxes in the General drawer when Auto UV is active.
-  Seam Rotation only appears for Cylinder and Sphere modes. Changing any
-  parameter immediately re-projects and bakes. All values are @export and persist
-  in saved scenes.
+  editable spinboxes in the General drawer when Auto UV is active.
+  Seam Rotation only appears for Cylinder and Sphere modes. Adjustments are
+  live-previewed and committed as a single undo step (add_do_property/add_undo_property)
+  when the user releases the spin-drag or presses Enter. Undo/redo correctly
+  restores the auto_uv_scale, auto_uv_offset, and auto_uv_seam_rotation properties
+  and syncs the sidebar spinboxes.
+- GoBuildUndoSpinBox — new SpinBox subclass that emits spin_committed on
+  mouse-up after a drag and on Enter in the LineEdit, enabling proper undo
+  commit timing for parameter editing.
 - UV projection buttons (Planar, Box, Cylinder, Sphere) now show the projection
   result immediately on click — no need to nudge a spinbox first.
+- UV rotation display in the UV editor now folds cumulative angles into ±360°
+  so the readout wraps instead of growing without bound.
+- UV view now centres on the 0-1 tile by default instead of showing the origin
+  in the top-left corner.
+- UV panel toolbar now scrolls horizontally when the dock is narrow, while the
+  canvas continues to fill available space.
+- GoBuild panel (side dock) no longer enforces a minimum width — the dock is
+  freely resizable, with a horizontal scrollbar appearing when content overflows.
 - Show Backfaces toggle now works on all material types — ShaderMaterial and
   other non-BaseMaterial3D surfaces get a semi-transparent blue double-sided
   override instead of being silently skipped.
+- Materials drawer overhauled: quickset buttons removed, replaced by
+  auto-discovered palettes with in-panel CRUD, per-slot [Use] and [x],
+  and Object-mode [Use] that assigns to all faces. Palette migration from
+  deprecated array to disk on first load.
 
 ### Changed
 - Retired GoBuildDragHandler — deleted entirely. GizmoPlugin, SIC, and plugin.gd
@@ -51,10 +85,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   calls in GoBuildGizmoPlugin converted. No ungated debug output remains.
 - _apply_auto_uv now reads auto_uv_scale, auto_uv_offset, and
   auto_uv_seam_rotation from the instance instead of hardcoded 1.0/0/0.
-- Materials drawer overhauled: quickset buttons removed, replaced by
-  auto-discovered palettes with in-panel CRUD, per-slot [Use] and [x],
-  and Object-mode [Use] that assigns to all faces. Palette migration from
-  deprecated array to disk on first load.
+- Refactored GoBuildGizmoPlugin to persist Godot's native transform mode
+  (Move/Rotate/Scale) across Object/Edit mode switches instead of saving and
+  restoring it independently.
+- Extracted GoBuildDrawer._make_select_*_fn static helpers from inline lambdas
+  in GoBuildFaceDrawer and GoBuildEdgeDrawer. All post-commit selection callbacks
+  now flow through these reusable factories.
+- Right-click context menu now consumes the mouse event so Godot's editor does
+  not also start a camera orbit. Object mode right-click still passes through
+  for native editor behaviour.
 
 ### Fixed
 - Context menu no longer causes cursor jump or viewport pan when opened in
@@ -65,53 +104,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   selection is far from origin.
 - Precision inset range — inset drags with Shift held can now reach the full
   0–1 range instead of being limited by the old snap-overwrite bug.
-
----
-
-## [0.6.0-dev1] — 2026-05-11
-
-### Added
-- Unified drag/operation pipeline (`GoBuildDragController` + `GoBuildDragOperation`):
-  param-preview operations (Extrude, Inset, Bevel, Loop Cut, Edge Extrude) and
-  gizmo drags (Translate, Rotate, Scale, Plane, Viewport-plane) now share a
-  single pipeline for delta accumulation, precision mode, commit, and cancel.
-- Precision-scaled overlay indicator with anchor dot, directional colour line,
-  and live parameter text.  Precision mode (Shift) scales sensitivity to 10%
-  and seamlessly toggles mid-drag via anchor re-capture.
-- Clamp folding: when the drag parameter hits min/max bounds, excess delta is
-  folded back so reversing direction responds instantly — no dead zone.
-- Directional extrude: new shapes created by Extrude Face or Extrude Edge
-  orient their outward normal toward the camera, matching modeller expectation.
-- Negative extrude support: drag left / down from the anchor to extrude inward.
-- Inset and bevel preview: Shift+drag on scale handles starts an inset preview;
-  the inset amount responds to mouse movement in real time.
-- Fill operation (`FillOperation`): fills a closed boundary loop with a new
-  face. Combined into a single "Bridge/Fill" button that auto-detects topology
-  (two boundary chains → bridge; one closed loop → fill). Full undo/redo.
-- Auto-select after Extrude Edge: newly created edges are automatically selected
-  when the extrude operation commits, ready for further modelling.
-- Post-commit selection callback pattern (`post_commit_fn`) on `GoBuildDragOperation`
-  and `GoBuildParamPreview` — extensible hook for side effects after commit.
-  Drawer helpers `_make_select_edges_fn`, `_make_select_faces_fn`,
-  `_make_select_vertices_fn` create these callbacks from selection state.
-
-### Changed
-- Refactor: extracted `GoBuildDrawer._make_select_*_fn` static helpers from
-  inline lambdas in `GoBuildFaceDrawer` and `GoBuildEdgeDrawer`.  All
-  post-commit selection callbacks now flow through these reusable factories.
-- Refactor: `GoBuildGizmoPlugin` persists the Godot native transform mode
-  (Move/Rotate/Scale) across Object/Edit mode switches instead of saving and
-  restoring it independently.
-
-### Fixed
-- Gizmo handle picking now uses `compute_world_gizmo_scale()` with the selection
-  centroid instead of `compute_node_gizmo_scale()` with the node origin.  This
-  eliminates the desync between where handles are drawn and where they are
-  clickable when the selection centroid is far from the node origin.
-- Right-click in Vertex/Edge/Face mode now consumes the mouse event so
-  Godot's editor does not also start a camera orbit.  This fixes the cursor
-  jumping and viewport shifting when opening the GoBuild context menu.
-  In Object mode, right-click still passes through for native editor behaviour.
+- Dock panel no longer forces a minimum width — users can freely resize the
+  GoBuild and UV docks, with horizontal scrollbars appearing when content
+  overflows.
 
 ---
 

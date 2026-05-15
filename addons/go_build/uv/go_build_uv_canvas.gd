@@ -163,10 +163,10 @@ func set_target(node: MeshInstance3D) -> void:
 	reset_view()
 
 
-## Reset pan and zoom to defaults and trigger a redraw.
+## Reset pan and zoom to defaults, centring the 0-1 UV tile in the view.
 func reset_view() -> void:
 	_zoom = _ZOOM_DEFAULT
-	_pan  = Vector2.ZERO
+	_pan = Vector2(-0.5 * _zoom, -0.5 * _zoom)
 	queue_redraw()
 
 

@@ -124,7 +124,7 @@ func _enter_tree() -> void:
 	_panel_scroll = ScrollContainer.new()
 	_panel_scroll.name = "GoBuild"
 	_panel_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_panel_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_panel_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	_panel_scroll.add_child(_panel)
 	# Place in the upper-left dock alongside Scene, Import, and GoBuild UV so
 	# all GoBuild panels live in the same dock group.
@@ -134,7 +134,6 @@ func _enter_tree() -> void:
 
 	_uv_panel = _UV_PANEL_SCRIPT.new()
 	_uv_panel.name = "GoBuild UV"
-	_uv_panel.custom_minimum_size = Vector2(200.0, 180.0)
 	# Place in the upper-left dock alongside the Scene and Import tabs so the
 	# UV view is adjacent to the scene tree and feels like a natural workspace.
 	add_control_to_dock(DOCK_SLOT_LEFT_UL, _uv_panel)

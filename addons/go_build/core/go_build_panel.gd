@@ -87,7 +87,6 @@ func update_context(text: String) -> void:
 
 func _ready() -> void:
 	name = "GoBuild"
-	custom_minimum_size = Vector2(180, 0)
 
 	# ── Header ──────────────────────────────────────────────────────────
 	var header := Label.new()
