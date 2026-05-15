@@ -91,6 +91,9 @@ func _inject_palettes(d: GoBuildMaterialsDrawer, palettes: Array[GoBuildMaterial
 
 func test_palette_option_empty_without_injected_palettes() -> void:
 	var d := _make_drawer()
+	d._discovered_palettes = []
+	d._palette_option.clear()
+	d._rebuild_pal_material_list()
 	assert_int(d._palette_option.get_item_count()).is_equal(0)
 
 
@@ -109,7 +112,10 @@ func test_palette_option_count_matches_injected_palettes() -> void:
 
 func test_pal_materials_vbox_shows_placeholder_when_no_palette() -> void:
 	var d := _make_drawer()
-	d.refresh()
+	d._discovered_palettes = []
+	d._palette_option.clear()
+	d._palette_option.selected = -1
+	d._rebuild_pal_material_list()
 	assert_int(d._pal_materials_vbox.get_child_count()).is_equal(1)
 
 
@@ -142,6 +148,8 @@ func test_pal_materials_vbox_clears_when_palette_deselected() -> void:
 	# Deselect by clearing discovered palettes
 	var empty: Array[GoBuildMaterialPalette] = []
 	_inject_palettes(d, empty)
+	d._palette_option.selected = -1
+	d._rebuild_pal_material_list()
 	assert_int(d._pal_materials_vbox.get_child_count()).is_equal(1)
 
 

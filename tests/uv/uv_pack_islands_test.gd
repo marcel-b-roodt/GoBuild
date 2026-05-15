@@ -18,7 +18,7 @@ func _make_two_island_mesh() -> GoBuildMesh:
 	f1.uvs = [Vector2(0.0, 0.0), Vector2(0.5, 0.0), Vector2(0.5, 0.5), Vector2(0.0, 0.5)]
 	var f2 := GoBuildFace.new()
 	f2.vertex_indices = [4, 5, 6, 7]
-	f2.uvs = [Vector2(0.5, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 0.5), Vector2(0.5, 0.5)]
+	f2.uvs = [Vector2(0.6, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 0.5), Vector2(0.6, 0.5)]
 	gbm.faces = [f1, f2]
 	return gbm
 

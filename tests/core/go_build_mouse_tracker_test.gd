@@ -180,19 +180,19 @@ func test_end_resets_state() -> void:
 # Filter count — initial large deltas are skipped
 # ---------------------------------------------------------------------------
 
-func test_large_initial_delta_filtered() -> void:
+func test_large_initial_delta_filtered_via_feed() -> void:
 	var t := _make()
 	t.begin(Vector2(640, 360), Vector2(1280, 720), true, Vector2(1, 0), 0.005)
-	# A 60px delta is > 50px threshold, should be filtered (filter_count starts at 4)
-	t.feed_raw_delta(Vector2(60, 0), false)
-	# Delta should still be 0 because the large delta was filtered
+	var evt := InputEventMouseMotion.new()
+	evt.relative = Vector2(60, 0)
+	evt.position = Vector2(640, 360)
+	t.feed(evt)
 	assert_float(t.get_delta()).is_equal_approx(0.0, 0.001)
 
 
 func test_small_delta_passes_filter() -> void:
 	var t := _make()
 	t.begin(Vector2(640, 360), Vector2(1280, 720), true, Vector2(1, 0), 0.005)
-	# A 1px delta is well under 50px threshold, passes filter and resets it
 	t.feed_raw_delta(Vector2(1, 0), false)
 	assert_float(t.get_delta()).is_equal_approx(1.0, 0.001)
 

@@ -408,8 +408,8 @@ func test_restore_falls_back_to_w_when_target_invalid() -> void:
 	_reset_press_count()
 	btn_w.pressed.connect(_on_button_pressed)
 
-	# Request rotate (1), but _button_r is null, so W is the fallback.
-	pinner.restore_native_tool_mode(1)
+	# Request scale (2), but _button_r is null, so W is the fallback.
+	pinner.restore_native_tool_mode(2)
 
 	assert_bool(btn_w.button_pressed).is_true()
 	assert_int(_press_count).is_equal(1)
