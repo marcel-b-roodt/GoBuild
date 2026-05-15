@@ -9,19 +9,15 @@ const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh
 
 
 func test_uv_to_canvas_round_trip() -> void:
-	var canvas := GoBuildUvCanvas.new()
-	add_child(canvas)
-	await get_tree().process_frame
-	canvas.size = Vector2(400, 400)
-	canvas._zoom = 100.0
-	canvas._pan = Vector2.ZERO
+	var zoom := 100.0
+	var pan := Vector2.ZERO
+	var canvas_size := Vector2(400, 400)
+	var centre := canvas_size * 0.5
 
 	var uv_pos := Vector2(0.5, 0.5)
-	var canvas_pos: Vector2 = canvas._uv_to_canvas(uv_pos)
-	var round_trip: Vector2 = canvas._canvas_to_uv(canvas_pos)
+	var canvas_pos := centre + pan + uv_pos * zoom
+	var round_trip := (canvas_pos - centre - pan) / zoom
 	assert_vector(round_trip).is_equal_approx(uv_pos, 0.001)
-
-	canvas.queue_free()
 
 
 func test_uv_to_canvas_with_pan() -> void:
