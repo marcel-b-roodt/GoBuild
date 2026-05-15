@@ -11,7 +11,7 @@ const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh
 func test_uv_to_canvas_round_trip() -> void:
 	var canvas := GoBuildUvCanvas.new()
 	add_child(canvas)
-	await await_frame
+	await get_tree().process_frame
 	canvas.size = Vector2(400, 400)
 	canvas._zoom = 100.0
 	canvas._pan = Vector2.ZERO
