@@ -73,9 +73,9 @@ func test_panel_extends_vboxcontainer() -> void:
 	assert_bool(panel is VBoxContainer).is_true()
 
 
-func test_panel_has_positive_minimum_width() -> void:
+func test_panel_has_no_forced_minimum_width() -> void:
 	var panel := _make_panel()
-	assert_bool(panel.custom_minimum_size.x > 0.0).is_true()
+	assert_float(panel.custom_minimum_size.x).is_equal(0.0)
 
 
 # ---------------------------------------------------------------------------
