@@ -12,6 +12,10 @@
 class_name GoBuildUvCanvas
 extends Control
 
+## Emitted when the background mode or material index changes (including
+## auto-switch), so the panel can update its dropdown.
+signal bg_mode_changed
+
 ## Transform mode for island manipulation.
 enum UvTransformMode {
 	MOVE   = 0,
@@ -22,8 +26,10 @@ enum UvTransformMode {
 ## Background image mode for the UV tile.
 enum UvBgMode {
 	CHECKER  = 0,
-	TEXTURE  = 1,
-	OFF      = 2,
+	OFF      = 1,
+	## Show the albedo texture from a specific material slot.
+	## The slot index is stored in _bg_material_index.
+	TEXTURE  = 2,
 }
 
 ## Selection mode inside the UV editor.
@@ -97,6 +103,17 @@ var _transform_mode: UvTransformMode = UvTransformMode.MOVE
 
 ## Active background mode (checker / texture / off).
 var _bg_mode: UvBgMode = UvBgMode.CHECKER
+
+## Which material slot to display the albedo texture for when
+## [member _bg_mode] is [constant UvBgMode.TEXTURE].
+var _bg_material_index: int = 0
+
+## When true, the background texture auto-switches to the material
+## of the first selected face.
+var _auto_switch_bg: bool = true
+
+## When true, only selected faces are drawn; unselected faces are hidden.
+var _isolate_selected: bool = false
 
 ## Active selection mode (face / vertex) in the UV editor.
 var _uv_select_mode: UvSelectMode = UvSelectMode.FACE
@@ -196,17 +213,59 @@ func get_bg_mode() -> UvBgMode:
 	return _bg_mode
 
 
-## Cycle [enum UvBgMode]: Checker -> Texture -> Off -> Checker.
+## Cycle [enum UvBgMode]: Checker -> Off -> TEXTURE (slot 0) -> Checker.
+## Note: the UV panel uses a dropdown instead of this cycle method.
 func cycle_bg_mode() -> void:
-	_bg_mode = (_bg_mode + 1) as UvBgMode
-	if _bg_mode > UvBgMode.OFF:
-		_bg_mode = UvBgMode.CHECKER
+	match _bg_mode:
+		UvBgMode.CHECKER:
+			_bg_mode = UvBgMode.OFF
+		UvBgMode.OFF:
+			_bg_mode = UvBgMode.TEXTURE
+			_bg_material_index = 0
+		UvBgMode.TEXTURE:
+			_bg_mode = UvBgMode.CHECKER
+	bg_mode_changed.emit()
 	queue_redraw()
 
 
 ## Set [enum UvBgMode] directly.
 func set_bg_mode(mode: UvBgMode) -> void:
 	_bg_mode = mode
+	bg_mode_changed.emit()
+	queue_redraw()
+
+
+## Return the material slot index shown in the background texture dropdown.
+func get_bg_material_index() -> int:
+	return _bg_material_index
+
+
+## Set which material slot's albedo texture to display as the background.
+func set_bg_material_index(idx: int) -> void:
+	_bg_material_index = idx
+	_bg_mode = UvBgMode.TEXTURE
+	bg_mode_changed.emit()
+	queue_redraw()
+
+
+## Return whether auto-switching the background texture on selection is enabled.
+func is_auto_switch_bg() -> bool:
+	return _auto_switch_bg
+
+
+## Enable or disable auto-switching the background texture on selection.
+func set_auto_switch_bg(enabled: bool) -> void:
+	_auto_switch_bg = enabled
+
+
+## Return whether only selected faces are shown (isolation mode).
+func is_isolate_selected() -> bool:
+	return _isolate_selected
+
+
+## Enable or disable isolation mode (show only selected faces).
+func set_isolate_selected(enabled: bool) -> void:
+	_isolate_selected = enabled
 	queue_redraw()
 
 
@@ -239,10 +298,12 @@ func set_uv_select_mode(mode: UvSelectMode) -> void:
 # ---------------------------------------------------------------------------
 
 func _on_mesh_changed() -> void:
+	_auto_switch_bg_to_selection()
 	queue_redraw()
 
 
 func _on_selection_changed() -> void:
+	_auto_switch_bg_to_selection()
 	queue_redraw()
 
 
@@ -287,7 +348,7 @@ func _draw_grid() -> void:
 					_uv_to_canvas(Vector2(1.0, 1.0)) - _uv_to_canvas(Vector2.ZERO)
 				), false)
 		UvBgMode.TEXTURE:
-			var tex := _get_albedo_texture()
+			var tex := _get_bg_texture()
 			if tex != null:
 				draw_texture_rect(tex, tile_rect, false)
 
@@ -316,33 +377,39 @@ func _draw_tiled_checker(_visible_rect: Rect2, _tl: Vector2, _br: Vector2) -> vo
 
 ## Draw every face's UV polygon, highlighting selected faces.
 ## Selected faces are drawn last so they appear on top of unselected ones.
+## When [member _isolate_selected] is true, only selected faces are drawn.
 func _draw_faces() -> void:
 	var gbm: GoBuildMesh = _target.go_build_mesh
 	var selected: Array[int] = []
 	if _target.selection.get_mode() == SelectionManager.Mode.FACE:
 		selected = _target.selection.get_selected_faces()
 
+	# Build a set for O(1) lookup.
+	var sel_set: Dictionary = {}
+	for fi: int in selected:
+		sel_set[fi] = true
+
 	# Pass 1: unselected faces (wireframe only).
-	for fi: int in gbm.faces.size():
-		var face: GoBuildFace = gbm.faces[fi]
-		if face.uvs.size() < 3:
-			continue
-		var is_sel: bool = selected.has(fi)
-		if is_sel:
-			continue
-		var pts := PackedVector2Array()
-		for uv: Vector2 in face.uvs:
-			pts.append(_uv_to_canvas(uv))
-		var closed_pts: PackedVector2Array = pts + PackedVector2Array([pts[0]])
-		draw_polyline(closed_pts, _FACE_WIRE_COLOR, 1.0)
+	# Skip entirely when isolating selected faces.
+	if not _isolate_selected:
+		for fi: int in gbm.faces.size():
+			var face: GoBuildFace = gbm.faces[fi]
+			if face.uvs.size() < 3:
+				continue
+			if sel_set.has(fi):
+				continue
+			var pts := PackedVector2Array()
+			for uv: Vector2 in face.uvs:
+				pts.append(_uv_to_canvas(uv))
+			var closed_pts: PackedVector2Array = pts + PackedVector2Array([pts[0]])
+			draw_polyline(closed_pts, _FACE_WIRE_COLOR, 1.0)
 
 	# Pass 2: selected faces (fill + wireframe on top).
 	for fi: int in gbm.faces.size():
 		var face: GoBuildFace = gbm.faces[fi]
 		if face.uvs.size() < 3:
 			continue
-		var is_sel: bool = selected.has(fi)
-		if not is_sel:
+		if not sel_set.has(fi):
 			continue
 		var pts := PackedVector2Array()
 		for uv: Vector2 in face.uvs:
@@ -353,6 +420,7 @@ func _draw_faces() -> void:
 
 
 ## Draw dots at every UV vertex; highlight selected ones.
+## When [member _isolate_selected] is true, only draw vertices on selected faces.
 func _draw_uv_vertices() -> void:
 	if _target == null or _target.go_build_mesh == null:
 		return
@@ -361,7 +429,18 @@ func _draw_uv_vertices() -> void:
 	for v: Vector2i in _selected_uv_verts:
 		sel_set[v] = true
 
+	# When isolating, only draw vertices on selected faces.
+	var visible_faces: Dictionary = {}
+	if _isolate_selected:
+		var selected: Array[int] = []
+		if _target.selection.get_mode() == SelectionManager.Mode.FACE:
+			selected = _target.selection.get_selected_faces()
+		for fi: int in selected:
+			visible_faces[fi] = true
+
 	for fi: int in gbm.faces.size():
+		if _isolate_selected and not visible_faces.has(fi):
+			continue
 		var face: GoBuildFace = gbm.faces[fi]
 		for vi: int in face.uvs.size():
 			var px := _uv_to_canvas(face.uvs[vi])
@@ -562,19 +641,58 @@ func _ensure_checker_tex() -> void:
 	_checker_tex = tex
 
 
-## Return the albedo [Texture2D] from the first material slot, or null.
-func _get_albedo_texture() -> Texture2D:
+## Return the albedo [Texture2D] from the material slot selected in the
+## visibility dropdown, or null if unavailable.
+func _get_bg_texture() -> Texture2D:
 	if _target == null or _target.go_build_mesh == null:
 		return null
 	var slots: Array[Material] = _target.go_build_mesh.material_slots
-	if slots.is_empty() or slots[0] == null:
+	if slots.is_empty():
 		return null
-	var mat: Material = slots[0]
+	var idx: int = _bg_material_index
+	if idx < 0 or idx >= slots.size():
+		return null
+	var mat: Material = slots[idx]
+	if mat == null:
+		return null
 	if mat is StandardMaterial3D:
 		var smat: StandardMaterial3D = mat
 		if smat.albedo_texture != null:
 			return smat.albedo_texture
 	return null
+
+
+## Auto-switch the background texture to match the first selected face's
+## material, if [member _auto_switch_bg] is enabled.
+func _auto_switch_bg_to_selection() -> void:
+	if not _auto_switch_bg:
+		return
+	if _target == null or _target.go_build_mesh == null:
+		return
+	var selected: Array[int] = []
+	if _target.selection.get_mode() == SelectionManager.Mode.FACE:
+		selected = _target.selection.get_selected_faces()
+	if selected.is_empty():
+		return
+	var gbm: GoBuildMesh = _target.go_build_mesh
+	var first_face: GoBuildFace = gbm.faces[selected[0]]
+	var mat_idx: int = first_face.material_index
+	if mat_idx < gbm.material_slots.size():
+		var mat: Material = gbm.material_slots[mat_idx]
+		if mat != null and mat is StandardMaterial3D:
+			var smat: StandardMaterial3D = mat as StandardMaterial3D
+			if smat.albedo_texture != null:
+				_bg_material_index = mat_idx
+				_bg_mode = UvBgMode.TEXTURE
+				bg_mode_changed.emit()
+
+
+## Build a Dictionary set of face indices from an array for O(1) lookup.
+func _make_face_set(face_indices: Array[int]) -> Dictionary:
+	var d: Dictionary = {}
+	for fi: int in face_indices:
+		d[fi] = true
+	return d
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +705,30 @@ func _pick_face(uv_pos: Vector2) -> int:
 	if _target == null or _target.go_build_mesh == null:
 		return -1
 	return UvPicker.pick_face(_target.go_build_mesh, uv_pos)
+
+
+## Return the topmost face at [param uv_pos] that is visible (selected) when
+## in isolate mode, or the normal pick result otherwise.
+## In isolate mode, if the topmost face is not selected but a candidate is,
+## returns the first selected candidate instead of -1.
+func _pick_face_visible(uv_pos: Vector2) -> int:
+	if not _isolate_selected:
+		return _pick_face(uv_pos)
+	# In isolate mode, we need to find a face that is in the current selection.
+	var selected: Array[int] = []
+	if _target.selection.get_mode() == SelectionManager.Mode.FACE:
+		selected = _target.selection.get_selected_faces()
+	var vis_set := _make_face_set(selected)
+	# First check if the topmost face is visible.
+	var fi := _pick_face(uv_pos)
+	if fi >= 0 and vis_set.has(fi):
+		return fi
+	# The topmost face is hidden; check all candidates for a visible one.
+	var candidates := _pick_face_all(uv_pos)
+	for c: int in candidates:
+		if vis_set.has(c):
+			return c
+	return -1
 
 
 ## Return all face indices whose UV polygons contain or are near [param uv_pos].
@@ -835,7 +977,15 @@ func _start_drag_or_box_select(pos: Vector2) -> void:
 	var sel_faces := _get_uv_selected_faces()
 	if not sel_faces.is_empty():
 		# Check if any face under the cursor is already selected.
+		# In isolate mode, only consider visible (selected) faces for starting a drag.
 		var candidates := _pick_face_all(uv_pos)
+		if _isolate_selected:
+			var vis_set := _make_face_set(sel_faces)
+			var filtered: Array[int] = []
+			for c: int in candidates:
+				if vis_set.has(c):
+					filtered.append(c)
+			candidates = filtered
 		var start_drag := false
 		for c: int in candidates:
 			if sel_faces.has(c):
@@ -865,20 +1015,32 @@ func _do_click_select(canvas_pos: Vector2) -> void:
 
 	# Face cycling: if the click is near the previous click position, cycle
 	# through overlapping faces rather than always picking the topmost.
+	# In isolate mode, skip cycling since hidden faces are not visible.
 	var dist_from_last := uv_pos.distance_squared_to(_last_click_uv)
 	var same_spot := dist_from_last < 0.001 and not _cycle_candidates.is_empty()
-	if same_spot and not _shift_held and not _ctrl_held:
+	if same_spot and not _shift_held and not _ctrl_held and not _isolate_selected:
 		_cycle_index = (_cycle_index + 1) % _cycle_candidates.size()
 		var faces: Array[int] = [_cycle_candidates[_cycle_index]]
 		_target.selection.set_selected_faces(faces)
 		return
 
 	var candidates := _pick_face_all(uv_pos)
+	# In isolate mode, only pick from faces that are currently selected/visible.
+	if _isolate_selected:
+		var selected: Array[int] = []
+		if _target.selection.get_mode() == SelectionManager.Mode.FACE:
+			selected = _target.selection.get_selected_faces()
+		var sel_set := _make_face_set(selected)
+		var filtered: Array[int] = []
+		for c: int in candidates:
+			if sel_set.has(c):
+				filtered.append(c)
+		candidates = filtered
 	_last_click_uv = uv_pos
 	_cycle_candidates = candidates
 	_cycle_index = 0
 
-	var fi := _pick_face(uv_pos)
+	var fi := _pick_face_visible(uv_pos)
 
 	if fi < 0:
 		if not _shift_held and not _ctrl_held:
@@ -921,6 +1083,17 @@ func _finish_box_select() -> void:
 		_target.selection.set_mode(SelectionManager.Mode.FACE)
 
 	var hits := _pick_faces_in_rect(uv_rect)
+	# In isolate mode, only select from faces that are currently visible.
+	if _isolate_selected and not hits.is_empty():
+		var selected: Array[int] = []
+		if _target.selection.get_mode() == SelectionManager.Mode.FACE:
+			selected = _target.selection.get_selected_faces()
+		var vis_set := _make_face_set(selected)
+		var filtered: Array[int] = []
+		for h: int in hits:
+			if vis_set.has(h):
+				filtered.append(h)
+		hits = filtered
 	if hits.is_empty():
 		if not _shift_held and not _ctrl_held:
 			_target.selection.clear()
@@ -939,7 +1112,16 @@ func _finish_box_select() -> void:
 func _finish_box_select_vert(uv_rect: Rect2) -> void:
 	var gbm: GoBuildMesh = _target.go_build_mesh
 	var hits: Array[Vector2i] = []
+	# In isolate mode, only pick vertices from visible (selected) faces.
+	var vis_set: Dictionary = {}
+	if _isolate_selected:
+		var selected: Array[int] = []
+		if _target.selection.get_mode() == SelectionManager.Mode.FACE:
+			selected = _target.selection.get_selected_faces()
+		vis_set = _make_face_set(selected)
 	for fi: int in gbm.faces.size():
+		if _isolate_selected and not vis_set.has(fi):
+			continue
 		var face: GoBuildFace = gbm.faces[fi]
 		for vi: int in face.uvs.size():
 			if uv_rect.has_point(face.uvs[vi]):
