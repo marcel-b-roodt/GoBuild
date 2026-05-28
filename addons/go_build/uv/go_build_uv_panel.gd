@@ -42,6 +42,7 @@ var _stitch_btn: Button       = null
 var _add_tex_btn: Button      = null
 var _select_mode_btn: Button  = null
 var _repeat_spin: SpinBox     = null
+var _snap_spin: SpinBox        = null
 var _tex_file_dialog: EditorFileDialog = null
 var _suppress_bg_change: bool  = false
 var _tracked_target: GoBuildMeshInstance = null
@@ -220,6 +221,7 @@ func _add_general_controls(parent: VBoxContainer) -> void:
 
 	_bg_option = OptionButton.new()
 	_bg_option.tooltip_text = "Select background: Checker, Off, or a material texture."
+	_bg_option.custom_minimum_size = Vector2(80, 0)
 	_bg_option.item_selected.connect(_on_bg_option_selected)
 	row.add_child(_bg_option)
 	_rebuild_bg_dropdown()
@@ -239,9 +241,26 @@ func _add_general_controls(parent: VBoxContainer) -> void:
 	_repeat_spin.max_value = 8
 	_repeat_spin.value = 1
 	_repeat_spin.step = 1
+	_repeat_spin.custom_minimum_size = Vector2(50, 0)
 	_repeat_spin.tooltip_text = "Number of UV tile repeats shown in the view."
 	_repeat_spin.value_changed.connect(_on_repeat_changed)
 	row.add_child(_repeat_spin)
+
+	var snap_label := Label.new()
+	snap_label.text = "Snap:"
+	snap_label.add_theme_font_size_override("font_size", 10)
+	snap_label.add_theme_color_override("font_color", Color(0.70, 0.70, 0.70))
+	row.add_child(snap_label)
+
+	_snap_spin = SpinBox.new()
+	_snap_spin.min_value = 0.0
+	_snap_spin.max_value = 1.0
+	_snap_spin.value = 0.0625
+	_snap_spin.step = 0.0625
+	_snap_spin.custom_minimum_size = Vector2(50, 0)
+	_snap_spin.tooltip_text = "UV snap grid size (Ctrl to activate). 0 = off, 0.0625 = 1/16th."
+	_snap_spin.value_changed.connect(_on_snap_changed)
+	row.add_child(_snap_spin)
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +373,30 @@ func _on_bg_option_selected(index: int) -> void:
 func _on_isolate_pressed() -> void:
 	if _canvas != null:
 		_canvas.set_isolate_selected(_isolate_btn.button_pressed)
+	_update_isolate_btn_style()
+
+
+func _update_isolate_btn_style() -> void:
+	if _isolate_btn.button_pressed:
+		_isolate_btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+		_isolate_btn.add_theme_color_override("font_hover_color", Color(1.0, 0.90, 0.50))
+		_isolate_btn.add_theme_color_override("font_pressed_color", Color(1.0, 0.85, 0.35))
+		var pressed_bg := StyleBoxFlat.new()
+		pressed_bg.bg_color = Color(0.30, 0.25, 0.12)
+		pressed_bg.set_corner_radius_all(4)
+		pressed_bg.set_content_margin_all(4)
+		_isolate_btn.add_theme_stylebox_override("pressed", pressed_bg)
+		var hover_bg := StyleBoxFlat.new()
+		hover_bg.bg_color = Color(0.35, 0.30, 0.15)
+		hover_bg.set_corner_radius_all(4)
+		hover_bg.set_content_margin_all(4)
+		_isolate_btn.add_theme_stylebox_override("hover", hover_bg)
+	else:
+		_isolate_btn.remove_theme_color_override("font_color")
+		_isolate_btn.remove_theme_color_override("font_hover_color")
+		_isolate_btn.remove_theme_color_override("font_pressed_color")
+		_isolate_btn.remove_theme_stylebox_override("pressed")
+		_isolate_btn.remove_theme_stylebox_override("hover")
 
 
 func _on_add_tex_pressed() -> void:
@@ -452,6 +495,11 @@ func _on_tex_file_selected(path: String) -> void:
 func _on_repeat_changed(value: float) -> void:
 	if _canvas != null:
 		_canvas.set_tile_repeat(int(value))
+
+
+func _on_snap_changed(value: float) -> void:
+	if _canvas != null:
+		_canvas.set_uv_snap_size(value)
 
 
 func _on_pack_pressed() -> void:

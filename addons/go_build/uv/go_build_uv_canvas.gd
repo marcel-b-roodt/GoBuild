@@ -115,6 +115,10 @@ var _auto_switch_bg: bool = true
 ## When true, only selected faces are drawn; unselected faces are hidden.
 var _isolate_selected: bool = false
 
+## UV snap grid size. When > 0 and Ctrl is held during a drag, UV positions
+## are snapped to this increment. Default 1/16th of a UV unit (0.0625).
+var _uv_snap_size: float = 0.0625
+
 ## Active selection mode (face / vertex) in the UV editor.
 var _uv_select_mode: UvSelectMode = UvSelectMode.FACE
 
@@ -269,6 +273,22 @@ func set_isolate_selected(enabled: bool) -> void:
 	queue_redraw()
 
 
+## Return the UV snap grid size (0 = snap disabled).
+func get_uv_snap_size() -> float:
+	return _uv_snap_size
+
+
+## Set the UV snap grid size. 0 disables snapping; typical values are
+## 0.0625 (1/16), 0.125 (1/8), 0.25 (1/4), 0.5 (1/2).
+func set_uv_snap_size(size: float) -> void:
+	_uv_snap_size = size
+
+
+## Return whether snapping is currently active (Ctrl held and snap size > 0).
+func is_snapping() -> bool:
+	return _ctrl_held and _uv_snap_size > 0.0
+
+
 ## Return the tile repeat count.
 func get_tile_repeat() -> int:
 	return _tile_repeat
@@ -377,21 +397,36 @@ func _draw_tiled_checker(_visible_rect: Rect2, _tl: Vector2, _br: Vector2) -> vo
 
 ## Draw every face's UV polygon, highlighting selected faces.
 ## Selected faces are drawn last so they appear on top of unselected ones.
-## When [member _isolate_selected] is true, only selected faces are drawn.
+## When isolate is active, only faces in the 3D selection are drawn.
+## In vertex selection mode, faces are drawn as a dim wireframe without
+## selection fill so vertex dots are visually dominant.
 func _draw_faces() -> void:
 	var gbm: GoBuildMesh = _target.go_build_mesh
-	var selected: Array[int] = []
-	if _target.selection.get_mode() == SelectionManager.Mode.FACE:
-		selected = _target.selection.get_selected_faces()
+	var selected: Array[int] = _target.selection.get_selected_faces()
 
-	# Build a set for O(1) lookup.
 	var sel_set: Dictionary = {}
 	for fi: int in selected:
 		sel_set[fi] = true
 
-	# Pass 1: unselected faces (wireframe only).
-	# Skip entirely when isolating selected faces.
-	if not _isolate_selected:
+	var in_vertex_mode: bool = _uv_select_mode == UvSelectMode.VERTEX
+
+	if in_vertex_mode:
+		var isolate_vis := _get_isolate_visible_faces()
+		for fi: int in gbm.faces.size():
+			if _is_isolate_active() and not isolate_vis.has(fi):
+				continue
+			var face: GoBuildFace = gbm.faces[fi]
+			if face.uvs.size() < 3:
+				continue
+			var pts := PackedVector2Array()
+			for uv: Vector2 in face.uvs:
+				pts.append(_uv_to_canvas(uv))
+			var closed_pts: PackedVector2Array = pts + PackedVector2Array([pts[0]])
+			draw_polyline(closed_pts, _FACE_WIRE_COLOR, 1.0)
+		return
+
+	# Face mode drawing.
+	if not _is_isolate_active():
 		for fi: int in gbm.faces.size():
 			var face: GoBuildFace = gbm.faces[fi]
 			if face.uvs.size() < 3:
@@ -404,7 +439,6 @@ func _draw_faces() -> void:
 			var closed_pts: PackedVector2Array = pts + PackedVector2Array([pts[0]])
 			draw_polyline(closed_pts, _FACE_WIRE_COLOR, 1.0)
 
-	# Pass 2: selected faces (fill + wireframe on top).
 	for fi: int in gbm.faces.size():
 		var face: GoBuildFace = gbm.faces[fi]
 		if face.uvs.size() < 3:
@@ -420,7 +454,8 @@ func _draw_faces() -> void:
 
 
 ## Draw dots at every UV vertex; highlight selected ones.
-## When [member _isolate_selected] is true, only draw vertices on selected faces.
+## When isolate is active, only draw vertices on faces from the 3D selection.
+## Selected vertices are drawn in a second pass so they appear on top.
 func _draw_uv_vertices() -> void:
 	if _target == null or _target.go_build_mesh == null:
 		return
@@ -429,23 +464,28 @@ func _draw_uv_vertices() -> void:
 	for v: Vector2i in _selected_uv_verts:
 		sel_set[v] = true
 
-	# When isolating, only draw vertices on selected faces.
-	var visible_faces: Dictionary = {}
-	if _isolate_selected:
-		var selected: Array[int] = []
-		if _target.selection.get_mode() == SelectionManager.Mode.FACE:
-			selected = _target.selection.get_selected_faces()
-		for fi: int in selected:
-			visible_faces[fi] = true
+	var visible_faces := _get_isolate_visible_faces()
 
+	# Pass 1: unselected vertices.
 	for fi: int in gbm.faces.size():
-		if _isolate_selected and not visible_faces.has(fi):
+		if _is_isolate_active() and not visible_faces.has(fi):
 			continue
 		var face: GoBuildFace = gbm.faces[fi]
 		for vi: int in face.uvs.size():
+			if sel_set.has(Vector2i(fi, vi)):
+				continue
 			var px := _uv_to_canvas(face.uvs[vi])
-			var is_sel: bool = sel_set.has(Vector2i(fi, vi))
-			draw_circle(px, 4.0 if is_sel else 3.0, _VTX_SEL_COLOR if is_sel else _VTX_DOT_COLOR)
+			draw_circle(px, 3.0, _VTX_DOT_COLOR)
+
+	# Pass 2: selected vertices (drawn on top).
+	for fi: int in gbm.faces.size():
+		if _is_isolate_active() and not visible_faces.has(fi):
+			continue
+		var face: GoBuildFace = gbm.faces[fi]
+		for vi: int in face.uvs.size():
+			if sel_set.has(Vector2i(fi, vi)):
+				var px := _uv_to_canvas(face.uvs[vi])
+				draw_circle(px, 4.0, _VTX_SEL_COLOR)
 
 
 ## Draw the transform gizmo for selected faces (move axis, rotate ring, scale handles).
@@ -508,8 +548,8 @@ func _draw_drag_overlay() -> void:
 	match mode:
 		UvIslandTransform.MODE_MOVE:
 			draw_line(pivot_px, mouse_px, _DELTA_LINE_COLOR, 1.5)
-			var dx: float = ds.cumulative_delta.x
-			var dy: float = ds.cumulative_delta.y
+			var dx: float = ds.cumulative_freehand.x
+			var dy: float = ds.cumulative_freehand.y
 			var text := "Δ %.3f, %.3f" % [dx, dy]
 			draw_string(font, mouse_px + label_offset + Vector2(1.0, 1.0), text,
 					HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
@@ -568,8 +608,8 @@ func _draw_vert_drag_overlay() -> void:
 	var label_offset := Vector2(12.0, -8.0)
 
 	draw_line(_uv_to_canvas(ds.start_uv), mouse_px, _DELTA_LINE_COLOR, 1.5)
-	var dx: float = ds.cumulative_delta.x
-	var dy: float = ds.cumulative_delta.y
+	var dx: float = ds.cumulative_freehand.x
+	var dy: float = ds.cumulative_freehand.y
 	var text := "Δ %.3f, %.3f" % [dx, dy]
 	draw_string(font, mouse_px + label_offset + Vector2(1.0, 1.0), text,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
@@ -669,9 +709,7 @@ func _auto_switch_bg_to_selection() -> void:
 		return
 	if _target == null or _target.go_build_mesh == null:
 		return
-	var selected: Array[int] = []
-	if _target.selection.get_mode() == SelectionManager.Mode.FACE:
-		selected = _target.selection.get_selected_faces()
+	var selected: Array[int] = _target.selection.get_selected_faces()
 	if selected.is_empty():
 		return
 	var gbm: GoBuildMesh = _target.go_build_mesh
@@ -687,7 +725,34 @@ func _auto_switch_bg_to_selection() -> void:
 				bg_mode_changed.emit()
 
 
-## Build a Dictionary set of face indices from an array for O(1) lookup.
+## Return a Dictionary of face indices that are visible in isolate mode.
+## Uses the 3D face selection. Returns an empty dict when isolate is off
+## or when no face selection exists (in both cases the caller should treat
+## all faces as visible).
+func _get_isolate_visible_faces() -> Dictionary:
+	if not _isolate_selected:
+		return {}
+	var selected: Array[int] = []
+	if _target != null:
+		selected = _target.selection.get_selected_faces()
+	if selected.is_empty():
+		return {}
+	return _make_face_set(selected)
+
+
+## Return true when isolate is on AND a face selection exists, meaning
+## callers should filter to only the faces in [_get_isolate_visible_faces].
+## When false, all faces are visible (either isolate is off, or there is no
+## selection to isolate to yet — isolate is a no-op in that case).
+func _is_isolate_active() -> bool:
+	if not _isolate_selected:
+		return false
+	if _target == null:
+		return false
+	return not _target.selection.get_selected_faces().is_empty()
+
+
+## Return a Dictionary set of face indices from an array for O(1) lookup.
 func _make_face_set(face_indices: Array[int]) -> Dictionary:
 	var d: Dictionary = {}
 	for fi: int in face_indices:
@@ -712,18 +777,12 @@ func _pick_face(uv_pos: Vector2) -> int:
 ## In isolate mode, if the topmost face is not selected but a candidate is,
 ## returns the first selected candidate instead of -1.
 func _pick_face_visible(uv_pos: Vector2) -> int:
-	if not _isolate_selected:
+	if not _is_isolate_active():
 		return _pick_face(uv_pos)
-	# In isolate mode, we need to find a face that is in the current selection.
-	var selected: Array[int] = []
-	if _target.selection.get_mode() == SelectionManager.Mode.FACE:
-		selected = _target.selection.get_selected_faces()
-	var vis_set := _make_face_set(selected)
-	# First check if the topmost face is visible.
+	var vis_set := _get_isolate_visible_faces()
 	var fi := _pick_face(uv_pos)
 	if fi >= 0 and vis_set.has(fi):
 		return fi
-	# The topmost face is hidden; check all candidates for a visible one.
 	var candidates := _pick_face_all(uv_pos)
 	for c: int in candidates:
 		if vis_set.has(c):
@@ -745,12 +804,10 @@ func _pick_faces_in_rect(uv_rect: Rect2) -> Array[int]:
 	return UvPicker.pick_faces_in_rect(_target.go_build_mesh, uv_rect)
 
 
-## Return the face indices currently selected in the [SelectionManager],
-## but only if the mode is [code]FACE[/code].  Empty otherwise.
+## Return the face indices currently selected in the [SelectionManager].
+## Returns the face selection regardless of the active 3D selection mode.
 func _get_uv_selected_faces() -> Array[int]:
 	if _target == null:
-		return []
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
 		return []
 	return _target.selection.get_selected_faces()
 
@@ -968,6 +1025,16 @@ func _start_drag_or_box_select(pos: Vector2) -> void:
 		if not _selected_uv_verts.is_empty():
 			_begin_vert_drag(pos)
 			return
+		var uv_pos := _canvas_to_uv(pos)
+		var isolate_vis := _get_isolate_visible_faces()
+		var hit := UvPicker.pick_vert(
+			_target.go_build_mesh, uv_pos, _zoom, _VERT_PICK_RADIUS, isolate_vis)
+		if hit.x >= 0:
+			if not _selected_uv_verts.has(hit):
+				_selected_uv_verts.append(hit)
+				queue_redraw()
+			_begin_vert_drag(pos)
+			return
 		_box_selecting = true
 		_box_select_start = pos
 		_box_select_end = pos
@@ -979,8 +1046,8 @@ func _start_drag_or_box_select(pos: Vector2) -> void:
 		# Check if any face under the cursor is already selected.
 		# In isolate mode, only consider visible (selected) faces for starting a drag.
 		var candidates := _pick_face_all(uv_pos)
-		if _isolate_selected:
-			var vis_set := _make_face_set(sel_faces)
+		if _is_isolate_active():
+			var vis_set := _get_isolate_visible_faces()
 			var filtered: Array[int] = []
 			for c: int in candidates:
 				if vis_set.has(c):
@@ -1008,9 +1075,6 @@ func _do_click_select(canvas_pos: Vector2) -> void:
 	if _target == null or _target.go_build_mesh == null:
 		return
 
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		_target.selection.set_mode(SelectionManager.Mode.FACE)
-
 	var uv_pos := _canvas_to_uv(canvas_pos)
 
 	# Face cycling: if the click is near the previous click position, cycle
@@ -1018,7 +1082,7 @@ func _do_click_select(canvas_pos: Vector2) -> void:
 	# In isolate mode, skip cycling since hidden faces are not visible.
 	var dist_from_last := uv_pos.distance_squared_to(_last_click_uv)
 	var same_spot := dist_from_last < 0.001 and not _cycle_candidates.is_empty()
-	if same_spot and not _shift_held and not _ctrl_held and not _isolate_selected:
+	if same_spot and not _shift_held and not _ctrl_held and not _is_isolate_active():
 		_cycle_index = (_cycle_index + 1) % _cycle_candidates.size()
 		var faces: Array[int] = [_cycle_candidates[_cycle_index]]
 		_target.selection.set_selected_faces(faces)
@@ -1026,16 +1090,17 @@ func _do_click_select(canvas_pos: Vector2) -> void:
 
 	var candidates := _pick_face_all(uv_pos)
 	# In isolate mode, only pick from faces that are currently selected/visible.
-	if _isolate_selected:
-		var selected: Array[int] = []
-		if _target.selection.get_mode() == SelectionManager.Mode.FACE:
-			selected = _target.selection.get_selected_faces()
-		var sel_set := _make_face_set(selected)
+	if _is_isolate_active():
+		var vis_set := _get_isolate_visible_faces()
 		var filtered: Array[int] = []
 		for c: int in candidates:
-			if sel_set.has(c):
+			if vis_set.has(c):
 				filtered.append(c)
 		candidates = filtered
+		# In isolate mode, if no visible candidate exists at this point,
+		# don't change the selection — the click is on a hidden face.
+		if candidates.is_empty():
+			return
 	_last_click_uv = uv_pos
 	_cycle_candidates = candidates
 	_cycle_index = 0
@@ -1044,8 +1109,9 @@ func _do_click_select(canvas_pos: Vector2) -> void:
 
 	if fi < 0:
 		if not _shift_held and not _ctrl_held:
-			_target.selection.clear()
-			_cycle_candidates.clear()
+			if not _is_isolate_active():
+				_target.selection.clear()
+				_cycle_candidates.clear()
 		return
 
 	if candidates.size() > 1:
@@ -1079,21 +1145,20 @@ func _finish_box_select() -> void:
 		_finish_box_select_vert(uv_rect)
 		return
 
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		_target.selection.set_mode(SelectionManager.Mode.FACE)
-
 	var hits := _pick_faces_in_rect(uv_rect)
 	# In isolate mode, only select from faces that are currently visible.
-	if _isolate_selected and not hits.is_empty():
-		var selected: Array[int] = []
-		if _target.selection.get_mode() == SelectionManager.Mode.FACE:
-			selected = _target.selection.get_selected_faces()
-		var vis_set := _make_face_set(selected)
+	if _is_isolate_active():
+		if hits.is_empty():
+			return
+		var vis_set := _get_isolate_visible_faces()
 		var filtered: Array[int] = []
 		for h: int in hits:
 			if vis_set.has(h):
 				filtered.append(h)
 		hits = filtered
+		# In isolate mode, if no visible face is in the box, don't change selection.
+		if hits.is_empty():
+			return
 	if hits.is_empty():
 		if not _shift_held and not _ctrl_held:
 			_target.selection.clear()
@@ -1113,14 +1178,9 @@ func _finish_box_select_vert(uv_rect: Rect2) -> void:
 	var gbm: GoBuildMesh = _target.go_build_mesh
 	var hits: Array[Vector2i] = []
 	# In isolate mode, only pick vertices from visible (selected) faces.
-	var vis_set: Dictionary = {}
-	if _isolate_selected:
-		var selected: Array[int] = []
-		if _target.selection.get_mode() == SelectionManager.Mode.FACE:
-			selected = _target.selection.get_selected_faces()
-		vis_set = _make_face_set(selected)
+	var vis_set := _get_isolate_visible_faces()
 	for fi: int in gbm.faces.size():
-		if _isolate_selected and not vis_set.has(fi):
+		if _is_isolate_active() and not vis_set.has(fi):
 			continue
 		var face: GoBuildFace = gbm.faces[fi]
 		for vi: int in face.uvs.size():
@@ -1167,9 +1227,10 @@ func _apply_island_drag(canvas_pos: Vector2) -> void:
 		return
 	var uv_now := _canvas_to_uv(canvas_pos)
 	var sel_faces := _get_uv_selected_faces()
+	var snap: float = _uv_snap_size if _ctrl_held else 0.0
 	UvIslandTransform.apply(
 		_target.go_build_mesh, sel_faces, _island_drag_state, uv_now,
-		_shift_held)
+		_shift_held, snap)
 	_target.bake_in_place()
 	queue_redraw()
 
@@ -1217,8 +1278,9 @@ func _do_click_select_vert(canvas_pos: Vector2) -> void:
 		return
 
 	var uv_pos := _canvas_to_uv(canvas_pos)
+	var isolate_vis := _get_isolate_visible_faces()
 	var hit := UvPicker.pick_vert(
-		_target.go_build_mesh, uv_pos, _zoom, _VERT_PICK_RADIUS)
+		_target.go_build_mesh, uv_pos, _zoom, _VERT_PICK_RADIUS, isolate_vis)
 
 	if hit.x < 0:
 		if not _shift_held and not _ctrl_held:
@@ -1256,9 +1318,13 @@ func _apply_vert_drag(canvas_pos: Vector2) -> void:
 	if _target == null or _target.go_build_mesh == null or _vert_drag_state == null:
 		return
 	var uv_now := _canvas_to_uv(canvas_pos)
+	var snap: float = _uv_snap_size if _ctrl_held else 0.0
+	var isolate: Dictionary = {}
+	if _is_isolate_active():
+		isolate = _get_isolate_visible_faces()
 	UvVertexTransform.apply(
 		_target.go_build_mesh, _selected_uv_verts,
-		_vert_drag_state, uv_now, _shift_held)
+		_vert_drag_state, uv_now, _shift_held, snap, isolate)
 	_target.bake_in_place()
 	queue_redraw()
 

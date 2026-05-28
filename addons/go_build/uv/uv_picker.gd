@@ -74,18 +74,24 @@ static func pick_faces_in_rect(mesh: GoBuildMesh, uv_rect: Rect2) -> Array[int]:
 	return result
 
 
-## Return all UV vertex handles within [param radius_px] pixels of
-## [param uv_pos] (converted via [param zoom]).
-## Returns [Array[Vector2i]] of (face_index, uv_index) pairs.
+## Return the UV vertex handle closest to [param uv_pos] within
+## [param radius_px] screen pixels (converted via [param zoom]).
+## Returns Vector2i(face_index, uv_index), or Vector2i(-1, -1) if nothing found.
+## When [param visible_faces] is non-empty, only vertices from faces in that
+## set are considered. An empty dict means all faces are visible.
 static func pick_vert(
 		mesh: GoBuildMesh, uv_pos: Vector2,
-		zoom: float, radius_px: float) -> Vector2i:
+		zoom: float, radius_px: float,
+		visible_faces: Dictionary = {}) -> Vector2i:
 	if mesh == null:
 		return Vector2i(-1, -1)
 	var best_fi: int = -1
 	var best_vi: int = -1
 	var best_dist_sq: float = (radius_px / zoom) * (radius_px / zoom)
+	var filter: bool = not visible_faces.is_empty()
 	for fi: int in mesh.faces.size():
+		if filter and not visible_faces.has(fi):
+			continue
 		var face: GoBuildFace = mesh.faces[fi]
 		for vi: int in face.uvs.size():
 			var dsq := uv_pos.distance_squared_to(face.uvs[vi])

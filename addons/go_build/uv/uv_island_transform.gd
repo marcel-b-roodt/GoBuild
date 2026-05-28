@@ -24,8 +24,17 @@ class DragState:
 	var scale_start: float = 1.0
 	var snapshot: Dictionary = {}
 	var precision: bool = false
-	var cumulative_delta: Vector2 = Vector2.ZERO
+	## For MOVE: cumulative freehand delta (no snap rounding), used together
+	## with start_positions to compute the final snapped position.
+	var cumulative_freehand: Vector2 = Vector2.ZERO
+	## Original UV positions recorded at drag start.
+	## Key: Vector2i(face_index, uv_index), Value: Vector2(original_uv).
+	## Used by MOVE, ROTATE, and SCALE to compute snapped final positions
+	## from originals instead of accumulating per-frame deltas.
+	var start_positions: Dictionary = {}
+	## Cumulative angle from drag start (radians, no snap rounding).
 	var cumulative_angle: float = 0.0
+	## Cumulative scale from drag start (no snap rounding).
 	var cumulative_scale: float = 1.0
 	var prev_angle: float = 0.0
 
@@ -52,15 +61,32 @@ static func begin(
 	ds.prev_angle = (canvas_uv - ds.pivot).angle()
 	if mesh != null:
 		ds.snapshot = mesh.take_snapshot()
+	ds.cumulative_freehand = Vector2.ZERO
+	ds.cumulative_scale = 1.0
+	# Record original positions for all modes so we can compute the final
+	# state from originals instead of accumulating per-frame rounding errors.
+	for fi: int in sel_faces:
+		if fi < 0 or fi >= mesh.faces.size():
+			continue
+		var face: GoBuildFace = mesh.faces[fi]
+		for i: int in face.uvs.size():
+			ds.start_positions[Vector2i(fi, i)] = face.uvs[i]
 	return ds
 
 
 ## Apply one frame of the drag.  Mutates [param mesh] face UVs in-place.
 ## Returns true if any change was made.
+## When [param snap_size] > 0:
+##   - Move: snaps the pivot's final position to the UV grid, then applies
+##     the same offset to all vertices — preserving shape while landing on
+##     grid intersections.
+##   - Rotate: snaps angle to 15° increments.
+##   - Scale: snaps multiplier to 0.1 increments.
 static func apply(
 		mesh: GoBuildMesh, sel_faces: Array[int],
 		ds: DragState, canvas_uv: Vector2,
-		precision: bool = false) -> bool:
+		precision: bool = false,
+		snap_size: float = 0.0) -> bool:
 	if mesh == null or sel_faces.is_empty():
 		return false
 
@@ -71,16 +97,35 @@ static func apply(
 	match ds.mode:
 		MODE_MOVE:
 			var raw_delta := canvas_uv - ds.prev_uv
-			var delta := raw_delta * SENSITIVITY_MOVE * prec_mult
-			if delta.is_zero_approx():
+			var freehand_delta := raw_delta * SENSITIVITY_MOVE * prec_mult
+			if freehand_delta.is_zero_approx():
 				return false
-			for fi: int in sel_faces:
-				if fi < 0 or fi >= mesh.faces.size():
-					continue
-				var face: GoBuildFace = mesh.faces[fi]
-				for i: int in face.uvs.size():
-					face.uvs[i] = face.uvs[i] + delta
-			ds.cumulative_delta += delta
+			ds.cumulative_freehand += freehand_delta
+
+			if snap_size > 0.0:
+				# Snap the pivot's final position to the UV grid.
+				# This lands the reference point on a grid intersection while
+				# preserving the island shape — every vertex gets the same offset.
+				var snapped_pivot: Vector2 = ds.pivot + ds.cumulative_freehand
+				snapped_pivot = Vector2(
+					round(snapped_pivot.x / snap_size) * snap_size,
+					round(snapped_pivot.y / snap_size) * snap_size)
+				var snapped_offset: Vector2 = snapped_pivot - ds.pivot
+				for handle_key: Vector2i in ds.start_positions:
+					var hfi: int = handle_key.x
+					var hvi: int = handle_key.y
+					if hfi < 0 or hfi >= mesh.faces.size():
+						continue
+					var orig_pos: Vector2 = ds.start_positions[handle_key]
+					mesh.faces[hfi].uvs[hvi] = orig_pos + snapped_offset
+			else:
+				for handle_key: Vector2i in ds.start_positions:
+					var hfi: int = handle_key.x
+					var hvi: int = handle_key.y
+					if hfi < 0 or hfi >= mesh.faces.size():
+						continue
+					var orig_pos: Vector2 = ds.start_positions[handle_key]
+					mesh.faces[hfi].uvs[hvi] = orig_pos + ds.cumulative_freehand
 			changed = true
 
 		MODE_ROTATE:
@@ -93,25 +138,32 @@ static func apply(
 			if is_zero_approx(raw_delta_angle):
 				return false
 			var delta_angle := raw_delta_angle * prec_mult
-			var cos_a := cos(delta_angle)
-			var sin_a := sin(delta_angle)
-			for fi: int in sel_faces:
-				if fi < 0 or fi >= mesh.faces.size():
-					continue
-				var face: GoBuildFace = mesh.faces[fi]
-				for i: int in face.uvs.size():
-					var rel := face.uvs[i] - ds.pivot
-					face.uvs[i] = ds.pivot + Vector2(
-						rel.x * cos_a - rel.y * sin_a,
-						rel.x * sin_a + rel.y * cos_a
-					)
 			ds.cumulative_angle += delta_angle
-			# Fold cumulative angle into [-2*PI, 2*PI] (±360°) so the display
-			# wraps around instead of growing without bound.
 			if ds.cumulative_angle > TAU:
 				ds.cumulative_angle -= TAU
 			elif ds.cumulative_angle < -TAU:
 				ds.cumulative_angle += TAU
+
+			# Snap cumulative angle to 15° increments.
+			var total_angle: float = ds.cumulative_angle
+			if snap_size > 0.0:
+				var snap_rad: float = deg_to_rad(15.0)
+				total_angle = round(total_angle / snap_rad) * snap_rad
+
+			# Apply the total rotation from start to all original positions.
+			var cos_a := cos(total_angle)
+			var sin_a := sin(total_angle)
+			for handle_key: Vector2i in ds.start_positions:
+				var hfi: int = handle_key.x
+				var hvi: int = handle_key.y
+				if hfi < 0 or hfi >= mesh.faces.size():
+					continue
+				var orig_pos: Vector2 = ds.start_positions[handle_key]
+				var rel := orig_pos - ds.pivot
+				mesh.faces[hfi].uvs[hvi] = ds.pivot + Vector2(
+					rel.x * cos_a - rel.y * sin_a,
+					rel.x * sin_a + rel.y * cos_a
+				)
 			ds.prev_angle = angle_now
 			changed = true
 
@@ -127,14 +179,22 @@ static func apply(
 			factor = maxf(factor, 0.01)
 			if precision:
 				factor = 1.0 + (factor - 1.0) * PRECISION_MULTIPLIER
-			for fi: int in sel_faces:
-				if fi < 0 or fi >= mesh.faces.size():
-					continue
-				var face: GoBuildFace = mesh.faces[fi]
-				for i: int in face.uvs.size():
-					var rel := face.uvs[i] - ds.pivot
-					face.uvs[i] = ds.pivot + rel * factor
 			ds.cumulative_scale *= factor
+			# Snap cumulative scale to 0.1 increments.
+			var total_scale: float = ds.cumulative_scale
+			if snap_size > 0.0:
+				total_scale = round(total_scale * 10.0) / 10.0
+				total_scale = maxf(total_scale, 0.1)
+
+			# Apply the total scale from start to all original positions.
+			for handle_key: Vector2i in ds.start_positions:
+				var hfi: int = handle_key.x
+				var hvi: int = handle_key.y
+				if hfi < 0 or hfi >= mesh.faces.size():
+					continue
+				var orig_pos: Vector2 = ds.start_positions[handle_key]
+				var rel := orig_pos - ds.pivot
+				mesh.faces[hfi].uvs[hvi] = ds.pivot + rel * total_scale
 			ds.scale_start = scale_ratio
 			changed = true
 
