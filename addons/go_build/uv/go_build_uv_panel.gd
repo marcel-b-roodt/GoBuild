@@ -209,10 +209,6 @@ func _add_general_controls(parent: VBoxContainer) -> void:
 	_isolate_btn.pressed.connect(_on_isolate_pressed)
 	row1.add_child(_isolate_btn)
 
-	var spacer1 := Control.new()
-	spacer1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row1.add_child(spacer1)
-
 	var bg_label := Label.new()
 	bg_label.text = "BG:"
 	bg_label.add_theme_font_size_override("font_size", 10)
@@ -243,10 +239,6 @@ func _add_general_controls(parent: VBoxContainer) -> void:
 	_repeat_spin.tooltip_text = "Number of UV tile repeats shown in the view."
 	_repeat_spin.value_changed.connect(_on_repeat_changed)
 	row2.add_child(_repeat_spin)
-
-	var spacer2 := Control.new()
-	spacer2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row2.add_child(spacer2)
 
 	var snap_label := Label.new()
 	snap_label.text = "Snap:"
