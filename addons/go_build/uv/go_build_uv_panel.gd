@@ -183,15 +183,15 @@ func _build_drawer(title: String, open: bool) -> VBoxContainer:
 # ---------------------------------------------------------------------------
 
 func _add_general_controls(parent: VBoxContainer) -> void:
-	# Single row: Mode, Isolate, BG dropdown, Repeat.
-	var row := HBoxContainer.new()
-	parent.add_child(row)
+	# Row 1: Mode, Isolate, BG dropdown.
+	var row1 := HBoxContainer.new()
+	parent.add_child(row1)
 
 	var mode_label := Label.new()
 	mode_label.text = "Mode:"
 	mode_label.add_theme_font_size_override("font_size", 10)
 	mode_label.add_theme_color_override("font_color", Color(0.70, 0.70, 0.70))
-	row.add_child(mode_label)
+	row1.add_child(mode_label)
 
 	_select_mode_btn = Button.new()
 	_select_mode_btn.text = "Face"
@@ -199,7 +199,7 @@ func _add_general_controls(parent: VBoxContainer) -> void:
 	_select_mode_btn.button_pressed = true
 	_select_mode_btn.tooltip_text = "Toggle UV selection mode: Face / Vertex (Tab)"
 	_select_mode_btn.pressed.connect(_on_select_mode_pressed)
-	row.add_child(_select_mode_btn)
+	row1.add_child(_select_mode_btn)
 
 	_isolate_btn = Button.new()
 	_isolate_btn.text = "Isolate"
@@ -207,60 +207,61 @@ func _add_general_controls(parent: VBoxContainer) -> void:
 	_isolate_btn.button_pressed = false
 	_isolate_btn.tooltip_text = "Show only selected faces in the UV editor."
 	_isolate_btn.pressed.connect(_on_isolate_pressed)
-	row.add_child(_isolate_btn)
+	row1.add_child(_isolate_btn)
 
 	var spacer1 := Control.new()
 	spacer1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(spacer1)
+	row1.add_child(spacer1)
 
 	var bg_label := Label.new()
 	bg_label.text = "BG:"
 	bg_label.add_theme_font_size_override("font_size", 10)
 	bg_label.add_theme_color_override("font_color", Color(0.70, 0.70, 0.70))
-	row.add_child(bg_label)
+	row1.add_child(bg_label)
 
 	_bg_option = OptionButton.new()
 	_bg_option.tooltip_text = "Select background: Checker, Off, or a material texture."
-	_bg_option.custom_minimum_size = Vector2(80, 0)
 	_bg_option.item_selected.connect(_on_bg_option_selected)
-	row.add_child(_bg_option)
+	row1.add_child(_bg_option)
 	_rebuild_bg_dropdown()
 
-	var spacer2 := Control.new()
-	spacer2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(spacer2)
+	# Row 2: Repeat, Snap.
+	var row2 := HBoxContainer.new()
+	parent.add_child(row2)
 
 	var repeat_label := Label.new()
 	repeat_label.text = "Repeat:"
 	repeat_label.add_theme_font_size_override("font_size", 10)
 	repeat_label.add_theme_color_override("font_color", Color(0.70, 0.70, 0.70))
-	row.add_child(repeat_label)
+	row2.add_child(repeat_label)
 
 	_repeat_spin = SpinBox.new()
 	_repeat_spin.min_value = 1
 	_repeat_spin.max_value = 8
 	_repeat_spin.value = 1
 	_repeat_spin.step = 1
-	_repeat_spin.custom_minimum_size = Vector2(50, 0)
 	_repeat_spin.tooltip_text = "Number of UV tile repeats shown in the view."
 	_repeat_spin.value_changed.connect(_on_repeat_changed)
-	row.add_child(_repeat_spin)
+	row2.add_child(_repeat_spin)
+
+	var spacer2 := Control.new()
+	spacer2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row2.add_child(spacer2)
 
 	var snap_label := Label.new()
 	snap_label.text = "Snap:"
 	snap_label.add_theme_font_size_override("font_size", 10)
 	snap_label.add_theme_color_override("font_color", Color(0.70, 0.70, 0.70))
-	row.add_child(snap_label)
+	row2.add_child(snap_label)
 
 	_snap_spin = SpinBox.new()
 	_snap_spin.min_value = 0.0
 	_snap_spin.max_value = 1.0
 	_snap_spin.value = 0.0625
 	_snap_spin.step = 0.0625
-	_snap_spin.custom_minimum_size = Vector2(50, 0)
 	_snap_spin.tooltip_text = "UV snap grid size (Ctrl to activate). 0 = off, 0.0625 = 1/16th."
 	_snap_spin.value_changed.connect(_on_snap_changed)
-	row.add_child(_snap_spin)
+	row2.add_child(_snap_spin)
 
 
 # ---------------------------------------------------------------------------
