@@ -1467,6 +1467,8 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 				popup.add_item("Smooth Shading", 35)
 				popup.add_item("Auto Smooth", 36)
 				popup.add_separator()
+				popup.add_item("Add Texture", 37)
+				popup.add_separator()
 				popup.add_item("Delete", 10)
 
 	var mode_int: int = mode as int
@@ -1539,6 +1541,9 @@ func _on_context_menu_pressed(
 		36:  # Auto smooth
 			if _panel != null:
 				_panel.trigger_auto_smooth()
+		37:  # Add Texture
+			if _panel != null:
+				_panel.trigger_add_tex()
 
 
 func _deferred_context_op(id: int) -> void:

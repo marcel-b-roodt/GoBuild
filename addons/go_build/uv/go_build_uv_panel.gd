@@ -392,6 +392,10 @@ func _update_isolate_btn_style() -> void:
 		_isolate_btn.remove_theme_stylebox_override("hover")
 
 
+func trigger_add_tex() -> void:
+	_on_add_tex_pressed()
+
+
 func _on_add_tex_pressed() -> void:
 	if _canvas == null or _canvas._target == null or _canvas._target.go_build_mesh == null:
 		return

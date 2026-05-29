@@ -134,10 +134,9 @@ func _enter_tree() -> void:
 
 	_uv_panel = _UV_PANEL_SCRIPT.new()
 	_uv_panel.name = "GoBuild UV"
-	# Place in the upper-left dock alongside the Scene and Import tabs so the
-	# UV view is adjacent to the scene tree and feels like a natural workspace.
 	add_control_to_dock(DOCK_SLOT_LEFT_UL, _uv_panel)
 	_uv_panel.set_plugin(self)
+	_panel.set_uv_panel(_uv_panel)
 
 	_gizmo_plugin = _GIZMO_PLUGIN_SCRIPT.new()
 	_gizmo_plugin.setup(self)

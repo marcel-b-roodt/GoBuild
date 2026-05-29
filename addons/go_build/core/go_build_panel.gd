@@ -34,7 +34,8 @@ const _MATERIALS_DRAWER_SCRIPT := \
 const _GENERAL_DRAWER_SCRIPT   := \
 		preload("res://addons/go_build/core/go_build_general_drawer.gd")
 const _SHAPE_CATALOG_SCRIPT    := \
-		preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
+	preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
+const _UV_PANEL_SCRIPT         := preload("res://addons/go_build/uv/go_build_uv_panel.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
@@ -55,6 +56,7 @@ var _uv_drawer:       GoBuildUvDrawer       = null
 var _surface_drawer:  GoBuildSurfaceDrawer  = null
 var _materials_drawer: GoBuildMaterialsDrawer = null
 var _general_drawer:  GoBuildGeneralDrawer  = null
+var _uv_panel:        GoBuildUvPanel        = null
 
 
 
@@ -320,6 +322,13 @@ func trigger_cylindrical_uv() -> void:
 
 func trigger_spherical_uv() -> void:
 	if _uv_drawer != null: _uv_drawer.trigger_spherical_uv()
+
+func trigger_add_tex() -> void:
+	if _uv_panel != null: _uv_panel.trigger_add_tex()
+
+
+func set_uv_panel(panel: GoBuildUvPanel) -> void:
+	_uv_panel = panel
 
 
 # ---------------------------------------------------------------------------
