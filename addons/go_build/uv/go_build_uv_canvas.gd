@@ -294,9 +294,9 @@ func get_tile_repeat() -> int:
 	return _tile_repeat
 
 
-## Set the tile repeat count (1 = single tile, 2+ = repeated tiling).
+## Set the tile repeat count (0 = single tile, 1+ = surrounding ring count).
 func set_tile_repeat(count: int) -> void:
-	_tile_repeat = maxi(count, 1)
+	_tile_repeat = maxi(count, 0)
 	queue_redraw()
 
 

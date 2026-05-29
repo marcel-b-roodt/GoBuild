@@ -232,7 +232,7 @@ func _add_general_controls(parent: VBoxContainer) -> void:
 	row2.add_child(repeat_label)
 
 	_repeat_spin = SpinBox.new()
-	_repeat_spin.min_value = 1
+	_repeat_spin.min_value = 0
 	_repeat_spin.max_value = 8
 	_repeat_spin.value = 1
 	_repeat_spin.step = 1
