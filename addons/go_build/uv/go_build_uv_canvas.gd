@@ -351,52 +351,47 @@ func _draw() -> void:
 
 
 ## Draw the UV-space tile (0-1 range) with border and half-way grid lines.
+## When [member _tile_repeat] > 1, the grid extends symmetrically into
+## negative UV space so the 0-1 tile stays centred.
 func _draw_grid() -> void:
-	var tl := _uv_to_canvas(Vector2(0.0, 0.0))
-	var br := _uv_to_canvas(Vector2(float(_tile_repeat), float(_tile_repeat)))
+	var n: int = _tile_repeat
+	var lo := -float(n)
+	var hi := float(n) + 1.0
+	var tl := _uv_to_canvas(Vector2(lo, lo))
+	var br := _uv_to_canvas(Vector2(hi, hi))
 	var tile_rect := Rect2(tl, br - tl)
 	draw_rect(tile_rect, _TILE_BG_COLOR)
 
 	match _bg_mode:
 		UvBgMode.CHECKER:
 			_ensure_checker_tex()
-			if _tile_repeat > 1:
-				_draw_tiled_checker(tile_rect, tl, br)
-			else:
-				draw_texture_rect(_checker_tex, Rect2(
-					_uv_to_canvas(Vector2.ZERO),
-					_uv_to_canvas(Vector2(1.0, 1.0)) - _uv_to_canvas(Vector2.ZERO)
-				), false)
+			_draw_tiled_checker()
 		UvBgMode.TEXTURE:
 			var tex := _get_bg_texture()
 			if tex != null:
-				if _tile_repeat > 1:
-					_draw_tiled_texture(tex)
-				else:
-					draw_texture_rect(tex, Rect2(
-						_uv_to_canvas(Vector2.ZERO),
-						_uv_to_canvas(Vector2(1.0, 1.0)) - _uv_to_canvas(Vector2.ZERO)
-					), false)
+				_draw_tiled_texture(tex)
 
 	# Draw tile outlines and grid lines for each repeat.
-	for i: int in range(_tile_repeat + 1):
-		var f := float(i)
-		var h_line_start := _uv_to_canvas(Vector2(0.0, f))
-		var h_line_end := _uv_to_canvas(Vector2(float(_tile_repeat), f))
+	var total_lines: int = 2 * n + 2
+	for i: int in range(total_lines):
+		var f := lo + float(i)
+		var h_line_start := _uv_to_canvas(Vector2(lo, f))
+		var h_line_end := _uv_to_canvas(Vector2(hi, f))
 		draw_line(h_line_start, h_line_end, _TILE_BORDER_COLOR, 1.0)
-		var v_line_start := _uv_to_canvas(Vector2(f, 0.0))
-		var v_line_end := _uv_to_canvas(Vector2(f, float(_tile_repeat)))
+		var v_line_start := _uv_to_canvas(Vector2(f, lo))
+		var v_line_end := _uv_to_canvas(Vector2(f, hi))
 		draw_line(v_line_start, v_line_end, _TILE_BORDER_COLOR, 1.0)
-		if 0 < i and i < _tile_repeat:
+		if f != lo and f != hi and f != 0.0 and f != 1.0:
 			draw_line(h_line_start, h_line_end, _HALF_LINE_COLOR, 0.5)
 			draw_line(v_line_start, v_line_end, _HALF_LINE_COLOR, 0.5)
 
 
-## Draw the checker texture tiled across the visible area.
-func _draw_tiled_checker(_visible_rect: Rect2, _tl: Vector2, _br: Vector2) -> void:
+## Draw the checker texture tiled per unit across the repeat area.
+func _draw_tiled_checker() -> void:
 	var unit_size_px := _uv_to_canvas(Vector2(1.0, 1.0)) - _uv_to_canvas(Vector2.ZERO)
-	for iy: int in range(_tile_repeat):
-		for ix: int in range(_tile_repeat):
+	var n: int = _tile_repeat
+	for iy: int in range(-n, n + 1):
+		for ix: int in range(-n, n + 1):
 			var cell_tl := _uv_to_canvas(Vector2(float(ix), float(iy)))
 			draw_texture_rect(_checker_tex, Rect2(cell_tl, unit_size_px), false)
 
@@ -404,8 +399,9 @@ func _draw_tiled_checker(_visible_rect: Rect2, _tl: Vector2, _br: Vector2) -> vo
 ## Draw the background texture tiled per unit across the repeat area.
 func _draw_tiled_texture(tex: Texture2D) -> void:
 	var unit_size_px := _uv_to_canvas(Vector2(1.0, 1.0)) - _uv_to_canvas(Vector2.ZERO)
-	for iy: int in range(_tile_repeat):
-		for ix: int in range(_tile_repeat):
+	var n: int = _tile_repeat
+	for iy: int in range(-n, n + 1):
+		for ix: int in range(-n, n + 1):
 			var cell_tl := _uv_to_canvas(Vector2(float(ix), float(iy)))
 			draw_texture_rect(tex, Rect2(cell_tl, unit_size_px), false)
 
