@@ -370,7 +370,13 @@ func _draw_grid() -> void:
 		UvBgMode.TEXTURE:
 			var tex := _get_bg_texture()
 			if tex != null:
-				draw_texture_rect(tex, tile_rect, false)
+				if _tile_repeat > 1:
+					_draw_tiled_texture(tex)
+				else:
+					draw_texture_rect(tex, Rect2(
+						_uv_to_canvas(Vector2.ZERO),
+						_uv_to_canvas(Vector2(1.0, 1.0)) - _uv_to_canvas(Vector2.ZERO)
+					), false)
 
 	# Draw tile outlines and grid lines for each repeat.
 	for i: int in range(_tile_repeat + 1):
@@ -393,6 +399,15 @@ func _draw_tiled_checker(_visible_rect: Rect2, _tl: Vector2, _br: Vector2) -> vo
 		for ix: int in range(_tile_repeat):
 			var cell_tl := _uv_to_canvas(Vector2(float(ix), float(iy)))
 			draw_texture_rect(_checker_tex, Rect2(cell_tl, unit_size_px), false)
+
+
+## Draw the background texture tiled per unit across the repeat area.
+func _draw_tiled_texture(tex: Texture2D) -> void:
+	var unit_size_px := _uv_to_canvas(Vector2(1.0, 1.0)) - _uv_to_canvas(Vector2.ZERO)
+	for iy: int in range(_tile_repeat):
+		for ix: int in range(_tile_repeat):
+			var cell_tl := _uv_to_canvas(Vector2(float(ix), float(iy)))
+			draw_texture_rect(tex, Rect2(cell_tl, unit_size_px), false)
 
 
 ## Draw every face's UV polygon, highlighting selected faces.
