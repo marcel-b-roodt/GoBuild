@@ -134,7 +134,7 @@ func _enter_tree() -> void:
 
 	_uv_panel = _UV_PANEL_SCRIPT.new()
 	_uv_panel.name = "GoBuild UV"
-	add_control_to_dock(DOCK_SLOT_BOTTOM_UL, _uv_panel)
+	add_control_to_dock(DOCK_SLOT_BOTTOM_L, _uv_panel)
 	_uv_panel.set_plugin(self)
 	_panel.set_uv_panel(_uv_panel)
 
