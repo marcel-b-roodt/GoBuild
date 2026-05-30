@@ -1587,7 +1587,7 @@ func _insert_shape_at_cursor(
 	var placement := ShapePlacement.find_placement(
 			camera, _right_click_press_pos, edited_node)
 
-	var params := ShapeCreationCatalog.default_params(shape_name)
+	ShapePlacement.apply_bottom_offset(placement, shape_name)
 
 	if ShapeCreationCatalog.supports_preview(shape_name):
 		# Preview shapes: start preview and position the preview mesh.
@@ -1599,26 +1599,19 @@ func _insert_shape_at_cursor(
 	# Instant shapes: insert directly at computed position.
 	var node := GoBuildMeshInstance.new()
 	node.name = ShapeCreationCatalog.node_name(shape_name)
-	node.go_build_mesh = ShapeCreationCatalog.build_mesh(shape_name, params)
+	node.go_build_mesh = ShapeCreationCatalog.build_mesh(
+			shape_name, ShapeCreationCatalog.default_params(shape_name))
 	var default_mat: Material = load("res://addons/go_build/go_build_material.tres")
 	if default_mat != null and node.go_build_mesh != null:
 		node.go_build_mesh.material_slots = [default_mat]
-
-	# Compute bottom-offset so the shape sits flush on the surface.
-	if node.go_build_mesh != null:
-		var aabb: AABB = node.go_build_mesh.compute_aabb()
-		var offset: float = ShapePlacement.bottom_offset(aabb, placement.hit_normal)
-		placement.world_pos += placement.hit_normal * offset
 
 	# Determine parent: hit mesh for child placement,
 	# edited_node's parent for sibling placement.
 	var parent: Node = scene_root
 	if placement.did_hit and placement.parent != null:
 		parent = placement.parent
-		# Convert world position to parent-local space.
 		var local_pos: Vector3 = parent.global_transform.affine_inverse() * placement.world_pos
 		node.position = local_pos
-		node.rotation = Vector3.ZERO
 	elif edited_node != null and edited_node.get_parent() != null:
 		parent = edited_node.get_parent()
 		node.global_position = placement.world_pos

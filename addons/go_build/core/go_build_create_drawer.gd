@@ -51,19 +51,26 @@ func _ready() -> void:
 # ---------------------------------------------------------------------------
 
 func _on_shape_button_pressed(shape_name: String) -> void:
+	if _shape_preview != null and _shape_preview.is_active():
+		_shape_preview.cancel()
+	var placement := _viewport_center_placement()
+	if placement != null:
+		ShapePlacement.apply_bottom_offset(placement, shape_name)
+	var edited: GoBuildMeshInstance = _get_edited_instance()
+
 	if not ShapeCreationCatalog.supports_preview(shape_name):
 		# Shapes without parameters insert immediately at viewport center.
-		if _shape_preview != null and _shape_preview.is_active():
-			_shape_preview.cancel()
 		var params := ShapeCreationCatalog.default_params(shape_name)
-		var placement := _viewport_center_placement()
 		var parent: Node = null
 		var local_pos: Vector3 = Vector3.ZERO
 		if placement != null:
 			if placement.did_hit and placement.parent != null:
 				parent = placement.parent
 				local_pos = parent.global_transform.affine_inverse() * placement.world_pos
-			elif placement.world_pos != Vector3.ZERO:
+			elif edited != null and edited.get_parent() != null:
+				parent = edited.get_parent()
+				local_pos = parent.global_transform.affine_inverse() * placement.world_pos
+			else:
 				local_pos = placement.world_pos
 		_insert_shape(
 			func() -> GoBuildMesh: return ShapeCreationCatalog.build_mesh(shape_name, params),
@@ -78,7 +85,7 @@ func _on_shape_button_pressed(shape_name: String) -> void:
 	if scene_root == null:
 		push_warning("GoBuild: no open scene — create or open a scene first")
 		return
-	_shape_preview.start(shape_name, scene_root)
+	_shape_preview.start_with_placement(shape_name, scene_root, placement, edited)
 
 
 func _on_shape_preview_accepted(
@@ -101,7 +108,9 @@ func _on_shape_preview_cancelled() -> void:
 ## Create a [GoBuildMeshInstance] populated by [param mesh_callable] and
 ## insert it into the scene with full undo/redo.
 ## If [param parent] is null, the shape is added under the scene root.
-## [param local_pos] sets the node's position in parent-local space.
+## [param local_pos] sets the node's position.  When [param parent] is
+## the scene root, this is treated as a world-space position via
+## [code]global_position[/code]; otherwise it is local to [param parent].
 func _insert_shape(
 		mesh_callable: Callable,
 		node_name: String,
@@ -125,7 +134,10 @@ func _insert_shape(
 	var node := GoBuildMeshInstance.new()
 	node.name = node_name
 	node.go_build_mesh = mesh_callable.call()
-	node.position = local_pos
+	if parent == scene_root:
+		node.global_position = local_pos
+	else:
+		node.position = local_pos
 	# Seed slot 0 with the default GoBuild metre material so new shapes
 	# render with the standard look rather than an unshaded surface.
 	var default_mat: Material = load("res://addons/go_build/go_build_material.tres")
@@ -147,6 +159,20 @@ func _insert_shape(
 	es.add_node(node)
 
 
+## Return the currently edited [GoBuildMeshInstance] from the editor selection,
+## or null if none is selected.
+func _get_edited_instance() -> GoBuildMeshInstance:
+	if _plugin == null:
+		return null
+	var sel: EditorSelection = EditorInterface.get_selection()
+	if sel.get_selected_nodes().is_empty():
+		return null
+	var first: Node = sel.get_selected_nodes()[0]
+	if first is GoBuildMeshInstance:
+		return first as GoBuildMeshInstance
+	return null
+
+
 ## Compute a placement result at the centre of the editor 3D viewport.
 ## Returns null if there is no camera or scene.
 func _viewport_center_placement() -> RefCounted:
@@ -157,13 +183,7 @@ func _viewport_center_placement() -> RefCounted:
 	if camera == null:
 		return null
 	var center: Vector2 = Vector2(sv.size.x * 0.5, sv.size.y * 0.5)
-	var edited: GoBuildMeshInstance = null
-	if _plugin != null and _plugin is EditorPlugin:
-		var sel: EditorSelection = EditorInterface.get_selection()
-		if not sel.get_selected_nodes().is_empty():
-			var first: Node = sel.get_selected_nodes()[0]
-			if first is GoBuildMeshInstance:
-				edited = first as GoBuildMeshInstance
+	var edited: GoBuildMeshInstance = _get_edited_instance()
 	return ShapePlacement.find_placement(camera, center, edited)
 
 
@@ -172,7 +192,7 @@ func _viewport_center_placement() -> RefCounted:
 func start_shape_preview_at(
 		shape_name: String,
 		placement: RefCounted,
-		_edited_node: GoBuildMeshInstance,
+		edited_node: GoBuildMeshInstance,
 ) -> void:
 	if not Engine.is_editor_hint():
 		return
@@ -182,4 +202,4 @@ func start_shape_preview_at(
 		return
 	if _shape_preview != null and _shape_preview.is_active():
 		_shape_preview.cancel()
-	_shape_preview.start_with_placement(shape_name, scene_root, placement)
+	_shape_preview.start_with_placement(shape_name, scene_root, placement, edited_node)

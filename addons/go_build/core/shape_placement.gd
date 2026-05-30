@@ -19,6 +19,8 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _MESH_INSTANCE_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _PICKING_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
+const _CATALOG_SCRIPT := preload(
+		"res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
 
 const _HIT_NORMAL_MIN_DOT: float = 0.01
 
@@ -155,11 +157,27 @@ static func find_placement(
 static func bottom_offset(local_aabb: AABB, normal: Vector3) -> float:
 	if normal.is_zero_approx():
 		return 0.0
-	var half_extents: Vector3 = local_aabb.size * 0.5
-	var center: Vector3 = local_aabb.position + half_extents
-	# Project the box center-to-bottom vector along the normal.
-	# "Bottom" is the side the normal points away from.
-	var offset_along: float = half_extents.dot(normal.abs())
-	# We also need to correct for the AABB center not being at origin.
-	var center_offset: float = center.dot(normal)
-	return offset_along - center_offset
+	var mn: Vector3 = local_aabb.position
+	var mx: Vector3 = local_aabb.position + local_aabb.size
+	# For each axis, pick the AABB boundary that the normal points *away* from.
+	# That's the "bottom" face of the shape in the normal direction — the face
+	# that should sit on the surface.  The projection of that corner onto the
+	# normal tells us how far the origin is from that face.
+	var bottom_corner := Vector3(
+			mn.x if normal.x >= 0.0 else mx.x,
+			mn.y if normal.y >= 0.0 else mx.y,
+			mn.z if normal.z >= 0.0 else mx.z)
+	return -bottom_corner.dot(normal)
+
+
+## Build a temporary mesh for [param shape_name] with default parameters,
+## compute its AABB, and apply [method bottom_offset] to [param placement].
+## Modifies [param placement].world_pos in place.
+static func apply_bottom_offset(placement: PlacementResult, shape_name: String) -> void:
+	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh(
+			shape_name, _CATALOG_SCRIPT.default_params(shape_name))
+	if mesh == null:
+		return
+	var aabb: AABB = mesh.compute_aabb()
+	var offset: float = bottom_offset(aabb, placement.hit_normal)
+	placement.world_pos += placement.hit_normal * offset

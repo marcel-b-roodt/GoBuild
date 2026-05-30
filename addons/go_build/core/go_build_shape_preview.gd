@@ -41,6 +41,8 @@ var _preview_node: GoBuildMeshInstance = null
 var _scene_root: Node = null
 var _placement_parent: Node = null
 var _placement_local_pos: Vector3 = Vector3.ZERO
+var _placement_world_pos: Vector3 = Vector3.ZERO
+var _placement_edited_node: GoBuildMeshInstance = null
 
 
 func _ready() -> void:
@@ -82,6 +84,8 @@ func start(shape_name: String, scene_root: Node) -> void:
 	_scene_root = scene_root
 	_placement_parent = null
 	_placement_local_pos = Vector3.ZERO
+	_placement_world_pos = Vector3.ZERO
+	_placement_edited_node = null
 	_title_label.text = "%s Parameters" % shape_name
 	_rebuild_controls()
 	_spawn_preview_node()
@@ -92,19 +96,39 @@ func start(shape_name: String, scene_root: Node) -> void:
 ## [param placement] is a [ShapePlacement.PlacementResult] that specifies
 ## the parent node and world position.  The preview mesh will be positioned
 ## at the computed location.
-func start_with_placement(shape_name: String, scene_root: Node, placement) -> void:
+## [param edited_node] is the currently edited node, used for fallback
+## sibling parenting when the ray misses all meshes.
+func start_with_placement(
+		shape_name: String,
+		scene_root: Node,
+		placement,
+		edited_node: GoBuildMeshInstance = null,
+) -> void:
 	if not Engine.is_editor_hint():
 		return
 	_cancel_preview_node()
 	_shape_key = shape_name
 	_params = ShapeCreationCatalog.default_params(shape_name)
 	_scene_root = scene_root
+	_placement_edited_node = edited_node
 	if placement != null and placement.did_hit and placement.parent != null:
 		_placement_parent = placement.parent
 		_placement_local_pos = placement.parent.global_transform.affine_inverse() * placement.world_pos
+		_placement_world_pos = placement.world_pos
 	else:
+		# Miss path — use edited_node parent for sibling placement,
+		# or scene_root if no edited node.
 		_placement_parent = null
-		_placement_local_pos = Vector3.ZERO
+		if edited_node != null and edited_node.get_parent() != null:
+			_placement_parent = edited_node.get_parent()
+			_placement_local_pos = _placement_parent.global_transform.affine_inverse() * placement.world_pos
+		else:
+			_placement_parent = null
+			_placement_local_pos = Vector3.ZERO
+		if placement != null:
+			_placement_world_pos = placement.world_pos
+		else:
+			_placement_world_pos = Vector3.ZERO
 	_title_label.text = "%s Parameters" % shape_name
 	_rebuild_controls()
 	_spawn_preview_node()
@@ -119,6 +143,8 @@ func cancel() -> void:
 	_scene_root = null
 	_placement_parent = null
 	_placement_local_pos = Vector3.ZERO
+	_placement_world_pos = Vector3.ZERO
+	_placement_edited_node = null
 	visible = false
 	cancelled.emit()
 
@@ -197,6 +223,8 @@ func _spawn_preview_node() -> void:
 		_preview_node.position = _placement_local_pos
 	else:
 		_scene_root.add_child(_preview_node, true)
+		if _placement_world_pos != Vector3.ZERO:
+			_preview_node.global_position = _placement_world_pos
 	_preview_node.owner = null
 
 
@@ -245,6 +273,8 @@ func _on_accept_pressed() -> void:
 	_scene_root = null
 	_placement_parent = null
 	_placement_local_pos = Vector3.ZERO
+	_placement_world_pos = Vector3.ZERO
+	_placement_edited_node = null
 	visible = false
 	accepted.emit(key, params, parent, local_pos)
 
