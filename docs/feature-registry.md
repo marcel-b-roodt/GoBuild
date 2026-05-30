@@ -35,7 +35,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Arch | ✅ Complete | Outer radius, thickness, angle, segments, depth |
 | Shape insert toolbar | ✅ Complete | One-click creation in GoBuildPanel; full undo/redo |
 | Generator parameter preview (pre-commit) | 🔧 In Progress | Panel-native live preview + Accept/Cancel for Cylinder/Cone/Sphere/Staircase/Torus/Arch with configurable counts (sides/segments/steps/rings) and size params; defaults/schema/build dispatch moved into `ShapeCreationCatalog`; final commit inserts a normal node via undo/redo |
-| Shape placement at 3D cursor / object position | 📋 Planned | Insert at 3D cursor or selected object; param popup persists until Enter/Accept or Escape; Object-mode right-click context menu entry |
+| Shape placement at cursor | 🔧 In Progress | Right-click context menu "Add Shape" submenu in all modes; raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane fallback for miss case; Create drawer places at viewport centre; preview shapes start positioned at cursor |
 
 ---
 
@@ -88,7 +88,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Modifier-aware toolbar | ✅ Complete | Viewport overlay (`_build_overlay_hint` in `plugin.gd`): mode + op + available-shortcut hints drawn bottom-left of viewport; panel context label (`_context_label` in `go_build_panel.gd`, driven by `_build_panel_context` + `_refresh_panel_context` in `plugin.gd`): shows active op name (Move / ■ Extrude / ■ Extrude Edge / ■ Inset / ■ Snap / ■ Vertex Snap) below the mode buttons; updates on Shift/Ctrl/Alt/V key events, transform mode change, and mode switch |
 | Shift+drag → Extrude | ✅ Complete | `_should_extrude_drag` + `_begin_extrude_drag` in `selection_input_controller.gd`; extrudes at distance=0 then translates; undo restores pre-extrude state in one step |
 | Shift+drag → Inset | ✅ Complete | `_should_inset_drag` + `_begin_inset_drag` in `selection_input_controller.gd`; `InsetOperation.apply` at distance=0 then `_apply_inset_drag` (screen-space delta → lerp to centroid); undo restores pre-inset state in one step |
-| Right-click context menu | ✅ Complete | `PopupMenu` in `selection_input_controller.gd`; per-mode items (Select All, Extrude, Flip Normals); stub items for planned ops |
+| Right-click context menu | ✅ Complete | `PopupMenu` in `selection_input_controller.gd`; per-mode items (Select All, Extrude, Flip Normals); Add Shape submenu in all modes; Object mode context menu enabled; Add Texture in Face mode |
 | Rip | 📋 Planned | Split shared vertices or edges apart by duplicating them and leaving an open seam; Vertex and Edge mode; `V` key |
 
 ---
