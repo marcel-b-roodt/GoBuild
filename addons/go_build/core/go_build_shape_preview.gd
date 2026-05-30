@@ -18,7 +18,9 @@ extends VBoxContainer
 ## Emitted when the user confirms the shape parameters.
 ## [param shape_key]  — the shape name string (e.g. "Cylinder")
 ## [param params]     — the final parameter Dictionary (already normalised)
-signal accepted(shape_key: String, params: Dictionary)
+## [param parent]     — the parent Node to add the shape to (may be null for scene root)
+## [param local_pos]  — the local-space position within parent (identity if no placement)
+signal accepted(shape_key: String, params: Dictionary, parent: Node, local_pos: Vector3)
 
 ## Emitted when the user cancels or the preview is dismissed.
 signal cancelled
@@ -37,6 +39,8 @@ var _shape_key: String = ""
 var _params: Dictionary = {}
 var _preview_node: GoBuildMeshInstance = null
 var _scene_root: Node = null
+var _placement_parent: Node = null
+var _placement_local_pos: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
@@ -76,6 +80,31 @@ func start(shape_name: String, scene_root: Node) -> void:
 	_shape_key = shape_name
 	_params = ShapeCreationCatalog.default_params(shape_name)
 	_scene_root = scene_root
+	_placement_parent = null
+	_placement_local_pos = Vector3.ZERO
+	_title_label.text = "%s Parameters" % shape_name
+	_rebuild_controls()
+	_spawn_preview_node()
+	visible = true
+
+
+## Begin a preview for [param shape_name] with placement info.
+## [param placement] is a [ShapePlacement.PlacementResult] that specifies
+## the parent node and world position.  The preview mesh will be positioned
+## at the computed location.
+func start_with_placement(shape_name: String, scene_root: Node, placement) -> void:
+	if not Engine.is_editor_hint():
+		return
+	_cancel_preview_node()
+	_shape_key = shape_name
+	_params = ShapeCreationCatalog.default_params(shape_name)
+	_scene_root = scene_root
+	if placement != null and placement.did_hit and placement.parent != null:
+		_placement_parent = placement.parent
+		_placement_local_pos = placement.parent.global_transform.affine_inverse() * placement.world_pos
+	else:
+		_placement_parent = null
+		_placement_local_pos = Vector3.ZERO
 	_title_label.text = "%s Parameters" % shape_name
 	_rebuild_controls()
 	_spawn_preview_node()
@@ -88,6 +117,8 @@ func cancel() -> void:
 	_shape_key = ""
 	_params = {}
 	_scene_root = null
+	_placement_parent = null
+	_placement_local_pos = Vector3.ZERO
 	visible = false
 	cancelled.emit()
 
@@ -161,7 +192,11 @@ func _spawn_preview_node() -> void:
 	_preview_node = GoBuildMeshInstance.new()
 	_preview_node.name = ShapeCreationCatalog.node_name(_shape_key) + "Preview"
 	_preview_node.go_build_mesh = ShapeCreationCatalog.build_mesh(_shape_key, _params)
-	_scene_root.add_child(_preview_node, true)
+	if _placement_parent != null and is_instance_valid(_placement_parent):
+		_placement_parent.add_child(_preview_node, true)
+		_preview_node.position = _placement_local_pos
+	else:
+		_scene_root.add_child(_preview_node, true)
 	_preview_node.owner = null
 
 
@@ -202,12 +237,16 @@ func _on_accept_pressed() -> void:
 		return
 	var key := _shape_key
 	var params: Dictionary = _params.duplicate(true)
+	var parent: Node = _placement_parent
+	var local_pos: Vector3 = _placement_local_pos
 	_cancel_preview_node()
 	_shape_key = ""
 	_params = {}
 	_scene_root = null
+	_placement_parent = null
+	_placement_local_pos = Vector3.ZERO
 	visible = false
-	accepted.emit(key, params)
+	accepted.emit(key, params, parent, local_pos)
 
 
 func _on_cancel_pressed() -> void:

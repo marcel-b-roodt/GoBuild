@@ -16,6 +16,9 @@ const _SEL_MGR_SCRIPT        := preload("res://addons/go_build/core/selection_ma
 const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
 const _MESH_INSTANCE_SCRIPT  := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _GIZMO_PLUGIN_SCRIPT   := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
+const _SHAPE_PLACEMENT_SCRIPT := preload("res://addons/go_build/core/shape_placement.gd")
+const _SHAPE_CATALOG_SCRIPT  := preload(
+		"res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
 
 const _PANEL_SCRIPT          := preload("res://addons/go_build/core/go_build_panel.gd")
 const _EXTRUDE_SCRIPT       := preload(
@@ -104,6 +107,7 @@ var _pending_edge_selection: Array[int] = []
 var _right_click_press_pos: Vector2 = Vector2.ZERO
 var _right_click_dragged:   bool    = false
 var _context_menu_open:     bool    = false
+var _context_camera:        Camera3D = null
 
 # ── Parameter-preview state ─────────────────────────────────────────────────
 ## Active preview, or [code]null[/code] when idle.
@@ -445,15 +449,15 @@ func _handle_mouse_button(
 	if mb.button_index == MOUSE_BUTTON_RIGHT:
 		if _context_menu_open:
 			return 1
-		var in_edit_mode: bool = edited_node != null \
-				and edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT
+		var has_gobuild: bool = edited_node != null
 		if mb.pressed:
 			_cancel_active_drag(edited_node)
 			_cancel_box_select(edited_node)
 			_right_click_press_pos = mb.position
 			_right_click_dragged   = false
+			_context_camera = camera
 		else:
-			if not _right_click_dragged and in_edit_mode:
+			if has_gobuild and not _right_click_dragged:
 				_show_context_menu_deferred(edited_node, mb.position)
 		return 0
 	if mb.button_index == MOUSE_BUTTON_LEFT:
@@ -1405,15 +1409,13 @@ func _seed_drag_controller_viewport() -> void:
 # ---------------------------------------------------------------------------
 
 ## Show a [PopupMenu] at screen position [param at] with operations appropriate
-## to the current edit mode and selection.  No-op in Object mode.
+## to the current edit mode and selection.
 ## Returns [code]true[/code] if a popup was shown (caller should consume the event),
 ## [code]false[/code] otherwise.
 func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 	if edited_node == null:
 		return false
 	var mode: SelectionManager.Mode = edited_node.selection.get_mode()
-	if mode == SelectionManager.Mode.OBJECT:
-		return false
 	# Convert viewport-local position to screen (OS window) coordinates.
 	# mb.position from _forward_3d_gui_input is relative to the 3D SubViewport.
 	# The SubViewport's parent Control holds the viewport at a known screen location.
@@ -1432,7 +1434,21 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 	)
 	popup.popup_hide.connect(popup.queue_free)
 
-	popup.add_item("Select All", 1)
+	# Add Shape submenu (available in all modes when a GoBuildMeshInstance is selected).
+	var shape_submenu := PopupMenu.new()
+	var shape_names: Array[String] = ShapeCreationCatalog.all_shapes()
+	for i: int in shape_names.size():
+		shape_submenu.add_item(shape_names[i], 100 + i)
+	shape_submenu.id_pressed.connect(func(id: int) -> void:
+		var idx: int = id - 100
+		if idx >= 0 and idx < shape_names.size():
+			_insert_shape_at_cursor(shape_names[idx], edited_node)
+	)
+	popup.add_child(shape_submenu)
+	popup.add_submenu_item("Add Shape", shape_submenu.get_name())
+
+	if mode != SelectionManager.Mode.OBJECT:
+		popup.add_item("Select All", 1)
 
 	match mode:
 		SelectionManager.Mode.VERTEX:
@@ -1544,6 +1560,80 @@ func _on_context_menu_pressed(
 		37:  # Add Texture
 			if _panel != null:
 				_panel.trigger_add_tex()
+
+
+## Insert a new [GoBuildMeshInstance] at the right-click position.
+##
+## Uses [ShapePlacement] to determine the world position and parent.
+## On hit, the new node becomes a child of the hit mesh, offset flush
+## on the surface.  On miss, it becomes a sibling under the edited node's
+## parent (or scene root) at the Y-plane intersection.
+func _insert_shape_at_cursor(
+		shape_name: String,
+		edited_node: GoBuildMeshInstance,
+) -> void:
+	if _editor_plugin == null:
+		return
+	var scene_root: Node = EditorInterface.get_edited_scene_root()
+	if scene_root == null:
+		return
+
+	var camera: Camera3D = _context_camera
+	if camera == null:
+		camera = EditorInterface.get_editor_viewport_3d(0).get_camera_3d()
+	if camera == null:
+		return
+
+	var placement := ShapePlacement.find_placement(
+			camera, _right_click_press_pos, edited_node)
+
+	var params := ShapeCreationCatalog.default_params(shape_name)
+
+	if ShapeCreationCatalog.supports_preview(shape_name):
+		# Preview shapes: start preview and position the preview mesh.
+		if _panel != null and _panel.get_create_drawer() != null:
+			_panel.get_create_drawer().start_shape_preview_at(
+					shape_name, placement, edited_node)
+		return
+
+	# Instant shapes: insert directly at computed position.
+	var node := GoBuildMeshInstance.new()
+	node.name = ShapeCreationCatalog.node_name(shape_name)
+	node.go_build_mesh = ShapeCreationCatalog.build_mesh(shape_name, params)
+	var default_mat: Material = load("res://addons/go_build/go_build_material.tres")
+	if default_mat != null and node.go_build_mesh != null:
+		node.go_build_mesh.material_slots = [default_mat]
+
+	# Compute bottom-offset so the shape sits flush on the surface.
+	if node.go_build_mesh != null:
+		var aabb: AABB = node.go_build_mesh.compute_aabb()
+		var offset: float = ShapePlacement.bottom_offset(aabb, placement.hit_normal)
+		placement.world_pos += placement.hit_normal * offset
+
+	# Determine parent: hit mesh for child placement,
+	# edited_node's parent for sibling placement.
+	var parent: Node = scene_root
+	if placement.did_hit and placement.parent != null:
+		parent = placement.parent
+		# Convert world position to parent-local space.
+		var local_pos: Vector3 = parent.global_transform.affine_inverse() * placement.world_pos
+		node.position = local_pos
+		node.rotation = Vector3.ZERO
+	elif edited_node != null and edited_node.get_parent() != null:
+		parent = edited_node.get_parent()
+		node.global_position = placement.world_pos
+
+	var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
+	ur.create_action("Insert " + node.name)
+	ur.add_do_method(parent, "add_child", node, true)
+	ur.add_do_method(node, "set_owner", scene_root)
+	ur.add_undo_method(parent, "remove_child", node)
+	ur.add_undo_reference(node)
+	ur.commit_action()
+
+	var es: EditorSelection = EditorInterface.get_selection()
+	es.clear()
+	es.add_node(node)
 
 
 func _deferred_context_op(id: int) -> void:

@@ -430,6 +430,19 @@ func compute_centroid(vertex_indices: Array[int]) -> Vector3:
 	return sum / vertex_indices.size()
 
 
+## Return the axis-aligned bounding box of all vertices in local mesh space.
+## Returns a zero-size [AABB] at the origin if there are no vertices.
+func compute_aabb() -> AABB:
+	if vertices.is_empty():
+		return AABB()
+	var mn := vertices[0]
+	var mx := vertices[0]
+	for v: Vector3 in vertices:
+		mn = mn.min(v)
+		mx = mx.max(v)
+	return AABB(mn, mx - mn)
+
+
 ## Take a deep copy of the mesh state for undo/redo.
 #
 # ---------------------------------------------------------------------------

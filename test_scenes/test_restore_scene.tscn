@@ -559,7 +559,7 @@ _surfaces = [{
 "vertex_data": PackedByteArray("unRvP09QNkD4jtY/U026P09QNkB4vKA+U026P09QNkD4jtY/unRvP09QNkD4jtY/unRvP09QNkB4vKA+U026P09QNkB4vKA+unRvP09QNkB4vKA+MoAXP09QNkD4jtY/MoAXP09QNkB4vKA+unRvP09QNkB4vKA+unRvP09QNkD4jtY/MoAXP09QNkD4jtY/unRvP/btH0B4vKA+MoAXP09QNkB4vKA+MoAXP/btH0B4vKA+unRvP/btH0B4vKA+unRvP09QNkB4vKA+MoAXP09QNkB4vKA+MoAXP/btH0B4vKA+MoAXP09QNkD4jtY/MoAXP/btH0D4jtY/MoAXP/btH0B4vKA+MoAXP09QNkB4vKA+MoAXP09QNkD4jtY/MoAXP/btH0D4jtY/unRvP09QNkD4jtY/unRvP/btH0D4jtY/MoAXP/btH0D4jtY/MoAXP09QNkD4jtY/unRvP09QNkD4jtY/unRvP/btH0D4jtY/unRvP09QNkB4vKA+unRvP/btH0B4vKA+unRvP/btH0D4jtY/unRvP09QNkD4jtY/unRvP09QNkB4vKA+unRvP/btH0D4jtY/U026P09QNkD4jtY/U026P/btH0D4jtY/unRvP/btH0D4jtY/unRvP09QNkD4jtY/U026P09QNkD4jtY/U026P/btH0D4jtY/U026P09QNkB4vKA+U026P/btH0B4vKA+U026P/btH0D4jtY/U026P09QNkD4jtY/U026P09QNkB4vKA+U026P/btH0B4vKA+unRvP09QNkB4vKA+unRvP/btH0B4vKA+U026P/btH0B4vKA+U026P09QNkB4vKA+unRvP09QNkB4vKA+unRvP/btH0B4vKA+unRvP09QNkD4jtY/unRvP/btH0D4jtY/unRvP/btH0B4vKA+unRvP09QNkB4vKA+unRvP09QNkD4jtY//3/+/wAA/7//f/7/AAD/v/9//v8AAP+//3/+/wAA/7//f/7/AAD/v/9//v8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+///////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCAAAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/v//f/9//7/+//9//3//v/7//3//f/+//v//f/9//7/+//9//3//v/7//3//f/+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/v//f/9//7/+//9//3//v/7//3//f/+//v//f/9//7/+//9//3//v/7//3//f/+///////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCAAAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/")
 }, {
 "aabb": AABB(0.25660634, -0.5, 2.496429, 1.1453639, 1.4532748, 0.0035710335),
-"attribute_data": PackedByteArray("SZuSPwAAAAAAAAAAAAAAAAAAAADpBLo/AAAAAAAAAABJm5I/6QS6PwAAAAAAAAAASZuSPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA6QS6PwAAAAAAAAAA"),
+"attribute_data": PackedByteArray("JiuRPiWwEj8AAAAAAAAAAAEtQT+vbqM+AAAAAAAAAACtFb8+lUh3PgAAAAAAAAAAJiuRPiWwEj8AAAAAAAAAAI+P8T58Zkw/AAAAAAAAAAABLUE/r26jPgAAAAAAAAAA"),
 "format": 34359738423,
 "material": SubResource("StandardMaterial3D_dwmxf"),
 "primitive": 3,
@@ -582,7 +582,7 @@ uvs = Array[Vector2]([Vector2(0, 0), Vector2(1.1453639, 0), Vector2(1.1453639, 3
 [sub_resource type="Resource" id="Resource_ve016"]
 script = ExtResource("2_phtbm")
 vertex_indices = Array[int]([19, 38, 39, 12])
-uvs = Array[Vector2]([Vector2(1.1453639, 0), Vector2(1.1453639, 1.4532748), Vector2(0, 1.4532748), Vector2(0, 0)])
+uvs = Array[Vector2]([Vector2(0.28353232, 0.57300025), Vector2(0.37321225, 0.24148782), Vector2(0.75459296, 0.31920382), Vector2(0.4717984, 0.7984388)])
 material_index = 8
 
 [sub_resource type="Resource" id="Resource_mrhg2"]

@@ -326,6 +326,9 @@ func trigger_spherical_uv() -> void:
 func trigger_add_tex() -> void:
 	if _uv_panel != null: _uv_panel.trigger_add_tex()
 
+func get_create_drawer() -> GoBuildCreateDrawer:
+	return _create_drawer
+
 
 func set_uv_panel(panel: GoBuildUvPanel) -> void:
 	_uv_panel = panel
