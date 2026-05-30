@@ -5,9 +5,9 @@
 ## currently open scene with full undo/redo.  Shapes that support a parameter
 ## preview (e.g. Cylinder, Sphere) open [GoBuildShapePreview] first.
 ##
-## Drop into any [VBoxContainer] with [method Node.add_child].  After adding:
-##   - Call [method GoBuildDrawer.set_plugin] once.
-##   - Starts open by default so the Create section is visible on launch.
+## [method insert_shape] is the single canonical path for inserting a new
+## [GoBuildMeshInstance] — all callers (panel buttons, context menu, preview
+## acceptance) go through it.
 @tool
 class_name GoBuildCreateDrawer
 extends GoBuildDrawer
@@ -57,33 +57,22 @@ func _on_shape_button_pressed(shape_name: String) -> void:
 	if placement != null:
 		ShapePlacement.apply_bottom_offset(placement, shape_name)
 	var edited: GoBuildMeshInstance = _get_edited_instance()
+	var scene_root: Node = EditorInterface.get_edited_scene_root()
+	if scene_root == null:
+		return
 
 	if not ShapeCreationCatalog.supports_preview(shape_name):
-		# Shapes without parameters insert immediately at viewport center.
-		var params := ShapeCreationCatalog.default_params(shape_name)
-		var parent: Node = null
-		var local_pos: Vector3 = Vector3.ZERO
-		if placement != null:
-			if placement.did_hit and placement.parent != null:
-				parent = placement.parent
-				local_pos = parent.global_transform.affine_inverse() * placement.world_pos
-			elif edited != null and edited.get_parent() != null:
-				parent = edited.get_parent()
-				local_pos = parent.global_transform.affine_inverse() * placement.world_pos
-			else:
-				local_pos = placement.world_pos
-		_insert_shape(
-			func() -> GoBuildMesh: return ShapeCreationCatalog.build_mesh(shape_name, params),
+		var resolved: Dictionary = ShapePlacement.resolve_parent_and_position(
+				placement, edited, scene_root)
+		insert_shape(
+			func() -> GoBuildMesh: return ShapeCreationCatalog.build_mesh(
+					shape_name, ShapeCreationCatalog.default_params(shape_name)),
 			ShapeCreationCatalog.node_name(shape_name),
-			parent,
-			local_pos)
+			resolved["parent"],
+			resolved["local_pos"])
 		return
 
 	if not Engine.is_editor_hint():
-		return
-	var scene_root: Node = EditorInterface.get_edited_scene_root()
-	if scene_root == null:
-		push_warning("GoBuild: no open scene — create or open a scene first")
 		return
 	_shape_preview.start_with_placement(shape_name, scene_root, placement, edited)
 
@@ -94,7 +83,7 @@ func _on_shape_preview_accepted(
 		parent: Node,
 		local_pos: Vector3,
 ) -> void:
-	_insert_shape(
+	insert_shape(
 		func() -> GoBuildMesh: return ShapeCreationCatalog.build_mesh(shape_key, params),
 		ShapeCreationCatalog.node_name(shape_key),
 		parent,
@@ -102,16 +91,20 @@ func _on_shape_preview_accepted(
 
 
 func _on_shape_preview_cancelled() -> void:
-	pass  # Nothing extra needed; GoBuildShapePreview already cleaned up.
+	pass
 
 
 ## Create a [GoBuildMeshInstance] populated by [param mesh_callable] and
-## insert it into the scene with full undo/redo.
-## If [param parent] is null, the shape is added under the scene root.
-## [param local_pos] sets the node's position.  When [param parent] is
-## the scene root, this is treated as a world-space position via
-## [code]global_position[/code]; otherwise it is local to [param parent].
-func _insert_shape(
+## insert it into the scene with full undo/redo and auto-selection.
+##
+## This is the single canonical insertion path used by all callers:
+## panel buttons, context menu instant shapes, and preview acceptance.
+##
+## [param parent] is the parent [Node]; if null, scene root is used.
+## [param local_pos] is the position.  If [param parent] is the scene root,
+## this is treated as world-space via [code]global_position[/code]; otherwise
+## it is local to [param parent].
+func insert_shape(
 		mesh_callable: Callable,
 		node_name: String,
 		parent: Node = null,
@@ -138,8 +131,6 @@ func _insert_shape(
 		node.global_position = local_pos
 	else:
 		node.position = local_pos
-	# Seed slot 0 with the default GoBuild metre material so new shapes
-	# render with the standard look rather than an unshaded surface.
 	var default_mat: Material = load("res://addons/go_build/go_build_material.tres")
 	if default_mat != null and node.go_build_mesh != null:
 		node.go_build_mesh.material_slots = [default_mat]

@@ -181,3 +181,32 @@ static func apply_bottom_offset(placement: PlacementResult, shape_name: String) 
 	var aabb: AABB = mesh.compute_aabb()
 	var offset: float = bottom_offset(aabb, placement.hit_normal)
 	placement.world_pos += placement.hit_normal * offset
+
+
+## Resolve the parent node and local position for a new shape being inserted.
+##
+## Given a [PlacementResult] (from [method find_placement]) and the currently
+## edited node, determines:
+## - [code]parent[/code]: the [Node] under which the new shape should be added
+##   (hit mesh, edited node's parent, or scene root)
+## - [code]local_pos[/code]: the position in parent-local space at which the
+##   shape should be placed
+##
+## When [param placement] is null (no camera/scene), returns scene_root as parent
+## with position at the origin.
+static func resolve_parent_and_position(
+		placement: PlacementResult,
+		edited_node: GoBuildMeshInstance,
+		scene_root: Node,
+) -> Dictionary:
+	if placement == null:
+		return {"parent": scene_root, "local_pos": Vector3.ZERO}
+	if placement.did_hit and placement.parent != null:
+		var parent: Node = placement.parent
+		var local_pos: Vector3 = parent.global_transform.affine_inverse() * placement.world_pos
+		return {"parent": parent, "local_pos": local_pos}
+	if edited_node != null and edited_node.get_parent() != null:
+		var parent: Node = edited_node.get_parent()
+		var local_pos: Vector3 = parent.global_transform.affine_inverse() * placement.world_pos
+		return {"parent": parent, "local_pos": local_pos}
+	return {"parent": scene_root, "local_pos": placement.world_pos}

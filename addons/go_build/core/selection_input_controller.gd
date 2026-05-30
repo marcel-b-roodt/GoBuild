@@ -1568,6 +1568,7 @@ func _on_context_menu_pressed(
 ## On hit, the new node becomes a child of the hit mesh, offset flush
 ## on the surface.  On miss, it becomes a sibling under the edited node's
 ## parent (or scene root) at the Y-plane intersection.
+## Delegates to [GoBuildCreateDrawer.insert_shape] for the actual insertion.
 func _insert_shape_at_cursor(
 		shape_name: String,
 		edited_node: GoBuildMeshInstance,
@@ -1590,43 +1591,22 @@ func _insert_shape_at_cursor(
 	ShapePlacement.apply_bottom_offset(placement, shape_name)
 
 	if ShapeCreationCatalog.supports_preview(shape_name):
-		# Preview shapes: start preview and position the preview mesh.
+		# Preview shapes: delegate to the create drawer's preview system.
 		if _panel != null and _panel.get_create_drawer() != null:
 			_panel.get_create_drawer().start_shape_preview_at(
 					shape_name, placement, edited_node)
 		return
 
-	# Instant shapes: insert directly at computed position.
-	var node := GoBuildMeshInstance.new()
-	node.name = ShapeCreationCatalog.node_name(shape_name)
-	node.go_build_mesh = ShapeCreationCatalog.build_mesh(
-			shape_name, ShapeCreationCatalog.default_params(shape_name))
-	var default_mat: Material = load("res://addons/go_build/go_build_material.tres")
-	if default_mat != null and node.go_build_mesh != null:
-		node.go_build_mesh.material_slots = [default_mat]
-
-	# Determine parent: hit mesh for child placement,
-	# edited_node's parent for sibling placement.
-	var parent: Node = scene_root
-	if placement.did_hit and placement.parent != null:
-		parent = placement.parent
-		var local_pos: Vector3 = parent.global_transform.affine_inverse() * placement.world_pos
-		node.position = local_pos
-	elif edited_node != null and edited_node.get_parent() != null:
-		parent = edited_node.get_parent()
-		node.global_position = placement.world_pos
-
-	var ur: EditorUndoRedoManager = _editor_plugin.get_undo_redo()
-	ur.create_action("Insert " + node.name)
-	ur.add_do_method(parent, "add_child", node, true)
-	ur.add_do_method(node, "set_owner", scene_root)
-	ur.add_undo_method(parent, "remove_child", node)
-	ur.add_undo_reference(node)
-	ur.commit_action()
-
-	var es: EditorSelection = EditorInterface.get_selection()
-	es.clear()
-	es.add_node(node)
+	# Instant shapes: resolve parent/position and insert via create drawer.
+	var resolved: Dictionary = ShapePlacement.resolve_parent_and_position(
+			placement, edited_node, scene_root)
+	if _panel != null and _panel.get_create_drawer() != null:
+		_panel.get_create_drawer().insert_shape(
+			func() -> GoBuildMesh: return ShapeCreationCatalog.build_mesh(
+					shape_name, ShapeCreationCatalog.default_params(shape_name)),
+			ShapeCreationCatalog.node_name(shape_name),
+			resolved["parent"],
+			resolved["local_pos"])
 
 
 func _deferred_context_op(id: int) -> void:

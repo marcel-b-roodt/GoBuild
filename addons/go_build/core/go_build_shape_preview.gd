@@ -29,6 +29,7 @@ signal cancelled
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _SHAPE_CATALOG_SCRIPT := \
 		preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
+const _SHAPE_PLACEMENT_SCRIPT := preload("res://addons/go_build/core/shape_placement.gd")
 
 var _title_label: Label = null
 var _grid: GridContainer = null
@@ -111,24 +112,14 @@ func start_with_placement(
 	_params = ShapeCreationCatalog.default_params(shape_name)
 	_scene_root = scene_root
 	_placement_edited_node = edited_node
-	if placement != null and placement.did_hit and placement.parent != null:
-		_placement_parent = placement.parent
-		_placement_local_pos = placement.parent.global_transform.affine_inverse() * placement.world_pos
-		_placement_world_pos = placement.world_pos
-	else:
-		# Miss path — use edited_node parent for sibling placement,
-		# or scene_root if no edited node.
-		_placement_parent = null
-		if edited_node != null and edited_node.get_parent() != null:
-			_placement_parent = edited_node.get_parent()
-			_placement_local_pos = _placement_parent.global_transform.affine_inverse() * placement.world_pos
-		else:
-			_placement_parent = null
-			_placement_local_pos = Vector3.ZERO
-		if placement != null:
-			_placement_world_pos = placement.world_pos
-		else:
-			_placement_world_pos = Vector3.ZERO
+
+	# Use the shared parent/position resolution logic.
+	var resolved: Dictionary = ShapePlacement.resolve_parent_and_position(
+			placement, edited_node, scene_root)
+	_placement_parent = resolved["parent"]
+	_placement_local_pos = resolved["local_pos"]
+	_placement_world_pos = placement.world_pos if placement != null else Vector3.ZERO
+
 	_title_label.text = "%s Parameters" % shape_name
 	_rebuild_controls()
 	_spawn_preview_node()
