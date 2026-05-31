@@ -1452,6 +1452,10 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 
 	if mode != SelectionManager.Mode.OBJECT:
 		popup.add_item("Select All", 1)
+		if not sel.is_empty():
+			popup.add_item("Grow Selection  (Ctrl+=)", 2)
+		if not sel.is_empty():
+			popup.add_item("Shrink Selection  (Ctrl+-)", 3)
 
 	match mode:
 		SelectionManager.Mode.VERTEX:
@@ -1527,6 +1531,12 @@ func _on_context_menu_pressed(
 				SelectionManager.Mode.FACE:
 					for i: int in gbm.faces.size():
 						sel.select_face(i)
+		2:  # Grow Selection
+			if _panel != null:
+				_panel.trigger_grow()
+		3:  # Shrink Selection
+			if _panel != null:
+				_panel.trigger_shrink()
 		10:  # Delete
 			if _panel != null:
 				_panel.trigger_delete()

@@ -499,6 +499,16 @@ func _handle_keyboard(event: InputEvent) -> int:
 
 
 func _handle_keyboard_shortcut(key: InputEventKey) -> int:
+	# Grow/Shrink: Ctrl+= or Ctrl+Keypad+ / Ctrl+- or Ctrl+Keypad-
+	if key.ctrl_pressed and _edited_node != null and _panel != null \
+			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+		match key.keycode:
+			KEY_EQUAL, KEY_PLUS, KEY_KP_ADD:
+				_panel.trigger_grow()
+				return 1
+			KEY_MINUS, KEY_KP_SUBTRACT:
+				_panel.trigger_shrink()
+				return 1
 	# Transform-mode keys and delete are handled inline; mode-switch shortcuts
 	# go through the shared _set_mode / switch_mode path below.
 	var handled: int = _handle_action_key(key.keycode)
@@ -566,6 +576,24 @@ func _handle_bridge_key() -> int:
 	if _edited_node != null and _panel != null \
 			and _edited_node.selection.get_mode() == SelectionManager.Mode.EDGE:
 		_panel.trigger_bridge()
+		return 1
+	return 0
+
+
+## Intercept = / + in sub-element modes; triggers Grow Selection.
+func _handle_grow_key() -> int:
+	if _edited_node != null and _panel != null \
+			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+		_panel.trigger_grow()
+		return 1
+	return 0
+
+
+## Intercept - in sub-element modes; triggers Shrink Selection.
+func _handle_shrink_key() -> int:
+	if _edited_node != null and _panel != null \
+			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+		_panel.trigger_shrink()
 		return 1
 	return 0
 

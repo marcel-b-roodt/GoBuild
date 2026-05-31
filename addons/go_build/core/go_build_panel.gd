@@ -35,6 +35,7 @@ const _GENERAL_DRAWER_SCRIPT   := \
 		preload("res://addons/go_build/core/go_build_general_drawer.gd")
 const _SHAPE_CATALOG_SCRIPT    := \
 	preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
+const _SEL_HELPERS_SCRIPT      := preload("res://addons/go_build/core/selection_helpers.gd")
 const _UV_PANEL_SCRIPT         := preload("res://addons/go_build/uv/go_build_uv_panel.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
@@ -325,6 +326,50 @@ func trigger_spherical_uv() -> void:
 
 func trigger_add_tex() -> void:
 	if _uv_panel != null: _uv_panel.trigger_add_tex()
+
+
+## Expand the current selection by one topological ring (grow).
+## Operates on the edited node's current selection in whichever mode is active.
+func trigger_grow() -> void:
+	if _target == null or _target.go_build_mesh == null:
+		return
+	var mesh: GoBuildMesh = _target.go_build_mesh
+	if mesh.edges.is_empty():
+		return
+	var sel: SelectionManager = _target.selection
+	match sel.get_mode():
+		SelectionManager.Mode.VERTEX:
+			sel.set_selected_vertices(
+					SelectionHelpers.grow_vertices(mesh, sel.get_selected_vertices()))
+		SelectionManager.Mode.EDGE:
+			sel.set_selected_edges(
+					SelectionHelpers.grow_edges(mesh, sel.get_selected_edges()))
+		SelectionManager.Mode.FACE:
+			sel.set_selected_faces(
+					SelectionHelpers.grow_faces(mesh, sel.get_selected_faces()))
+	_target.update_gizmos()
+
+
+## Shrink the current selection by removing border elements.
+## Operates on the edited node's current selection in whichever mode is active.
+func trigger_shrink() -> void:
+	if _target == null or _target.go_build_mesh == null:
+		return
+	var mesh: GoBuildMesh = _target.go_build_mesh
+	if mesh.edges.is_empty():
+		return
+	var sel: SelectionManager = _target.selection
+	match sel.get_mode():
+		SelectionManager.Mode.VERTEX:
+			sel.set_selected_vertices(
+					SelectionHelpers.shrink_vertices(mesh, sel.get_selected_vertices()))
+		SelectionManager.Mode.EDGE:
+			sel.set_selected_edges(
+					SelectionHelpers.shrink_edges(mesh, sel.get_selected_edges()))
+		SelectionManager.Mode.FACE:
+			sel.set_selected_faces(
+					SelectionHelpers.shrink_faces(mesh, sel.get_selected_faces()))
+	_target.update_gizmos()
 
 func get_create_drawer() -> GoBuildCreateDrawer:
 	return _create_drawer
