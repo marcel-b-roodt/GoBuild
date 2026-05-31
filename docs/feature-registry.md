@@ -49,6 +49,10 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Viewport gizmos (`EditorNode3DGizmoPlugin`) | ✅ Complete | `GoBuildGizmoPlugin` + `GoBuildGizmo`; vertex/edge/face overlays with selected/unselected colour coding |
 | Click-picking (select element on click) | ✅ Complete | `PickingHelper` — screen-space vertex/edge + Möller-Trumbore face; Shift=add, Ctrl=toggle; 11 unit tests |
 | Multi-select (box, Shift, Ctrl) | ✅ Complete | Left-drag → rubber-band box select; Shift=additive, Ctrl=toggle; `_forward_3d_draw_over_viewport` fills + outlines rect; `PickingHelper.find_*_in_rect` |
+| Grow / Shrink selection | 🔧 In Progress | `SelectionHelpers.grow_*` / `shrink_*` — one topological ring outward/inward; keyboard Ctrl+=/Ctrl+- and context menu; works in Vertex, Edge, Face modes |
+| Loop / Ring select | 🔧 In Progress | `SelectionHelpers.edge_loop` / `edge_ring` / `face_loop` / `face_ring` — quad-topology walk; Alt+LMB (loop), Ctrl+Alt+LMB (ring); terminates at boundaries, poles, n-gons; Shift modifier adds to selection |
+| Select Similar | 📋 Planned | Context menu submenu per mode; Face: material, side count, normal, coplanar, area; Edge: length, face count, dihedral; Vertex: valence |
+| Adjacency cache on GoBuildMesh | 🔧 In Progress | O(1) lookup dicts rebuilt in `rebuild_edges()`: `_vertex_to_faces`, `_vertex_to_edges`, `_face_to_edges`, `_edge_lookup`; replaces O(n) scans in `faces_of_vertex`, `find_edge`, etc. |
 | Move handle (translate axis drag) | ✅ Complete | `GoBuildGizmoPlugin`: axis materials, `_get/set/commit_handle`; live vertex translate with undo/redo; coincident-vertex expansion ensures all split copies of a shared corner move together |
 | Planar translate handles | ✅ Complete | Three semi-transparent squares (XY/YZ/XZ) drawn at centroid offset; `_apply_plane_drag` projects mouse onto the world plane; Ctrl-snap |
 | Viewport-plane handle | ✅ Complete | Small square at centroid; `_apply_viewport_plane_drag` uses camera-forward as plane normal; Ctrl-snap |
@@ -165,12 +169,14 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Feature | Status | Notes |
 |---|---|---|
 | Keyboard shortcut map | 📋 Planned | Configurable; Blender-compatible defaults |
+| Cheatsheet popup | 📋 Planned | F1 or panel ? button; organised by category (Selection, Transform, Modeling, UV); lists all hotkeys |
 | Contextual tooltips | 📋 Planned | Status bar hints |
-| Right-click context menu | 📋 Planned | Quick-actions for selection |
+| Right-click context menu | ✅ Complete | Quick-actions for selection; per-mode items; Add Shape submenu |
 | Bug report recorder / replay system | 📋 Planned | `GoBuildReplayLogger` records operations (type, parameters, mesh snapshot hash) to JSON; `GoBuildReplayPlayer` replays them for bug reports; design needed before implementation |
 | Preferences panel | 📋 Planned | Snap, display, shortcut overrides |
 | In-editor documentation panel | 📋 Planned | Links to online docs |
 | Theme support | 📋 Planned | Respects dark/light editor theme |
+| Sphere / Circle brush select | 📋 Planned | Viewport brush tool; drag circle to paint-select vertices/edges/faces; low priority (grow/loop/ring cover most needs) |
 
 ---
 

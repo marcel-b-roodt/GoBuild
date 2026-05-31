@@ -52,6 +52,27 @@ var edges: Array[GoBuildEdge] = []
 ## Rebuilt automatically by [method rebuild_edges].  Empty until that call.
 var coincident_groups: Array[int] = []
 
+## Adjacency caches — rebuilt by [method rebuild_edges] alongside [member edges].
+##
+## These provide O(1) lookups for topology queries that would otherwise require
+## O(n) linear scans.  They are invalidated whenever faces change and must be
+## rebuilt via [method rebuild_edges] before use.
+
+## Maps vertex index → array of face indices containing that vertex.
+var _vertex_to_faces: Dictionary = {}
+
+## Maps vertex index → array of edge indices incident to that vertex.
+var _vertex_to_edges: Dictionary = {}
+
+## Maps face index → array of edge indices bordering that face.
+## Parallel to [member faces]; [code]_face_to_edges[fi][/code] has the same
+## count as [code]faces[fi].vertex_indices[/code] (one edge per side).
+var _face_to_edges: Array = []
+
+## Maps canonical edge key [code]"min_max"[/code] → edge index.
+## Provides O(1) lookup for [method find_edge] instead of O(E) scan.
+var _edge_lookup: Dictionary = {}
+
 
 # ---------------------------------------------------------------------------
 # Bake
@@ -318,6 +339,10 @@ func compute_face_normal(face: GoBuildFace) -> Vector3:
 ## Call this after any operation that adds, removes, or modifies faces.
 func rebuild_edges() -> void:
 	edges.clear()
+	_vertex_to_faces.clear()
+	_vertex_to_edges.clear()
+	_face_to_edges.clear()
+	_edge_lookup.clear()
 	# edge_map: canonical "min_max" key → index in edges array.
 	var edge_map: Dictionary = {}
 
@@ -325,6 +350,19 @@ func rebuild_edges() -> void:
 	var hard_set: Dictionary = {}
 	for pair: Vector2i in hard_edge_pairs:
 		hard_set[pair] = true
+
+	# Pre-size _vertex_to_faces.
+	for vi: int in vertices.size():
+		_vertex_to_faces[vi] = []
+		_vertex_to_edges[vi] = []
+
+	# Pre-size _face_to_edges.
+	_face_to_edges.resize(faces.size())
+	for fi: int in faces.size():
+		_face_to_edges[fi] = []
+		# Also register each face's vertices in _vertex_to_faces.
+		for vi: int in faces[fi].vertex_indices:
+			(_vertex_to_faces[vi] as Array).append(fi)
 
 	for fi in faces.size():
 		var face: GoBuildFace = faces[fi]
@@ -337,15 +375,28 @@ func rebuild_edges() -> void:
 				var edge: GoBuildEdge = edges[edge_map[key]]
 				if not edge.face_indices.has(fi):
 					edge.face_indices.append(fi)
+				var ei: int = edge_map[key]
+				(_face_to_edges[fi] as Array).append(ei)
+				if not (_vertex_to_edges[va] as Array).has(ei):
+					(_vertex_to_edges[va] as Array).append(ei)
+				if not (_vertex_to_edges[vb] as Array).has(ei):
+					(_vertex_to_edges[vb] as Array).append(ei)
 			else:
+				var ei: int = edges.size()
 				var edge := GoBuildEdge.new()
 				edge.vertex_a = va
 				edge.vertex_b = vb
 				edge.face_indices.append(fi)
 				var pair_key := Vector2i(min(va, vb), max(va, vb))
 				edge.is_hard = hard_set.has(pair_key)
-				edge_map[key] = edges.size()
+				edge_map[key] = ei
+				_edge_lookup[key] = ei
 				edges.append(edge)
+				(_face_to_edges[fi] as Array).append(ei)
+				if not (_vertex_to_edges[va] as Array).has(ei):
+					(_vertex_to_edges[va] as Array).append(ei)
+				if not (_vertex_to_edges[vb] as Array).has(ei):
+					(_vertex_to_edges[vb] as Array).append(ei)
 
 	rebuild_coincident_groups()
 
@@ -450,16 +501,22 @@ func compute_aabb() -> AABB:
 # ---------------------------------------------------------------------------
 
 ## Return the edge index of the edge connecting [param va] and [param vb],
-## or -1 if no such edge exists.  Requires an up-to-date [member edges] list.
+## or -1 if no such edge exists.  Uses the O(1) [member _edge_lookup] cache.
 func find_edge(va: int, vb: int) -> int:
-	for ei: int in edges.size():
-		if edges[ei].connects(va, vb):
-			return ei
+	var key: String = "%d_%d" % [min(va, vb), max(va, vb)]
+	if _edge_lookup.has(key):
+		return int(_edge_lookup[key])
 	return -1
 
 
 ## Return the indices of all faces that contain [param vi].
+## Uses the O(1) [member _vertex_to_faces] cache.
 func faces_of_vertex(vi: int) -> Array[int]:
+	if _vertex_to_faces.has(vi):
+		var arr: Array = _vertex_to_faces[vi]
+		var result: Array[int] = []
+		result.assign(arr)
+		return result
 	var result: Array[int] = []
 	for fi: int in faces.size():
 		if faces[fi].vertex_indices.has(vi):
@@ -468,13 +525,82 @@ func faces_of_vertex(vi: int) -> Array[int]:
 
 
 ## Return the indices of all faces that contain both [param va] and [param vb].
+## Uses the O(1) [member _edge_lookup] to find the edge, then returns its faces.
 func faces_of_edge(va: int, vb: int) -> Array[int]:
+	var ei: int = find_edge(va, vb)
+	if ei != -1:
+		var result: Array[int] = []
+		result.assign(edges[ei].face_indices)
+		return result
 	var result: Array[int] = []
 	for fi: int in faces.size():
 		var vis: Array[int] = faces[fi].vertex_indices
 		if vis.has(va) and vis.has(vb):
 			result.append(fi)
 	return result
+
+
+## Return the edge indices bordering face [param fi].
+## Uses the O(1) [member _face_to_edges] cache.
+## Returns an empty array if the cache is not built.
+func edges_of_face(fi: int) -> Array[int]:
+	if fi >= 0 and fi < _face_to_edges.size():
+		var arr: Array = _face_to_edges[fi]
+		var result: Array[int] = []
+		result.assign(arr)
+		return result
+	return []
+
+
+## Return edge indices incident to vertex [param vi].
+## Uses the O(1) [member _vertex_to_edges] cache.
+func edges_of_vertex(vi: int) -> Array[int]:
+	if _vertex_to_edges.has(vi):
+		var arr: Array = _vertex_to_edges[vi]
+		var result: Array[int] = []
+		result.assign(arr)
+		return result
+	return []
+
+
+## Return the valence (number of incident edges) of vertex [param vi].
+## Uses the O(1) [member _vertex_to_edges] cache.
+func vertex_valence(vi: int) -> int:
+	if _vertex_to_edges.has(vi):
+		return (_vertex_to_edges[vi] as Array).size()
+	return 0
+
+
+## Given a face that is a quad (4 vertices) and an edge index
+## [param edge_idx] that belongs to that face, return the edge index
+## of the opposite edge in the quad.  Returns -1 if the face is not
+## a quad or the edge is not in the face.
+##
+## For a quad face with vertices [A, B, C, D] wound CCW and edge AB,
+## the opposite edge is CD.  This is the key primitive for both
+## loop walks and ring walks.
+func opposite_edge_in_quad(fi: int, edge_idx: int) -> int:
+	if fi < 0 or fi >= faces.size():
+		return -1
+	var face: GoBuildFace = faces[fi]
+	if face.vertex_indices.size() != 4:
+		return -1
+	var ed: GoBuildEdge = edges[edge_idx]
+	var vis: Array[int] = face.vertex_indices
+	var pa: int = vis.find(ed.vertex_a)
+	var pb: int = vis.find(ed.vertex_b)
+	if pa == -1 or pb == -1:
+		return -1
+	if pa > pb:
+		var tmp: int = pa
+		pa = pb
+		pb = tmp
+	if (pa == 0 and pb == 1) or (pa == 1 and pb == 2) \
+			or (pa == 2 and pb == 3):
+		return find_edge(vis[(pa + 2) % 4], vis[(pb + 2) % 4])
+	if pa == 0 and pb == 3:
+		return find_edge(vis[1], vis[2])
+	return -1
 
 
 ## Return the two ring-neighbours of [param vi] in [param face_idx],
