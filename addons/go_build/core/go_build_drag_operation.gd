@@ -23,6 +23,8 @@ enum DeltaMode {
 	PARAM_LINEAR,
 }
 
+enum SnapMode { WORLD_GRID, DELTA_GRID }
+
 # Self-preloads — dependency order.
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _TRANSFORM_HELPERS_SCRIPT := preload(
@@ -55,6 +57,7 @@ var scale_by_gizmo: bool = true
 
 var snap_to_grid: bool = false
 var snap_step: float = 1.0
+var snap_mode: SnapMode = SnapMode.WORLD_GRID
 var snap_to_start: bool = false
 var snap_threshold: float = 0.04
 
@@ -115,6 +118,8 @@ static func action_name_for_handle(handle_id: int) -> String:
 ## [param snap_step_default] is the default snap step (from editor settings).
 ## [param snap_step_rotate] is the snap step for rotate handles.
 ## [param snap_step_scale] is the snap step for scale handles.
+## [param snap_mode] determines whether translate snap is world-grid (absolute)
+## or delta-grid (incremental). See [enum SnapMode].
 ## [param inset_centroids] maps inner-ring vertex indices to face centroids.
 ## [param inset_offset] is the accumulated inset offset before drag start.
 ## [param vertex_update_mode] enables the fast vertex-only bake path.
@@ -128,6 +133,7 @@ static func create_for_gizmo_handle(
 		snap_step_default: float,
 		snap_step_rotate: float,
 		snap_step_scale: float,
+		snap_mode: SnapMode,
 		inset_centroids: Dictionary,
 		inset_offset: float,
 		vertex_update_mode: bool,
@@ -146,6 +152,7 @@ static func create_for_gizmo_handle(
 	op.inset_centroids = inset_centroids.duplicate()
 	op._gizmo_inset_offset = inset_offset
 	op.snap_step = snap_step_default
+	op.snap_mode = snap_mode
 
 	var local_axes: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
 	if handle_id >= UNIFORM_SCALE_HANDLE_ID:

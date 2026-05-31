@@ -23,6 +23,7 @@ const _EDGE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_edge
 const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT  := preload(_MESH_INSTANCE_SCRIPT_PATH)
+const _DRAG_OP_SCRIPT        := preload("res://addons/go_build/core/go_build_drag_operation.gd")
 
 ## Must match [constant GoBuildGizmo.AXIS_HANDLE_OFFSET].
 const AXIS_HANDLE_OFFSET: int = 1_000_000
@@ -156,6 +157,8 @@ var snap_step_override: float = -1.0
 var rot_snap_override: float = 15.0
 ## Ctrl-snap step for scale ratio.
 var scale_snap_override: float = 0.1
+## Snap mode: world-grid (absolute) vs delta-grid (incremental).
+var snap_mode_override: int = GoBuildDragOperation.SnapMode.WORLD_GRID
 
 ## Currently hovered transform handle ID, or [code]-1[/code] when no handle is
 ## under the cursor.  Written by [code]plugin.gd[/code] via [method _update_hover]

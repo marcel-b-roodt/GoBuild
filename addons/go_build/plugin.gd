@@ -62,6 +62,9 @@ const _SCALE_SNAP_PRESETS: Array[float] = [0.1, 0.2, 0.5, 1.0]
 const _SCALE_SNAP_LABELS:  Array[String] = ["0.1", "0.2", "0.5", "1.0"]
 const _SCALE_SNAP_DEFAULT_IDX: int = 0   # 0.1
 
+## Snap mode labels shown in the toolbar dropdown.
+const _SNAP_MODE_LABELS: Array[String] = ["World Grid", "Delta Grid"]
+
 var _panel: GoBuildPanel                         = null
 var _panel_scroll: ScrollContainer               = null
 var _uv_panel: GoBuildUvPanel                    = null
@@ -74,6 +77,7 @@ var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
 var _scale_snap_btn: OptionButton                = null
+var _snap_mode_btn: OptionButton                 = null
 ## Keeps the native Physical/V tool mode pinned whenever in a sub-element mode.
 var _tool_pinner: Node3DEditorToolPinner         = null
 ## True when GoBuild is in a sub-element mode (Vertex/Edge/Face).
@@ -196,6 +200,20 @@ func _build_toolbar() -> void:
 	_scale_snap_btn.item_selected.connect(_on_scale_snap_selected)
 	_toolbar.add_child(_scale_snap_btn)
 
+	_toolbar.add_child(VSeparator.new())
+
+	var mode_lbl := Label.new()
+	mode_lbl.text = "Snap Mode:"
+	_toolbar.add_child(mode_lbl)
+
+	_snap_mode_btn = OptionButton.new()
+	_snap_mode_btn.flat = true
+	for label: String in _SNAP_MODE_LABELS:
+		_snap_mode_btn.add_item(label)
+	_snap_mode_btn.select(GoBuildDragOperation.SnapMode.WORLD_GRID)
+	_snap_mode_btn.item_selected.connect(_on_snap_mode_selected)
+	_toolbar.add_child(_snap_mode_btn)
+
 	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar)
 
 
@@ -209,6 +227,7 @@ func _exit_tree() -> void:
 		_snap_btn = null
 		_rot_snap_btn = null
 		_scale_snap_btn = null
+		_snap_mode_btn = null
 
 	if _panel:
 		remove_control_from_docks(_panel_scroll)
@@ -866,6 +885,12 @@ func _on_scale_snap_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
 	_gizmo_plugin.scale_snap_override = _SCALE_SNAP_PRESETS[index]
+
+
+func _on_snap_mode_selected(index: int) -> void:
+	if _gizmo_plugin == null:
+		return
+	_gizmo_plugin.snap_mode_override = index
 
 
 func _on_mode_changed(mode: SelectionManager.Mode) -> void:

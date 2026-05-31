@@ -22,23 +22,22 @@ const _PICKING_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
 const _CATALOG_SCRIPT := preload(
 		"res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
 
-const _HIT_NORMAL_MIN_DOT: float = 0.01
-
-
 ## Result of [method find_placement].
 ##
 ## [code]parent[/code] is the recommended parent node (may be null for
 ## no-hit cases, meaning scene root should be used).
-## [code]world_pos[/code] is the spawn position in world space, already
-## offset so the shape sits flush on the hit surface.
+## [code]world_pos[/code] is the spawn position in world space.
 ## [code]hit_normal[/code] is the surface normal at the hit point (or
 ## [constant Vector3.UP] for plane intersections).
 ## [code]did_hit[/code] is true when a mesh was raycasted.
+## [code]shape_aabb[/code] is the local AABB of the shape being placed,
+## set by [method apply_bottom_offset]. Used to compute flush placement.
 class PlacementResult:
 	var parent: GoBuildMeshInstance = null
 	var world_pos: Vector3 = Vector3.ZERO
 	var hit_normal: Vector3 = Vector3.UP
 	var did_hit: bool = false
+	var shape_aabb: AABB = AABB()
 
 
 ## Cast a ray from [param camera] through [param screen_pos] and find
@@ -124,8 +123,7 @@ static func find_placement(
 		var world_hit: Vector3 = gt * local_hit
 		# Transform normal to world space.
 		var world_normal: Vector3 = (gt.basis * best_face_normal).normalized()
-		if world_normal.dot(Vector3.UP) < _HIT_NORMAL_MIN_DOT and \
-				world_normal.dot(Vector3.DOWN) < _HIT_NORMAL_MIN_DOT:
+		if world_normal.is_zero_approx():
 			world_normal = Vector3.UP
 		result.hit_normal = world_normal
 		result.world_pos = world_hit
@@ -148,39 +146,51 @@ static func find_placement(
 	return result
 
 
-## Compute the offset along [param normal] needed so a shape with local
-## [AABB] [param local_aabb] sits flush on the surface.
+## Compute the offset (in child-local space) so a shape with [param aabb]
+## sits flush on a surface with [param hit_normal].
 ##
-## The offset centres the shape so its bottom face (along the normal direction)
-## aligns with the hit point.  For a shape with half-heights [0.5, 0.5, 0.5]
-## and normal [constant Vector3.UP], returns [code]0.5[/code].
-static func bottom_offset(local_aabb: AABB, normal: Vector3) -> float:
-	if normal.is_zero_approx():
-		return 0.0
-	var mn: Vector3 = local_aabb.position
-	var mx: Vector3 = local_aabb.position + local_aabb.size
-	# For each axis, pick the AABB boundary that the normal points *away* from.
-	# That's the "bottom" face of the shape in the normal direction — the face
-	# that should sit on the surface.  The projection of that corner onto the
-	# normal tells us how far the origin is from that face.
-	var bottom_corner := Vector3(
-			mn.x if normal.x >= 0.0 else mx.x,
-			mn.y if normal.y >= 0.0 else mx.y,
-			mn.z if normal.z >= 0.0 else mx.z)
-	return -bottom_corner.dot(normal)
+## The shape is pushed away from the surface along the normal by the projected
+## AABB extent, so its nearest face touches the hit point at any angle.
+## For wall-like normals (|y| <= 0.5), a Y correction shifts the shape so its
+## AABB Y-minimum sits at the click height — preventing the shape from sinking
+## below the surface it was placed on.
+##
+## The returned offset is subtracted from the hit position:
+## [code]local_pos = local_hit - offset[/code]
+static func _flush_offset(aabb: AABB, hit_normal: Vector3) -> Vector3:
+	if hit_normal.is_zero_approx():
+		return Vector3.ZERO
+	var mn: Vector3 = aabb.position
+	var mx: Vector3 = aabb.position + aabb.size
+	# Signed distance from origin to the AABB face in the hit_normal direction.
+	# For each axis: if the normal component is positive, the far face (mx)
+	# is in the +normal direction from origin; if negative, the near face (mn)
+	# is in the +normal direction.
+	var dist: float = mx.x * maxf(hit_normal.x, 0.0) \
+			+ mn.x * minf(hit_normal.x, 0.0) \
+			+ mx.y * maxf(hit_normal.y, 0.0) \
+			+ mn.y * minf(hit_normal.y, 0.0) \
+			+ mx.z * maxf(hit_normal.z, 0.0) \
+			+ mn.z * minf(hit_normal.z, 0.0)
+	var offset: Vector3 = hit_normal * dist
+	# Wall hits: shift Y so the shape's AABB Y-minimum sits at the click height.
+	if absf(hit_normal.y) <= 0.5 and mn.y < 0.0:
+		offset.y = mn.y
+	return offset
 
 
 ## Build a temporary mesh for [param shape_name] with default parameters,
-## compute its AABB, and apply [method bottom_offset] to [param placement].
-## Modifies [param placement].world_pos in place.
+## compute its AABB, and store it on [param placement].
+##
+## Does [b]not[/b] modify [param placement].world_pos — the offset is applied
+## later by [method resolve_parent_and_position] which accounts for the parent
+## transform.
 static func apply_bottom_offset(placement: PlacementResult, shape_name: String) -> void:
 	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh(
 			shape_name, _CATALOG_SCRIPT.default_params(shape_name))
 	if mesh == null:
 		return
-	var aabb: AABB = mesh.compute_aabb()
-	var offset: float = bottom_offset(aabb, placement.hit_normal)
-	placement.world_pos += placement.hit_normal * offset
+	placement.shape_aabb = mesh.compute_aabb()
 
 
 ## Resolve the parent node and local position for a new shape being inserted.
@@ -190,7 +200,16 @@ static func apply_bottom_offset(placement: PlacementResult, shape_name: String) 
 ## - [code]parent[/code]: the [Node] under which the new shape should be added
 ##   (hit mesh, edited node's parent, or scene root)
 ## - [code]local_pos[/code]: the position in parent-local space at which the
-##   shape should be placed
+##   shape should be placed, offset so its AABB face sits flush on the hit
+##   surface.
+##
+## The offset pushes the shape away from the surface along the hit normal by the
+## projected AABB extent, so the nearest face touches at the exact hit point.
+## For wall-like normals, an additional Y correction prevents the shape from
+## sinking below the click height.
+##
+## The parent's full transform (scale, rotation) is correctly accounted for via
+## [method Transform3D.affine_inverse].
 ##
 ## When [param placement] is null (no camera/scene), returns scene_root as parent
 ## with position at the origin.
@@ -201,12 +220,13 @@ static func resolve_parent_and_position(
 ) -> Dictionary:
 	if placement == null:
 		return {"parent": scene_root, "local_pos": Vector3.ZERO}
+	var offset: Vector3 = _flush_offset(placement.shape_aabb, placement.hit_normal)
 	if placement.did_hit and placement.parent != null:
 		var parent: Node = placement.parent
-		var local_pos: Vector3 = parent.global_transform.affine_inverse() * placement.world_pos
-		return {"parent": parent, "local_pos": local_pos}
+		var local_hit: Vector3 = parent.global_transform.affine_inverse() * placement.world_pos
+		return {"parent": parent, "local_pos": local_hit - offset}
 	if edited_node != null and edited_node.get_parent() != null:
 		var parent: Node = edited_node.get_parent()
-		var local_pos: Vector3 = parent.global_transform.affine_inverse() * placement.world_pos
-		return {"parent": parent, "local_pos": local_pos}
-	return {"parent": scene_root, "local_pos": placement.world_pos}
+		var local_hit: Vector3 = parent.global_transform.affine_inverse() * placement.world_pos
+		return {"parent": parent, "local_pos": local_hit - offset}
+	return {"parent": scene_root, "local_pos": placement.world_pos - offset}

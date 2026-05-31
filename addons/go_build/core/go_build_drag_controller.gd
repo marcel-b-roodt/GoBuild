@@ -403,6 +403,8 @@ func _compute_frame_result(
 	# Snap is applied to a copy for display/mutation — never overwriting the
 	# raw total — so small deltas can cross grid boundaries over multiple frames.
 	var frame_result: GoBuildDeltaStrategy.StrategyResult
+	var local_centroid: Vector3 = op.drag_centroid
+
 	match op.delta_mode:
 		GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
 			frame_result = GoBuildDeltaStrategy.axis_project_frame(
@@ -411,7 +413,8 @@ func _compute_frame_result(
 			_raw_translate += frame_result.vec_value
 			var result_val: Vector3 = _raw_translate
 			if snap_enabled:
-				result_val = result_val.snapped(Vector3.ONE * snap_step)
+				result_val = _snap_translate(result_val, local_centroid,
+						node_xform, snap_step, op.snap_mode)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -423,7 +426,8 @@ func _compute_frame_result(
 			_raw_translate += frame_result.vec_value
 			var result_val: Vector3 = _raw_translate
 			if snap_enabled:
-				result_val = result_val.snapped(Vector3.ONE * snap_step)
+				result_val = _snap_translate(result_val, local_centroid,
+						node_xform, snap_step, op.snap_mode)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -435,7 +439,8 @@ func _compute_frame_result(
 			_raw_translate += frame_result.vec_value
 			var result_val: Vector3 = _raw_translate
 			if snap_enabled:
-				result_val = result_val.snapped(Vector3.ONE * snap_step)
+				result_val = _snap_translate(result_val, local_centroid,
+						node_xform, snap_step, op.snap_mode)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -490,6 +495,33 @@ func _compute_frame_result(
 			return total_result
 
 	return null
+
+
+## Snap a translate delta based on [param snap_mode].
+##
+## [code]WORLD_GRID[/code] (default): snaps the centroid's final world position
+## to absolute grid lines, so objects naturally land on grid crossings regardless
+## of their starting offset.
+##
+## [code]DELTA_GRID[/code]: snaps the cumulative displacement to grid increments,
+## matching the behaviour of older GoBuild versions where each drag shifts by
+## multiples of the grid step from the drag start position.
+static func _snap_translate(
+		raw_delta: Vector3,
+		local_centroid: Vector3,
+		node_xform: Transform3D,
+		snap_step: float,
+		snap_mode: int,
+) -> Vector3:
+	match snap_mode:
+		GoBuildDragOperation.SnapMode.WORLD_GRID:
+			var tentative_local: Vector3 = local_centroid + raw_delta
+			var snapped_world: Vector3 = (node_xform * tentative_local).snapped(
+					Vector3.ONE * snap_step)
+			return node_xform.inverse() * snapped_world - local_centroid
+		GoBuildDragOperation.SnapMode.DELTA_GRID:
+			return raw_delta.snapped(Vector3.ONE * snap_step)
+	return raw_delta
 
 
 func _apply_strategy_result(

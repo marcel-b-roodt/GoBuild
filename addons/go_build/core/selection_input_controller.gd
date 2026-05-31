@@ -693,6 +693,7 @@ func _begin_inset_drag(
 			snap_default,
 			_gizmo_plugin.rot_snap_override,
 			_gizmo_plugin.scale_snap_override,
+			_gizmo_plugin.snap_mode_override,
 			centroids_out,
 			0.0,
 			true,
@@ -1344,6 +1345,7 @@ func _start_normal_gizmo_drag(
 			snap_default,
 			_gizmo_plugin.rot_snap_override,
 			_gizmo_plugin.scale_snap_override,
+			_gizmo_plugin.snap_mode_override,
 			{},  # no inset centroids
 			0.0,  # no inset offset
 			vertex_update_mode,
@@ -1383,6 +1385,7 @@ func _start_gizmo_drag_with_verts(
 			snap_default,
 			_gizmo_plugin.rot_snap_override,
 			_gizmo_plugin.scale_snap_override,
+			_gizmo_plugin.snap_mode_override,
 			{},  # no inset centroids
 			0.0,  # no inset offset
 			true,  # vertex_update_mode

@@ -42,7 +42,8 @@ var _preview_node: GoBuildMeshInstance = null
 var _scene_root: Node = null
 var _placement_parent: Node = null
 var _placement_local_pos: Vector3 = Vector3.ZERO
-var _placement_world_pos: Vector3 = Vector3.ZERO
+var _placement_world_hit: Vector3 = Vector3.ZERO
+var _placement_hit_normal: Vector3 = Vector3.UP
 var _placement_edited_node: GoBuildMeshInstance = null
 
 
@@ -85,7 +86,8 @@ func start(shape_name: String, scene_root: Node) -> void:
 	_scene_root = scene_root
 	_placement_parent = null
 	_placement_local_pos = Vector3.ZERO
-	_placement_world_pos = Vector3.ZERO
+	_placement_world_hit = Vector3.ZERO
+	_placement_hit_normal = Vector3.UP
 	_placement_edited_node = null
 	_title_label.text = "%s Parameters" % shape_name
 	_rebuild_controls()
@@ -113,12 +115,12 @@ func start_with_placement(
 	_scene_root = scene_root
 	_placement_edited_node = edited_node
 
-	# Use the shared parent/position resolution logic.
-	var resolved: Dictionary = ShapePlacement.resolve_parent_and_position(
+	_placement_world_hit = placement.world_pos if placement != null else Vector3.ZERO
+	_placement_hit_normal = placement.hit_normal if placement != null else Vector3.UP
+	var resolved: Dictionary = _SHAPE_PLACEMENT_SCRIPT.resolve_parent_and_position(
 			placement, edited_node, scene_root)
 	_placement_parent = resolved["parent"]
-	_placement_local_pos = resolved["local_pos"]
-	_placement_world_pos = placement.world_pos if placement != null else Vector3.ZERO
+	_recompute_local_pos()
 
 	_title_label.text = "%s Parameters" % shape_name
 	_rebuild_controls()
@@ -134,7 +136,8 @@ func cancel() -> void:
 	_scene_root = null
 	_placement_parent = null
 	_placement_local_pos = Vector3.ZERO
-	_placement_world_pos = Vector3.ZERO
+	_placement_world_hit = Vector3.ZERO
+	_placement_hit_normal = Vector3.UP
 	_placement_edited_node = null
 	visible = false
 	cancelled.emit()
@@ -214,8 +217,7 @@ func _spawn_preview_node() -> void:
 		_preview_node.position = _placement_local_pos
 	else:
 		_scene_root.add_child(_preview_node, true)
-		if _placement_world_pos != Vector3.ZERO:
-			_preview_node.global_position = _placement_world_pos
+		_preview_node.global_position = _placement_local_pos
 	_preview_node.owner = null
 
 
@@ -230,6 +232,31 @@ func _refresh_preview_node() -> void:
 		_params = normalized
 		_rebuild_controls()
 	_preview_node.go_build_mesh = ShapeCreationCatalog.build_mesh(_shape_key, _params)
+	_recompute_local_pos()
+	if _placement_parent != null and is_instance_valid(_placement_parent):
+		_preview_node.position = _placement_local_pos
+	else:
+		_preview_node.global_position = _placement_local_pos
+
+
+func _recompute_local_pos() -> void:
+	var gbm: GoBuildMesh = null
+	if _preview_node != null and is_instance_valid(_preview_node) \
+			and _preview_node.go_build_mesh != null:
+		gbm = _preview_node.go_build_mesh
+	elif _shape_key != "":
+		gbm = _SHAPE_CATALOG_SCRIPT.build_mesh(_shape_key, _params)
+	if gbm == null:
+		return
+	var aabb: AABB = gbm.compute_aabb()
+	var offset: Vector3 = _SHAPE_PLACEMENT_SCRIPT._flush_offset(
+			aabb, _placement_hit_normal)
+	if _placement_parent != null and is_instance_valid(_placement_parent):
+		var inv: Transform3D = _placement_parent.global_transform.affine_inverse()
+		var local_hit: Vector3 = inv * _placement_world_hit
+		_placement_local_pos = local_hit - offset
+	else:
+		_placement_local_pos = _placement_world_hit - offset
 
 
 func _cancel_preview_node() -> void:
@@ -264,7 +291,8 @@ func _on_accept_pressed() -> void:
 	_scene_root = null
 	_placement_parent = null
 	_placement_local_pos = Vector3.ZERO
-	_placement_world_pos = Vector3.ZERO
+	_placement_world_hit = Vector3.ZERO
+	_placement_hit_normal = Vector3.UP
 	_placement_edited_node = null
 	visible = false
 	accepted.emit(key, params, parent, local_pos)
