@@ -504,3 +504,171 @@ func test_vertex_position_buffers_surface_count_matches_bake() -> void:
 	assert_int(buffers.size()).is_equal(surf_count)
 
 
+# ---------------------------------------------------------------------------
+# Adjacency caches
+# ---------------------------------------------------------------------------
+
+func test_adjacency_caches_quad() -> void:
+	var m := _make_xy_quad()
+	m.rebuild_edges()
+	# _vertex_to_faces: each vertex belongs to the single face.
+	assert_int((m._vertex_to_faces[0] as Array).size()).is_equal(1)
+	assert_int((m._vertex_to_faces[0] as Array)[0]).is_equal(0)
+	# _vertex_to_edges: each vertex belongs to 2 edges.
+	assert_int((m._vertex_to_edges[0] as Array).size()).is_equal(2)
+	# _face_to_edges: the face has 4 edges.
+	assert_int((m._face_to_edges[0] as Array).size()).is_equal(4)
+	# _edge_lookup: 4 edges stored.
+	assert_int(m._edge_lookup.size()).is_equal(4)
+
+
+func test_adjacency_caches_two_adjacent_quads() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(2, 0, 0),
+		Vector3(0, 1, 0), Vector3(1, 1, 0), Vector3(2, 1, 0),
+	]
+	var f0 := GoBuildFace.new()
+	f0.vertex_indices = [0, 1, 4, 3]
+	var f1 := GoBuildFace.new()
+	f1.vertex_indices = [1, 2, 5, 4]
+	m.faces.append(f0)
+	m.faces.append(f1)
+	m.rebuild_edges()
+	# Vertex 1 is in both faces.
+	assert_int((m._vertex_to_faces[1] as Array).size()).is_equal(2)
+	# Vertex 4 is in both faces.
+	assert_int((m._vertex_to_faces[4] as Array).size()).is_equal(2)
+	# Edge (1,4) is shared by both faces.
+	var shared_ei: int = m.find_edge(1, 4)
+	assert_int(shared_ei).is_not_equal(-1)
+	assert_int(m.edges[shared_ei].face_indices.size()).is_equal(2)
+	# Each face has 4 edges.
+	assert_int((m._face_to_edges[0] as Array).size()).is_equal(4)
+	assert_int((m._face_to_edges[1] as Array).size()).is_equal(4)
+	# Total edges: 7 (4 boundary + 1 shared = 5 unique edges; 2 quads = 7 edge slots).
+	assert_int(m.edges.size()).is_equal(7)
+
+
+func test_find_edge_uses_cache() -> void:
+	var m := _make_xy_quad()
+	m.rebuild_edges()
+	# find_edge should return a valid index via the cache.
+	var ei: int = m.find_edge(0, 1)
+	assert_int(ei).is_not_equal(-1)
+	assert_bool(m.edges[ei].connects(0, 1)).is_true()
+	# Non-existent edge.
+	assert_int(m.find_edge(0, 2)).is_equal(-1)
+
+
+func test_faces_of_vertex_uses_cache() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(2, 0, 0),
+		Vector3(0, 1, 0), Vector3(1, 1, 0), Vector3(2, 1, 0),
+	]
+	var f0 := GoBuildFace.new()
+	f0.vertex_indices = [0, 1, 4, 3]
+	var f1 := GoBuildFace.new()
+	f1.vertex_indices = [1, 2, 5, 4]
+	m.faces.append(f0)
+	m.faces.append(f1)
+	m.rebuild_edges()
+	var result: Array[int] = m.faces_of_vertex(1)
+	assert_int(result.size()).is_equal(2)
+	assert_bool(result.has(0)).is_true()
+	assert_bool(result.has(1)).is_true()
+
+
+func test_faces_of_edge_uses_cache() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(2, 0, 0),
+		Vector3(0, 1, 0), Vector3(1, 1, 0), Vector3(2, 1, 0),
+	]
+	var f0 := GoBuildFace.new()
+	f0.vertex_indices = [0, 1, 4, 3]
+	var f1 := GoBuildFace.new()
+	f1.vertex_indices = [1, 2, 5, 4]
+	m.faces.append(f0)
+	m.faces.append(f1)
+	m.rebuild_edges()
+	var result: Array[int] = m.faces_of_edge(1, 4)
+	assert_int(result.size()).is_equal(2)
+	assert_bool(result.has(0)).is_true()
+	assert_bool(result.has(1)).is_true()
+
+
+func test_edges_of_face() -> void:
+	var m := _make_xy_quad()
+	m.rebuild_edges()
+	var edge_indices: Array[int] = m.edges_of_face(0)
+	assert_int(edge_indices.size()).is_equal(4)
+
+
+func test_edges_of_vertex() -> void:
+	var m := _make_xy_quad()
+	m.rebuild_edges()
+	var edge_indices: Array[int] = m.edges_of_vertex(0)
+	assert_int(edge_indices.size()).is_equal(2)
+
+
+func test_vertex_valence() -> void:
+	var m := _make_xy_quad()
+	m.rebuild_edges()
+	assert_int(m.vertex_valence(0)).is_equal(2)
+	assert_int(m.vertex_valence(1)).is_equal(2)
+
+
+func test_opposite_edge_in_quad() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(0, 0, 0), Vector3(1, 0, 0),
+		Vector3(1, 1, 0), Vector3(0, 1, 0),
+	]
+	var f := GoBuildFace.new()
+	f.vertex_indices = [0, 1, 2, 3]
+	m.faces.append(f)
+	m.rebuild_edges()
+	# Edge (0,1) is opposite to edge (2,3).
+	var e01: int = m.find_edge(0, 1)
+	var e23: int = m.find_edge(2, 3)
+	assert_int(e01).is_not_equal(-1)
+	assert_int(e23).is_not_equal(-1)
+	assert_int(m.opposite_edge_in_quad(0, e01)).is_equal(e23)
+	assert_int(m.opposite_edge_in_quad(0, e23)).is_equal(e01)
+	# Edge (1,2) is opposite to edge (3,0).
+	var e12: int = m.find_edge(1, 2)
+	var e30: int = m.find_edge(3, 0)
+	assert_int(m.opposite_edge_in_quad(0, e12)).is_equal(e30)
+	assert_int(m.opposite_edge_in_quad(0, e30)).is_equal(e12)
+
+
+func test_opposite_edge_in_quad_returns_minus_one_for_triangle() -> void:
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3.ZERO, Vector3(1, 0, 0), Vector3(0, 1, 0)]
+	var f := GoBuildFace.new()
+	f.vertex_indices = [0, 1, 2]
+	m.faces.append(f)
+	m.rebuild_edges()
+	var e01: int = m.find_edge(0, 1)
+	assert_int(m.opposite_edge_in_quad(0, e01)).is_equal(-1)
+
+
+func test_adjacency_caches_cube() -> void:
+	var m := CubeGenerator.generate(1.0, 1.0, 1.0, 0)
+	m.rebuild_edges()
+	# Cube has 8 vertices, 6 faces, 12 edges.
+	assert_int(m.vertices.size()).is_equal(8)
+	assert_int(m.faces.size()).is_equal(6)
+	assert_int(m.edges.size()).is_equal(12)
+	# Each vertex should be in 3 faces.
+	for vi: int in 8:
+		assert_int((m._vertex_to_faces[vi] as Array).size()).is_equal(3)
+	# Each vertex has valence 3.
+		assert_int(m.vertex_valence(vi)).is_equal(3)
+	# Each face has 4 edges.
+	for fi: int in 6:
+		assert_int((m._face_to_edges[fi] as Array).size()).is_equal(4)
+
+
