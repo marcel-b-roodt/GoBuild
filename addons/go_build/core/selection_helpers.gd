@@ -161,3 +161,148 @@ static func shrink_faces(mesh: GoBuildMesh, indices: Array[int]) -> Array[int]:
 		if all_selected:
 			result.append(fi)
 	return result
+
+
+# ---------------------------------------------------------------------------
+# Loop selection
+# ---------------------------------------------------------------------------
+
+## Walk an edge loop starting from [param seed_edge].
+##
+## An edge loop follows the "straight through" rule: from each quad face
+## sharing the current edge, the algorithm steps to the opposite edge in that
+## quad.  The walk terminates at boundaries (1-face edges), poles (vertices
+## with valence != 4), non-quad faces, or when the loop closes on itself.
+##
+## Returns an array of edge indices forming the loop, starting from
+## [param seed_edge].  A closed loop will not repeat the seed.
+static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
+	if mesh.edges.is_empty() or seed_edge < 0 or seed_edge >= mesh.edges.size():
+		return []
+	var result: Array[int] = []
+	var visited: Dictionary = {}
+	var ed: GoBuildEdge = mesh.edges[seed_edge]
+	# Walk in both directions from the seed edge.
+	# Direction 0: through face[0], then face[1] of successive edges.
+	# Direction 1: through face[1] (if it exists), then face[0] of successive edges.
+	# This mirrors the _collect_ring/_walk_half approach from LoopCutOperation.
+	for start_face_idx: int in ed.face_indices:
+		var current_ei: int = seed_edge
+		var current_fi: int = start_face_idx
+		var need_reverse: bool = (start_face_idx != ed.face_indices[0]) \
+				if ed.face_indices.size() > 1 else false
+		# Walk until we hit a boundary, pole, non-quad, or a visited edge.
+		while current_ei != -1 and not visited.has(current_ei):
+			visited[current_ei] = true
+			result.append(current_ei)
+			# Check continuation vertex valence.
+			# For a loop, we need the continuation vertex (the one NOT shared
+			# with the previous edge in the walk).  At poles (valence != 4),
+			# the loop terminates.
+			var current_ed: GoBuildEdge = mesh.edges[current_ei]
+			if mesh.faces[current_fi].vertex_indices.size() != 4:
+				break
+			var opp_ei: int = mesh.opposite_edge_in_quad(current_fi, current_ei)
+			if opp_ei == -1:
+				break
+			# Check valence of both vertices on the opposite edge.
+			var opp_ed: GoBuildEdge = mesh.edges[opp_ei]
+			if mesh.vertex_valence(opp_ed.vertex_a) != 4 or \
+					mesh.vertex_valence(opp_ed.vertex_b) != 4:
+				# At a pole — add the opposite edge but stop.
+				if not visited.has(opp_ei):
+					visited[opp_ei] = true
+					result.append(opp_ei)
+				break
+			# Find the other face sharing opp_ei.
+			var next_fi: int = -1
+			for adj_fi: int in opp_ed.face_indices:
+				if adj_fi != current_fi:
+					next_fi = adj_fi
+					break
+			current_ei = opp_ei
+			current_fi = next_fi
+			if next_fi == -1:
+				break
+	# For single-face edges (boundary), only one direction is valid.
+	# The loop already contains all found edges.
+	# Deduplicate (seed may appear at start from both directions on closed loops).
+	if result.size() > 1 and result[0] == result[result.size() - 1]:
+		result.remove_at(result.size() - 1)
+	return result
+
+
+# ---------------------------------------------------------------------------
+# Ring selection
+# ---------------------------------------------------------------------------
+
+## Walk an edge ring starting from [param seed_edge].
+##
+## An edge ring selects all edges that run *perpendicular* to the seed edge
+## through the connected quad strip.  For each quad face sharing the seed
+## edge, the algorithm steps to the opposite edge in that face, then continues
+## through the face on the other side.
+##
+## Returns an array of edge indices forming the ring, starting from
+## [param seed_edge]. Terminates at boundaries and non-quad faces.
+static func edge_ring(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
+	if mesh.edges.is_empty() or seed_edge < 0 or seed_edge >= mesh.edges.size():
+		return []
+	var result: Array[int] = []
+	var visited: Dictionary = {}
+	var ed: GoBuildEdge = mesh.edges[seed_edge]
+	# For a ring walk, we traverse through faces sharing the edge,
+	# stepping to the opposite edge in each quad.
+	for direction: int in range(ed.face_indices.size()):
+		var current_ei: int = seed_edge
+		var current_fi: int = ed.face_indices[direction]
+		while current_ei != -1 and not visited.has(current_ei):
+			visited[current_ei] = true
+			result.append(current_ei)
+			if mesh.faces[current_fi].vertex_indices.size() != 4:
+				break
+			var opp_ei: int = mesh.opposite_edge_in_quad(current_fi, current_ei)
+			if opp_ei == -1:
+				break
+			# Find the other face sharing opp_ei (not current_fi).
+			var opp_ed: GoBuildEdge = mesh.edges[opp_ei]
+			var next_fi: int = -1
+			for adj_fi: int in opp_ed.face_indices:
+				if adj_fi != current_fi:
+					next_fi = adj_fi
+					break
+			current_ei = opp_ei
+			current_fi = next_fi
+			if next_fi == -1:
+				# Boundary edge — ring stops here but we already added it.
+				break
+	return result
+
+
+## Return the faces adjacent to the edges in an edge loop.
+## For each edge in the loop, includes all faces sharing that edge.
+static func face_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
+	var loop_edges: Array[int] = edge_loop(mesh, seed_edge)
+	var result_set: Dictionary = {}
+	for ei: int in loop_edges:
+		for fi: int in mesh.edges[ei].face_indices:
+			result_set[fi] = true
+	var result: Array[int] = []
+	for fi: int in result_set:
+		result.append(fi)
+	return result
+
+
+## Return the faces in the ring direction — the quads that form the strip
+## perpendicular to the seed edge.
+static func face_ring(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
+	var ring_edges: Array[int] = edge_ring(mesh, seed_edge)
+	var result_set: Dictionary = {}
+	for ei: int in ring_edges:
+		for fi: int in mesh.edges[ei].face_indices:
+			if mesh.faces[fi].vertex_indices.size() == 4:
+				result_set[fi] = true
+	var result: Array[int] = []
+	for fi: int in result_set:
+		result.append(fi)
+	return result
