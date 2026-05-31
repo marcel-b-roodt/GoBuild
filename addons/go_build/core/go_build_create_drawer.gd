@@ -24,10 +24,20 @@ const _SHAPE_PLACEMENT_SCRIPT_CR := \
 		preload("res://addons/go_build/core/shape_placement.gd")
 
 var _shape_preview: GoBuildShapePreview = null
+var _align_to_surface_cb: CheckBox = null
 
 
 func _ready() -> void:
 	_setup_drawer("Create Shape", true)
+
+	var align_hb := HBoxContainer.new()
+	_align_to_surface_cb = CheckBox.new()
+	_align_to_surface_cb.text = "Align to Surface"
+	_align_to_surface_cb.button_pressed = true
+	_align_to_surface_cb.tooltip_text = \
+			"Rotate new shapes so Y aligns with the surface normal"
+	align_hb.add_child(_align_to_surface_cb)
+	_content.add_child(align_hb)
 
 	var grid := GridContainer.new()
 	grid.columns = 2
@@ -53,9 +63,11 @@ func _ready() -> void:
 func _on_shape_button_pressed(shape_name: String) -> void:
 	if _shape_preview != null and _shape_preview.is_active():
 		_shape_preview.cancel()
+	var align_to_surface: bool = \
+			_align_to_surface_cb.button_pressed if _align_to_surface_cb != null else true
 	var placement := _viewport_center_placement()
 	if placement != null:
-		ShapePlacement.apply_bottom_offset(placement, shape_name)
+		ShapePlacement.apply_bottom_offset(placement, shape_name, align_to_surface)
 	var edited: GoBuildMeshInstance = _get_edited_instance()
 	var scene_root: Node = EditorInterface.get_edited_scene_root()
 	if scene_root == null:
@@ -69,7 +81,8 @@ func _on_shape_button_pressed(shape_name: String) -> void:
 					shape_name, ShapeCreationCatalog.default_params(shape_name)),
 			ShapeCreationCatalog.node_name(shape_name),
 			resolved["parent"],
-			resolved["local_pos"])
+			resolved["local_pos"],
+			resolved["local_basis"])
 		return
 
 	if not Engine.is_editor_hint():
@@ -82,12 +95,14 @@ func _on_shape_preview_accepted(
 		params: Dictionary,
 		parent: Node,
 		local_pos: Vector3,
+		local_basis: Basis,
 ) -> void:
 	insert_shape(
 		func() -> GoBuildMesh: return ShapeCreationCatalog.build_mesh(shape_key, params),
 		ShapeCreationCatalog.node_name(shape_key),
 		parent,
-		local_pos)
+		local_pos,
+		local_basis)
 
 
 func _on_shape_preview_cancelled() -> void:
@@ -109,6 +124,7 @@ func insert_shape(
 		node_name: String,
 		parent: Node = null,
 		local_pos: Vector3 = Vector3.ZERO,
+		local_basis: Basis = Basis.IDENTITY,
 ) -> void:
 	if not Engine.is_editor_hint():
 		return
@@ -131,6 +147,8 @@ func insert_shape(
 		node.global_position = local_pos
 	else:
 		node.position = local_pos
+	if not local_basis.is_equal_approx(Basis.IDENTITY):
+		node.basis = local_basis
 	var default_mat: Material = load("res://addons/go_build/go_build_material.tres")
 	if default_mat != null and node.go_build_mesh != null:
 		node.go_build_mesh.material_slots = [default_mat]
@@ -162,6 +180,14 @@ func _get_edited_instance() -> GoBuildMeshInstance:
 	if first is GoBuildMeshInstance:
 		return first as GoBuildMeshInstance
 	return null
+
+
+## Return whether the "Align to Surface" toggle is checked.
+## Defaults to true if the checkbox has not been created yet.
+func is_align_to_surface() -> bool:
+	if _align_to_surface_cb == null:
+		return true
+	return _align_to_surface_cb.button_pressed
 
 
 ## Compute a placement result at the centre of the editor 3D viewport.

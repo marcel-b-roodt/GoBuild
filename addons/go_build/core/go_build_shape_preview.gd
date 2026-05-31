@@ -20,7 +20,10 @@ extends VBoxContainer
 ## [param params]     — the final parameter Dictionary (already normalised)
 ## [param parent]     — the parent Node to add the shape to (may be null for scene root)
 ## [param local_pos]  — the local-space position within parent (identity if no placement)
-signal accepted(shape_key: String, params: Dictionary, parent: Node, local_pos: Vector3)
+## [param local_basis] — the local-space rotation basis (identity if no placement)
+signal accepted(
+	shape_key: String, params: Dictionary, parent: Node,
+	local_pos: Vector3, local_basis: Basis)
 
 ## Emitted when the user cancels or the preview is dismissed.
 signal cancelled
@@ -42,8 +45,10 @@ var _preview_node: GoBuildMeshInstance = null
 var _scene_root: Node = null
 var _placement_parent: Node = null
 var _placement_local_pos: Vector3 = Vector3.ZERO
+var _placement_local_basis: Basis = Basis.IDENTITY
 var _placement_world_hit: Vector3 = Vector3.ZERO
 var _placement_hit_normal: Vector3 = Vector3.UP
+var _placement_align_to_normal: bool = false
 var _placement_edited_node: GoBuildMeshInstance = null
 
 
@@ -86,8 +91,10 @@ func start(shape_name: String, scene_root: Node) -> void:
 	_scene_root = scene_root
 	_placement_parent = null
 	_placement_local_pos = Vector3.ZERO
+	_placement_local_basis = Basis.IDENTITY
 	_placement_world_hit = Vector3.ZERO
 	_placement_hit_normal = Vector3.UP
+	_placement_align_to_normal = false
 	_placement_edited_node = null
 	_title_label.text = "%s Parameters" % shape_name
 	_rebuild_controls()
@@ -117,6 +124,7 @@ func start_with_placement(
 
 	_placement_world_hit = placement.world_pos if placement != null else Vector3.ZERO
 	_placement_hit_normal = placement.hit_normal if placement != null else Vector3.UP
+	_placement_align_to_normal = placement.align_to_normal if placement != null else false
 	var resolved: Dictionary = _SHAPE_PLACEMENT_SCRIPT.resolve_parent_and_position(
 			placement, edited_node, scene_root)
 	_placement_parent = resolved["parent"]
@@ -218,6 +226,8 @@ func _spawn_preview_node() -> void:
 	else:
 		_scene_root.add_child(_preview_node, true)
 		_preview_node.global_position = _placement_local_pos
+	if not _placement_local_basis.is_equal_approx(Basis.IDENTITY):
+		_preview_node.basis = _placement_local_basis
 	_preview_node.owner = null
 
 
@@ -237,6 +247,10 @@ func _refresh_preview_node() -> void:
 		_preview_node.position = _placement_local_pos
 	else:
 		_preview_node.global_position = _placement_local_pos
+	if not _placement_local_basis.is_equal_approx(Basis.IDENTITY):
+		_preview_node.basis = _placement_local_basis
+	else:
+		_preview_node.basis = Basis.IDENTITY
 
 
 func _recompute_local_pos() -> void:
@@ -250,11 +264,18 @@ func _recompute_local_pos() -> void:
 		return
 	var aabb: AABB = gbm.compute_aabb()
 	var offset: Vector3 = _SHAPE_PLACEMENT_SCRIPT._flush_offset(
-			aabb, _placement_hit_normal)
+			aabb, _placement_hit_normal, _placement_align_to_normal)
+	var world_basis: Basis = Basis.IDENTITY
+	if _placement_align_to_normal:
+		world_basis = _SHAPE_PLACEMENT_SCRIPT._align_y_to_normal(
+				_placement_hit_normal)
+	_placement_local_basis = world_basis
 	if _placement_parent != null and is_instance_valid(_placement_parent):
 		var inv: Transform3D = _placement_parent.global_transform.affine_inverse()
 		var local_hit: Vector3 = inv * _placement_world_hit
-		_placement_local_pos = local_hit - offset
+		var local_offset: Vector3 = inv.basis * offset
+		_placement_local_pos = local_hit - local_offset
+		_placement_local_basis = inv.basis * world_basis
 	else:
 		_placement_local_pos = _placement_world_hit - offset
 
@@ -285,17 +306,20 @@ func _on_accept_pressed() -> void:
 	var params: Dictionary = _params.duplicate(true)
 	var parent: Node = _placement_parent
 	var local_pos: Vector3 = _placement_local_pos
+	var local_basis: Basis = _placement_local_basis
 	_cancel_preview_node()
 	_shape_key = ""
 	_params = {}
 	_scene_root = null
 	_placement_parent = null
 	_placement_local_pos = Vector3.ZERO
+	_placement_local_basis = Basis.IDENTITY
 	_placement_world_hit = Vector3.ZERO
 	_placement_hit_normal = Vector3.UP
+	_placement_align_to_normal = false
 	_placement_edited_node = null
 	visible = false
-	accepted.emit(key, params, parent, local_pos)
+	accepted.emit(key, params, parent, local_pos, local_basis)
 
 
 func _on_cancel_pressed() -> void:

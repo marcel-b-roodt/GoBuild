@@ -1591,7 +1591,11 @@ func _insert_shape_at_cursor(
 	var placement := ShapePlacement.find_placement(
 			camera, _right_click_press_pos, edited_node)
 
-	ShapePlacement.apply_bottom_offset(placement, shape_name)
+	var align_to_surface: bool = true
+	if _panel != null and _panel.get_create_drawer() != null:
+		align_to_surface = _panel.get_create_drawer().is_align_to_surface()
+
+	ShapePlacement.apply_bottom_offset(placement, shape_name, align_to_surface)
 
 	if ShapeCreationCatalog.supports_preview(shape_name):
 		# Preview shapes: delegate to the create drawer's preview system.
@@ -1609,7 +1613,8 @@ func _insert_shape_at_cursor(
 					shape_name, ShapeCreationCatalog.default_params(shape_name)),
 			ShapeCreationCatalog.node_name(shape_name),
 			resolved["parent"],
-			resolved["local_pos"])
+			resolved["local_pos"],
+			resolved["local_basis"])
 
 
 func _deferred_context_op(id: int) -> void:
