@@ -82,8 +82,8 @@ const CONE_HEIGHT: float  = 0.18
 ## Calibrated at half the previous wireframe value — the solid fill reads more
 ## clearly at smaller sizes than the wireframe did.
 ##
-## [b]Public[/b] so [PickingHelper.compute_vertex_pick_radius_px] can derive a
-## matching pick radius — both must stay in sync (see TODO B).
+## [b]Public[/b] so [PickingHelper] can derive a matching pick radius from the
+## same value — both must stay in sync.
 const VERTEX_CUBE_HALF: float = 0.03
 ## Offset of each planar-handle square's centre from the selection centroid along
 ## each of its two axes (local mesh units × gizmo scale).
@@ -157,15 +157,23 @@ func _redraw() -> void:
 			pass  # Mesh renders normally; no sub-element overlay needed.
 
 		SelectionManager.Mode.VERTEX:
-			_draw_context_edges(gbm, plugin.mat_edge_context)
-			_draw_vertices(gbm, sel, plugin.mat_vertex_normal, plugin.mat_vertex_selected, gizmo_s)
+			var edge_mat: Material = plugin.mat_edge_context_depth \
+					if not plugin.xray_mode else plugin.mat_edge_context
+			_draw_context_edges(gbm, edge_mat)
+			var vert_norm: Material = plugin.mat_vertex_normal_depth \
+					if not plugin.xray_mode else plugin.mat_vertex_normal
+			_draw_vertices(gbm, sel, vert_norm, plugin.mat_vertex_selected, gizmo_s)
 
 		SelectionManager.Mode.EDGE:
-			_draw_edges(gbm, sel, plugin.mat_edge_normal, plugin.mat_edge_selected,
+			var edge_norm: Material = plugin.mat_edge_normal_depth \
+					if not plugin.xray_mode else plugin.mat_edge_normal
+			_draw_edges(gbm, sel, edge_norm, plugin.mat_edge_selected,
 					plugin.get("mat_edge_selected_ribbon"), gizmo_s)
 
 		SelectionManager.Mode.FACE:
-			_draw_context_edges(gbm, plugin.mat_edge_context)
+			var edge_mat: Material = plugin.mat_edge_context_depth \
+					if not plugin.xray_mode else plugin.mat_edge_context
+			_draw_context_edges(gbm, edge_mat)
 			_draw_face_centres(gbm, sel, plugin.mat_face_normal, plugin.mat_face_fill)
 
 	# Draw the 3-axis translate handle whenever any sub-element is selected.

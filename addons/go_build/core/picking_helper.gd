@@ -28,14 +28,13 @@ const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh
 ## Screen-space radius (px) within which a vertex handle is selectable.
 ## This constant is a fixed fallback used in headless / test contexts where
 ## no real camera viewport is available.  Runtime code calls
-## [method compute_vertex_pick_radius_px] instead so the hitbox matches
+## [method compute_vertex_pick_radius_from_world] instead so the hitbox matches
 ## the drawn cube at every viewport size.
 const VERTEX_PICK_RADIUS_PX: float = 12.0
 
 ## Half-size of the vertex cube widget in local mesh space.
 ## MUST mirror [constant GoBuildGizmo.VERTEX_CUBE_HALF] — kept in sync by
-## convention (see TODO B).  Any change to the draw constant must be
-## reflected here and vice-versa.
+## convention.  Any change to the draw constant must be reflected here.
 const VERTEX_CUBE_HALF: float = 0.03
 
 ## Gizmo scale factors — mirror [constant GoBuildGizmoPlugin.GIZMO_SCREEN_FACTOR]
@@ -43,32 +42,102 @@ const VERTEX_CUBE_HALF: float = 0.03
 const _GIZMO_SCREEN_FACTOR: float = 0.25   # perspective cameras
 const _GIZMO_ORTHO_SCALE:   float = 0.10   # orthographic cameras
 
-## Multiplier from cube half-size (pixels) to pick radius.
-## 2.0 gives a pick area ~2× the visual cube's half-extent, keeping click targets
-## comfortable even with the smaller (half-size) solid cubes introduced in TODO-C.
-const _CUBE_PICK_SCALE: float = 2.0
+## Ratio of edge ribbon half-width to vertex cube half-size.
+## MUST mirror the ratio used in GoBuildGizmo._draw_edges().
+const _EDGE_RIBBON_RATIO: float = 0.8
 
-## Screen-space radius (px) within which an edge line is selectable.
+## Screen-space radius (px) fallback for headless / test contexts where
+## no camera is available.
 const EDGE_PICK_RADIUS_PX: float = 8.0
 
+## Minimum pick radius below which we fall back to the constant.
+## Prevents the pick target from becoming unusably tiny at extreme zoom.
+const _MIN_PICK_RADIUS_PX: float = 6.0
 
-## Compute the vertex pick radius in pixels so it matches the drawn cube size.
+## Multiplier applied to the projected visual half-size to circumscribe
+## the cube face (sqrt(2) ≈ 1.414).  A cube's face diagonal extends
+## sqrt(2) × half from centre, so this makes the pick circle exactly
+## cover the visible corners of a face-on cube.
+const _CUBE_CIRCUMSCRIBE: float = 1.4142
+
+## Same multiplier for edge ribbon (slightly wider strip, not a square).
+const _RIBBON_CIRCUMSCRIBE: float = 1.5
+
+
+## Compute the vertex pick radius in pixels by projecting the visual cube
+## corner to screen, matching exactly how the cube is drawn.
 ##
-## For a perspective camera the cube's screen-space half-size is:
-##   [code]VERTEX_CUBE_HALF × GIZMO_SCREEN_FACTOR × viewport_height / 2[/code]
-## The dist × tan(fov/2) terms in the gizmo-scale formula cancel exactly,
-## making the visual size (and therefore the pick radius) distance-independent.
+## This uses the same projection-based approach as the plane and view-plane
+## gizmo handles: project a known world-space offset from the cube centre to
+## screen, measure the pixel distance, and use that as the pick radius.
+## This guarantees the pick radius stays in sync with the visual size at
+## every viewport resolution, zoom level, and camera mode — without needing
+## a separate scale-constant that must be manually updated.
 ##
-## For an orthographic camera:
-##   [code]VERTEX_CUBE_HALF × GIZMO_ORTHO_SCALE × viewport_height[/code]
-##
-## The result is multiplied by [constant _CUBE_PICK_SCALE] (≈ √2 + margin)
-## so that clicking anywhere inside the drawn cube box — including the corners
-## — always registers as a hit.
+## [param world_pos] is the world-space position of the vertex being picked.
+## On perspective cameras, the projected size varies with distance, so each
+## vertex gets its own pick radius.  The gizmo scale makes the cube
+## roughly distance-independent, but projecting per-vertex is both more
+## accurate and more self-syncing.
 ##
 ## Falls back to [constant VERTEX_PICK_RADIUS_PX] when the camera or its
 ## viewport is unavailable (headless / unit-test contexts).
-static func compute_vertex_pick_radius_px(camera: Camera3D) -> float:
+static func compute_vertex_pick_radius_from_world(
+		camera: Camera3D,
+		world_pos: Vector3,
+		gizmo_scale: float,
+) -> float:
+	if camera == null:
+		return VERTEX_PICK_RADIUS_PX
+	# Project the cube centre and a corner offset to screen.
+	# The corner is VERTEX_CUBE_HALF * gizmo_scale in world units, along
+	# (1,1,1) normalised — which is what _draw_vertices uses.
+	if not camera.is_position_in_frustum(world_pos):
+		return VERTEX_PICK_RADIUS_PX
+	var centre_screen: Vector2 = camera.unproject_position(world_pos)
+	# Build a local-space corner offset matching the gizmo draw code.
+	# _draw_vertices uses cube_half = VERTEX_CUBE_HALF * gizmo_scale.
+	var corner_world: Vector3 = world_pos + Vector3.ONE * (VERTEX_CUBE_HALF * gizmo_scale)
+	if not camera.is_position_in_frustum(corner_world):
+		# The corner is behind the camera — fall back to formula.
+		return _fallback_vertex_pick_radius(camera)
+	var corner_screen: Vector2 = camera.unproject_position(corner_world)
+	var projected_half_px: float = centre_screen.distance_to(corner_screen)
+	# The projected half-size is the screen distance from cube centre to one
+	# corner (3D diagonal).  For a face-on cube, the face diagonal pixel
+	# distance equals this value, so circumscribing the face needs
+	# multiplying by sqrt(2)/sqrt(3).  But the 3D diagonal on screen is
+	# already sufficient for a generous hit target — just use it directly
+	# with a small comfort multiplier.
+	var pick_r: float = maxf(projected_half_px * _CUBE_CIRCUMSCRIBE, _MIN_PICK_RADIUS_PX)
+	return pick_r
+
+
+## Compute the edge pick radius in pixels using the same projection approach,
+## scaled by the ribbon ratio.
+static func compute_edge_pick_radius_from_world(
+		camera: Camera3D,
+		world_pos: Vector3,
+		gizmo_scale: float,
+) -> float:
+	if camera == null:
+		return EDGE_PICK_RADIUS_PX
+	if not camera.is_position_in_frustum(world_pos):
+		return EDGE_PICK_RADIUS_PX
+	var centre_screen: Vector2 = camera.unproject_position(world_pos)
+	var edge_world: Vector3 = world_pos + Vector3.ONE * (
+			VERTEX_CUBE_HALF * _EDGE_RIBBON_RATIO * gizmo_scale)
+	if not camera.is_position_in_frustum(edge_world):
+		return _fallback_edge_pick_radius(camera)
+	var edge_screen: Vector2 = camera.unproject_position(edge_world)
+	var projected_half_px: float = centre_screen.distance_to(edge_screen)
+	var pick_r: float = maxf(projected_half_px * _RIBBON_CIRCUMSCRIBE, _MIN_PICK_RADIUS_PX)
+	return pick_r
+
+
+## Formula-based fallback for headless/test contexts.
+## Derived from the same constants used by the gizmo scale formula.
+static func _fallback_vertex_pick_radius(camera: Camera3D) -> float:
 	if camera == null:
 		return VERTEX_PICK_RADIUS_PX
 	var vp: Viewport = camera.get_viewport()
@@ -82,7 +151,24 @@ static func compute_vertex_pick_radius_px(camera: Camera3D) -> float:
 		half_px = VERTEX_CUBE_HALF * _GIZMO_SCREEN_FACTOR * h * 0.5
 	else:
 		half_px = VERTEX_CUBE_HALF * _GIZMO_ORTHO_SCALE * h
-	return half_px * _CUBE_PICK_SCALE
+	return maxf(half_px * _CUBE_CIRCUMSCRIBE, _MIN_PICK_RADIUS_PX)
+
+
+static func _fallback_edge_pick_radius(camera: Camera3D) -> float:
+	if camera == null:
+		return EDGE_PICK_RADIUS_PX
+	var vp: Viewport = camera.get_viewport()
+	if vp == null:
+		return EDGE_PICK_RADIUS_PX
+	var h: float = vp.get_visible_rect().size.y
+	if h < 1.0:
+		return EDGE_PICK_RADIUS_PX
+	var half_px: float
+	if camera.projection == Camera3D.PROJECTION_PERSPECTIVE:
+		half_px = VERTEX_CUBE_HALF * _EDGE_RIBBON_RATIO * _GIZMO_SCREEN_FACTOR * h * 0.5
+	else:
+		half_px = VERTEX_CUBE_HALF * _EDGE_RIBBON_RATIO * _GIZMO_ORTHO_SCALE * h
+	return maxf(half_px * _RIBBON_CIRCUMSCRIBE, _MIN_PICK_RADIUS_PX)
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +183,7 @@ static func compute_vertex_pick_radius_px(camera: Camera3D) -> float:
 ##
 ## [param threshold_px]: fixed pick radius override in pixels.
 ## Pass [code]-1.0[/code] (default) to auto-compute from the camera viewport
-## via [method compute_vertex_pick_radius_px] so the hitbox matches the cube.
+## via [method compute_vertex_pick_radius_from_world] so the hitbox matches the cube.
 static func find_nearest_vertex(
 		camera: Camera3D,
 		click_pos: Vector2,
@@ -105,11 +191,17 @@ static func find_nearest_vertex(
 		gbm: GoBuildMesh,
 		threshold_px: float = -1.0,
 ) -> int:
-	var pick_r: float = compute_vertex_pick_radius_px(camera) \
-			if threshold_px < 0.0 else threshold_px
 	var gt: Transform3D = node.global_transform
+	# Use the node's world position as the reference point for gizmo scale,
+	# exactly like GoBuildGizmo._redraw() does for drawing vertices.
+	var gizmo_scale: float = _compute_gizmo_scale_at(camera, node.global_position)
+	var pick_r: float = compute_vertex_pick_radius_from_world(
+			camera, node.global_position, gizmo_scale) \
+			if threshold_px < 0.0 else threshold_px
+	var pick_r_sq: float = pick_r * pick_r
+
 	var best_idx: int = -1
-	var best_dist_sq: float = pick_r * pick_r
+	var best_dist_sq: float = pick_r_sq
 
 	for idx: int in gbm.vertices.size():
 		var world_pos: Vector3 = gt * gbm.vertices[idx]
@@ -135,17 +227,20 @@ static func find_nearest_edge(
 		click_pos: Vector2,
 		node: GoBuildMeshInstance,
 		gbm: GoBuildMesh,
-		threshold_px: float = EDGE_PICK_RADIUS_PX,
+		threshold_px: float = -1.0,
 ) -> int:
 	var gt: Transform3D = node.global_transform
+	var gizmo_scale: float = _compute_gizmo_scale_at(camera, node.global_position)
+	var pick_r: float = compute_edge_pick_radius_from_world(
+			camera, node.global_position, gizmo_scale) \
+			if threshold_px < 0.0 else threshold_px
 	var best_idx: int = -1
-	var best_dist: float = threshold_px
+	var best_dist: float = pick_r
 
 	for idx: int in gbm.edges.size():
 		var edge: GoBuildEdge = gbm.edges[idx]
 		var wa: Vector3 = gt * gbm.vertices[edge.vertex_a]
 		var wb: Vector3 = gt * gbm.vertices[edge.vertex_b]
-		# Skip edges whose both endpoints are outside the camera frustum.
 		if not camera.is_position_in_frustum(wa) and not camera.is_position_in_frustum(wb):
 			continue
 		var sa: Vector2 = camera.unproject_position(wa)
@@ -325,5 +420,25 @@ static func ray_triangle_intersect(
 		return -1.0
 	var t: float = f * edge2.dot(q)
 	return t if t >= EPSILON else -1.0
+
+
+# ---------------------------------------------------------------------------
+# Gizmo scale (mirrors GoBuildGizmoPlugin.compute_world_gizmo_scale)
+# ---------------------------------------------------------------------------
+
+## Compute the world-space gizmo scale factor at [param world_pos], using the
+## same formula as [method GoBuildGizmoPlugin.compute_world_gizmo_scale].
+##
+## This makes the pick radius match the drawn gizmo size at every zoom level
+## and camera mode, without requiring a reference to the gizmo plugin.
+##
+## Falls back to [code]1.0[/code] when no camera is available (headless/tests).
+static func _compute_gizmo_scale_at(camera: Camera3D, world_pos: Vector3) -> float:
+	if camera == null:
+		return 1.0
+	var dist: float = camera.global_position.distance_to(world_pos)
+	if camera.projection == Camera3D.PROJECTION_PERSPECTIVE:
+		return maxf(dist * tan(deg_to_rad(camera.fov * 0.5)) * _GIZMO_SCREEN_FACTOR, 0.01)
+	return maxf(camera.size * _GIZMO_ORTHO_SCALE, 0.01)
 
 

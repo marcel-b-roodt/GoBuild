@@ -203,14 +203,11 @@ func test_shrink_faces_empty_selection() -> void:
 
 func test_edge_loop_on_grid_horizontal() -> void:
 	var m := _make_3x3_grid()
-	# Edge between vertices (1,5) — middle of bottom row.
-	# Should form a horizontal loop: (0,1), (1,5), (5,4)... wait, that's vertical.
-	# Actually, edge_loop for an edge in the middle of the bottom row:
-	# Find edge between vertex 1 and vertex 5 (vertical edge in first column).
+	# Edge (1,5) — vertical edge at column 1.
+	# Loop selects connected vertical edges in the same column.
 	var ei: int = m.find_edge(1, 5)
 	assert_int(ei).is_not_equal(-1)
 	var result: Array[int] = SelectionHelpers.edge_loop(m, ei)
-	# Should form a vertical loop of 3 edges through the grid columns.
 	assert_int(result.size()).is_equal(3)
 	assert_bool(result.has(ei)).is_true()
 
@@ -241,32 +238,56 @@ func test_edge_returns_empty_for_invalid_index() -> void:
 
 func test_edge_ring_on_grid() -> void:
 	var m := _make_3x3_grid()
-	# Pick a horizontal edge in the middle of the grid.
-	# Edge between vertices 1 and 2 (middle of bottom row).
+	# Edge (1,2) — horizontal bottom boundary edge.
+	# Ring selects parallel horizontal edges across the perpendicular strip.
 	var ei: int = m.find_edge(1, 2)
 	assert_int(ei).is_not_equal(-1)
 	var result: Array[int] = SelectionHelpers.edge_ring(m, ei)
-	# Ring walks perpendicular to the loop direction.
-	# Should return at least 1 edge (the seed).
-	assert_int(result.size()).is_greater_equal(1)
+	assert_int(result.size()).is_equal(4)
 	assert_bool(result.has(ei)).is_true()
 
 
 func test_face_loop_from_edge() -> void:
 	var m := _make_3x3_grid()
-	# Pick a vertical edge in column 0.
+	# Edge (0,1) — horizontal bottom boundary edge.
+	# face_loop with side_face=f0 walks the strip on f0's side.
+	# f0=[0,1,5,4]: opposite of (0,1) is (4,5). Walk through f0→f3→f6.
 	var ei: int = m.find_edge(0, 1)
 	assert_int(ei).is_not_equal(-1)
-	var result: Array[int] = SelectionHelpers.face_loop(m, ei)
-	# Should return the 3 faces in the leftmost column.
+	var f0: int = 0
+	var result: Array[int] = SelectionHelpers.face_loop(m, ei, f0)
+	# Should return the left column: f0, f3, f6.
 	assert_int(result.size()).is_equal(3)
+	assert_bool(result.has(0)).is_true()
+	assert_bool(result.has(3)).is_true()
+	assert_bool(result.has(6)).is_true()
+
+
+func test_face_loop_other_side() -> void:
+	var m := _make_3x3_grid()
+	# Edge (1,5) — vertical interior edge shared by f0 and f1.
+	# face_loop with side_face=f0 should return f0, f3, f6 (left column).
+	# face_loop with side_face=f1 should return f1, f4, f7 (right column).
+	var ei: int = m.find_edge(1, 5)
+	assert_int(ei).is_not_equal(-1)
+	var left: Array[int] = SelectionHelpers.face_loop(m, ei, 0)
+	var right: Array[int] = SelectionHelpers.face_loop(m, ei, 1)
+	assert_int(left.size()).is_equal(3)
+	assert_bool(left.has(0)).is_true()
+	assert_bool(left.has(3)).is_true()
+	assert_bool(left.has(6)).is_true()
+	assert_int(right.size()).is_equal(3)
+	assert_bool(right.has(1)).is_true()
+	assert_bool(right.has(4)).is_true()
+	assert_bool(right.has(7)).is_true()
 
 
 func test_face_ring_from_edge() -> void:
 	var m := _make_3x3_grid()
-	# Pick a horizontal edge in row 0.
+	# Edge (0,1) — horizontal bottom boundary edge.
+	# face_ring collects all faces adjacent to the ring edges.
 	var ei: int = m.find_edge(0, 1)
 	assert_int(ei).is_not_equal(-1)
 	var result: Array[int] = SelectionHelpers.face_ring(m, ei)
-	# The ring of faces perpendicular to this edge.
+	# Ring from a boundary edge picks opposite edges in the one face only.
 	assert_int(result.size()).is_greater_equal(1)

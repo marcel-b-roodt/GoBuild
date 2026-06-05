@@ -330,6 +330,21 @@ func compute_face_normal(face: GoBuildFace) -> Vector3:
 	return n.normalized()
 
 
+## Compute the area of a face using the cross-product fan method.
+## Works for convex polygons of any vertex count.
+func compute_face_area(face: GoBuildFace) -> float:
+	var vc: int = face.vertex_indices.size()
+	if vc < 3:
+		return 0.0
+	var total: float = 0.0
+	var v0: Vector3 = vertices[face.vertex_indices[0]]
+	for i: int in range(1, vc - 1):
+		var v1: Vector3 = vertices[face.vertex_indices[i]]
+		var v2: Vector3 = vertices[face.vertex_indices[i + 1]]
+		total += (v1 - v0).cross(v2 - v0).length() * 0.5
+	return total
+
+
 # ---------------------------------------------------------------------------
 # Edge derivation
 # ---------------------------------------------------------------------------

@@ -37,6 +37,7 @@ const _DRAG_CTRL_SCRIPT    := preload(
 const _DRAG_OP_SCRIPT       := preload(
 		"res://addons/go_build/core/go_build_drag_operation.gd")
 const _ICON                 := preload("res://addons/go_build/go_build.svg")
+const _CHEATSHEET_SCRIPT    := preload("res://addons/go_build/core/go_build_cheatsheet_popup.gd")
 
 ## EditorSettings keys for the four mode-switch shortcuts.
 const _SHORTCUT_OBJECT := "gobuild/shortcuts/object_mode"
@@ -499,6 +500,10 @@ func _handle_keyboard(event: InputEvent) -> int:
 
 
 func _handle_keyboard_shortcut(key: InputEventKey) -> int:
+	# F1: Show cheatsheet popup
+	if key.keycode == KEY_F1:
+		_show_cheatsheet()
+		return 1
 	# Grow/Shrink: Ctrl+= or Ctrl+Keypad+ / Ctrl+- or Ctrl+Keypad-
 	if key.ctrl_pressed and _edited_node != null and _panel != null \
 			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
@@ -551,6 +556,13 @@ func _handle_element_action_key(keycode: Key) -> int:
 		KEY_M:             return _handle_merge_key()
 		KEY_F:             return _handle_bridge_key()
 	return -1  # Not a recognised action key.
+
+
+## Open the cheatsheet popup centred on the editor viewport.
+func _show_cheatsheet() -> void:
+	var popup := GoBuildCheatsheetPopup.new()
+	add_child(popup)
+	popup.popup_centered()
 
 
 ## Intercept Delete / X in sub-element modes; pass through in Object mode.
@@ -649,6 +661,14 @@ func _require_shortcut(es: EditorSettings, setting: String, default_key: Key) ->
 ## Used by the panel and operations to access the global palette library.
 func get_project_settings() -> GoBuildProjectSettings:
 	return _project_settings
+
+
+## Toggle X-Ray mode on the gizmo plugin and force all gizmos to redraw.
+func set_xray_mode(enabled: bool) -> void:
+	if _gizmo_plugin != null:
+		_gizmo_plugin.xray_mode = enabled
+	if _edited_node != null:
+		_edited_node.update_gizmos()
 
 
 func switch_mode(mode: SelectionManager.Mode) -> void:

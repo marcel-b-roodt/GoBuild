@@ -26,6 +26,7 @@ const _UNDO_SPIN_SCRIPT_G   := preload("res://addons/go_build/core/go_build_undo
 # Widgets — exposed for tests where useful.
 var _delete_btn:    Button    = null
 var _cull_check:    CheckBox  = null
+var _xray_check:    CheckBox  = null
 var _auto_uv_option: OptionButton = null
 var _auto_uv_scale_spin: GoBuildUndoSpinBox = null
 var _auto_uv_u_offset_spin: GoBuildUndoSpinBox = null
@@ -77,6 +78,19 @@ func _ready() -> void:
 	)
 	_cull_check.toggled.connect(_on_cull_check_toggled)
 	_content.add_child(_cull_check)
+
+	# ── X-Ray mode toggle ────────────────────────────────────────────────
+	_xray_check = CheckBox.new()
+	_xray_check.text = "X-Ray (show through mesh)"
+	_xray_check.button_pressed = true
+	_xray_check.add_theme_font_size_override("font_size", 11)
+	_xray_check.tooltip_text = (
+		"When on, vertex and edge handles are always visible through the mesh.\n"
+		+ "When off, unselected handles are hidden behind the mesh surface.\n"
+		+ "Selected elements remain visible regardless of this setting."
+	)
+	_xray_check.toggled.connect(_on_xray_check_toggled)
+	_content.add_child(_xray_check)
 
 	# ── Auto UV mode selector ────────────────────────────────────────────
 	var uv_row := HBoxContainer.new()
@@ -288,6 +302,11 @@ func _on_delete_pressed() -> void:
 func _on_cull_check_toggled(enabled: bool) -> void:
 	if _target != null:
 		_target.set_edit_cull_override(enabled)
+
+
+func _on_xray_check_toggled(enabled: bool) -> void:
+	if _plugin != null and _plugin.has_method("set_xray_mode"):
+		_plugin.set_xray_mode(enabled)
 
 
 ## Write the new Auto UV mode to the active target.

@@ -37,6 +37,7 @@ const _SHAPE_CATALOG_SCRIPT    := \
 	preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
 const _SEL_HELPERS_SCRIPT      := preload("res://addons/go_build/core/selection_helpers.gd")
 const _UV_PANEL_SCRIPT         := preload("res://addons/go_build/uv/go_build_uv_panel.gd")
+const _CHEATSHEET_SCRIPT       := preload("res://addons/go_build/core/go_build_cheatsheet_popup.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
@@ -92,10 +93,20 @@ func _ready() -> void:
 	name = "GoBuild"
 
 	# ── Header ──────────────────────────────────────────────────────────
-	var header := Label.new()
-	header.text = "GoBuild  v" + _get_plugin_version()
-	header.add_theme_font_size_override("font_size", 13)
-	add_child(header)
+	var header_row := HBoxContainer.new()
+	var header_label := Label.new()
+	header_label.text = "GoBuild  v" + _get_plugin_version()
+	header_label.add_theme_font_size_override("font_size", 13)
+	header_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_row.add_child(header_label)
+	var help_btn := Button.new()
+	help_btn.text = "?"
+	help_btn.tooltip_text = "Show keyboard shortcuts (F1)"
+	help_btn.add_theme_font_size_override("font_size", 11)
+	help_btn.custom_minimum_size = Vector2(24, 0)
+	help_btn.pressed.connect(_on_help_pressed)
+	header_row.add_child(help_btn)
+	add_child(header_row)
 
 	add_child(HSeparator.new())
 
@@ -370,6 +381,119 @@ func trigger_shrink() -> void:
 			sel.set_selected_faces(
 					SelectionHelpers.shrink_faces(mesh, sel.get_selected_faces()))
 	_target.update_gizmos()
+
+
+## Select the edge loop containing the first selected edge.
+## In Face mode, selects faces in a single strip along the loop direction.
+## The side of the strip is determined by the first selected face.
+func trigger_select_loop() -> void:
+	if _target == null or _target.go_build_mesh == null:
+		return
+	var mesh: GoBuildMesh = _target.go_build_mesh
+	if mesh.edges.is_empty():
+		return
+	var sel: SelectionManager = _target.selection
+	var mode: int = sel.get_mode()
+	match mode:
+		SelectionManager.Mode.EDGE:
+			var edges: Array[int] = sel.get_selected_edges()
+			if edges.is_empty():
+				return
+			sel.set_selected_edges(SelectionHelpers.edge_loop(mesh, edges[0]))
+		SelectionManager.Mode.FACE:
+			var faces: Array[int] = sel.get_selected_faces()
+			if faces.size() < 2:
+				return
+			var start: int = faces[faces.size() - 2]
+			var end: int = faces[faces.size() - 1]
+			var result: Array[int] = SelectionHelpers.face_path(mesh, start, end)
+			if result.is_empty():
+				return
+			sel.set_selected_faces(result)
+	_target.update_gizmos()
+
+
+## Select the edge ring containing the first selected edge.
+## In Face mode, selects faces in the ring strip.
+func trigger_select_ring() -> void:
+	if _target == null or _target.go_build_mesh == null:
+		return
+	var mesh: GoBuildMesh = _target.go_build_mesh
+	if mesh.edges.is_empty():
+		return
+	var sel: SelectionManager = _target.selection
+	var mode: int = sel.get_mode()
+	match mode:
+		SelectionManager.Mode.EDGE:
+			var edges: Array[int] = sel.get_selected_edges()
+			if edges.is_empty():
+				return
+			sel.set_selected_edges(SelectionHelpers.edge_ring(mesh, edges[0]))
+		SelectionManager.Mode.FACE:
+			var faces: Array[int] = sel.get_selected_faces()
+			if faces.is_empty():
+				return
+			var seed_edge: int = _first_edge_of_selected_face(mesh, sel)
+			if seed_edge == -1:
+				return
+			var result: Array[int] = SelectionHelpers.face_ring(mesh, seed_edge, faces[0])
+			sel.set_selected_faces(result)
+	_target.update_gizmos()
+
+
+## Find the first edge of the first selected face.  Used as a seed for
+## loop/ring selection from the context menu in Face mode.
+func _first_edge_of_selected_face(
+		mesh: GoBuildMesh,
+		sel: SelectionManager,
+) -> int:
+	var faces: Array[int] = sel.get_selected_faces()
+	if faces.is_empty():
+		return -1
+	var face_edges: Array[int] = mesh.edges_of_face(faces[0])
+	if face_edges.is_empty():
+		return -1
+	return face_edges[0]
+
+
+## Select all elements similar to the current selection, using the given
+## [param criterion] (one of the SelectionHelpers SimilarCriterion enums).
+func trigger_select_similar(criterion: int) -> void:
+	if _target == null or _target.go_build_mesh == null:
+		return
+	var mesh: GoBuildMesh = _target.go_build_mesh
+	if mesh.edges.is_empty():
+		return
+	var sel: SelectionManager = _target.selection
+	var mode: int = sel.get_mode()
+	match mode:
+		SelectionManager.Mode.VERTEX:
+			var indices: Array[int] = sel.get_selected_vertices()
+			if indices.is_empty():
+				return
+			var result: Array[int] = SelectionHelpers.similar_vertices(mesh, indices, criterion)
+			sel.set_selected_vertices(result)
+		SelectionManager.Mode.EDGE:
+			var indices: Array[int] = sel.get_selected_edges()
+			if indices.is_empty():
+				return
+			var result: Array[int] = SelectionHelpers.similar_edges(mesh, indices, criterion)
+			sel.set_selected_edges(result)
+		SelectionManager.Mode.FACE:
+			var indices: Array[int] = sel.get_selected_faces()
+			if indices.is_empty():
+				return
+			var result: Array[int] = SelectionHelpers.similar_faces(mesh, indices, criterion)
+			sel.set_selected_faces(result)
+	_target.update_gizmos()
+
+
+## Open the cheatsheet popup when the "?" button is pressed.
+func _on_help_pressed() -> void:
+	var popup := GoBuildCheatsheetPopup.new()
+	get_viewport().add_child(popup)
+	popup.popup_centered()
+
 
 func get_create_drawer() -> GoBuildCreateDrawer:
 	return _create_drawer

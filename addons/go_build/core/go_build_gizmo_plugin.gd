@@ -126,6 +126,18 @@ var mat_view_plane: StandardMaterial3D
 ## appearance; Godot 4 / Vulkan does not support line width > 1 px via add_lines.
 var mat_edge_selected_ribbon: StandardMaterial3D
 
+## Depth-tested variants for X-Ray off mode — unselected elements are occluded
+## by the mesh.  Selected elements always use the no_depth_test versions.
+var mat_edge_normal_depth:     StandardMaterial3D
+var mat_edge_context_depth:    StandardMaterial3D
+var mat_vertex_normal_depth:   StandardMaterial3D
+
+## When true (default), vertex cubes and edge lines are always drawn on top of
+## geometry (no_depth_test), making them visible even when occluded.  When false,
+## unselected elements use depth-tested materials so they are hidden behind the
+## mesh surface.  Selected elements are always drawn on top regardless.
+var xray_mode: bool = true
+
 ## Active transform mode.  Defaults to TRANSLATE on plugin load.
 ## Written by plugin.gd when W/E/R is pressed; read by GoBuildGizmo via Object.get().
 var transform_mode: TransformMode = TransformMode.TRANSLATE
@@ -220,6 +232,12 @@ func setup(plugin: EditorPlugin) -> void:
 	# Selected-edge ribbon material — solid orange, same as vertex/face selected colour.
 	# Used for flat quad ribbons that give selected edges a visually thicker appearance.
 	mat_edge_selected_ribbon = _cone_mat(COLOR_SELECTED)
+	# Depth-tested material variants — used for unselected elements when xray_mode
+	# is off.  Same colours as the no_depth_test versions but with depth test enabled
+	# so elements behind the mesh surface are occluded.
+	mat_edge_normal_depth   = _line_mat_depth(Color(0.05, 0.05, 0.05, 1.0))
+	mat_edge_context_depth  = _line_mat_depth(Color(0.4, 0.4, 0.4, 1.0))
+	mat_vertex_normal_depth = _cone_mat_depth(Color(0.05, 0.05, 0.05, 1.0))
 	# Planar quad meshes (unit half-size 1.0 — scale at draw time by PLANE_HALF * s).
 	plane_quad_mesh_xy = _build_plane_quad_mesh(Vector3.RIGHT, Vector3.UP)   # XY plane
 	plane_quad_mesh_yz = _build_plane_quad_mesh(Vector3.UP, Vector3.BACK)    # YZ plane
@@ -567,6 +585,28 @@ func _face_fill_mat() -> StandardMaterial3D:
 	mat.no_depth_test   = true
 	mat.render_priority = 2
 	return mat
+
+
+## Depth-tested line material — same as [method _line_mat_nodepth] but with
+## depth test enabled so unselected edges are occluded by the mesh surface.
+func _line_mat_depth(color: Color) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode    = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color    = color
+	mat.render_priority = 0
+	return mat
+
+
+## Depth-tested solid material — same as [method _cone_mat] but with depth test
+## enabled so unselected vertex cubes are occluded by the mesh surface.
+func _cone_mat_depth(color: Color) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode    = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color    = color
+	mat.cull_mode       = BaseMaterial3D.CULL_DISABLED
+	mat.render_priority = 0
+	return mat
+
 
 ## Create an unshaded solid-cone material.
 ## Double-sided (CULL_DISABLED) so the cone is visible regardless of viewing angle.

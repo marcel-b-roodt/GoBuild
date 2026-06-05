@@ -35,6 +35,7 @@ const _DRAG_CTRL_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_drag_controller.gd")
 const _DRAG_OP_SCRIPT    := preload(
 		"res://addons/go_build/core/go_build_drag_operation.gd")
+const _SEL_HELPERS_SCRIPT := preload("res://addons/go_build/core/selection_helpers.gd")
 
 # ---------------------------------------------------------------------------
 # Constants (were in plugin.gd)
@@ -512,6 +513,12 @@ func _handle_mouse_release(
 		_editor_plugin.update_overlays()
 		_finish_box_select(edited_node, camera, mb.shift_pressed, mb.ctrl_pressed)
 		return 1
+	# Alt+click (no drag) = Loop Select; Ctrl+Alt+click = Ring Select.
+	# Alt held during drag is vertex snap, handled elsewhere.
+	if mb.alt_pressed and edited_node != null:
+		return _handle_loop_ring_pick(
+				edited_node, camera, _box_select_start,
+				mb.shift_pressed, mb.ctrl_pressed)
 	return _handle_pick(edited_node, camera, _box_select_start,
 			mb.shift_pressed, mb.ctrl_pressed)
 
@@ -1165,6 +1172,164 @@ func _apply_pick(
 
 
 # ---------------------------------------------------------------------------
+# Loop / Ring selection (Alt+click and Ctrl+Alt+click)
+# ---------------------------------------------------------------------------
+
+## Handle Alt+click (Path/Ring Select) and Ctrl+Alt+click (Ring Select).
+##
+## Edge mode: selects edges (loop/ring of edges from the clicked edge).
+## Face mode + Loop (Alt): selects the shortest face path from the last
+## selected face to the clicked face.  If nothing is selected yet, just
+## selects the clicked face.
+## Face mode + Ring (Ctrl+Alt): selects the face ring from the nearest
+## edge of the clicked face, using the clicked face as the side.
+## Shift adds to current selection; without Shift, replaces the selection.
+func _handle_loop_ring_pick(
+		edited_node: GoBuildMeshInstance,
+		camera: Camera3D,
+		click_pos: Vector2,
+		additive: bool,
+		ring: bool,
+) -> int:
+	var sel: SelectionManager = edited_node.selection
+	var mode: SelectionManager.Mode = sel.get_mode()
+	var gbm: GoBuildMesh = edited_node.go_build_mesh
+	if gbm == null or gbm.edges.is_empty():
+		return 1
+	if mode == SelectionManager.Mode.VERTEX:
+		return _handle_pick(edited_node, camera, click_pos, additive, false)
+	# Capture face selection before any clear for face-path computation.
+	var pre_selected_faces: Array[int] = []
+	if mode == SelectionManager.Mode.FACE and not ring:
+		pre_selected_faces = sel.get_selected_faces()
+	if not additive:
+		sel.clear()
+	if mode == SelectionManager.Mode.EDGE:
+		var seed_ei: int = PickingHelper.find_nearest_edge(camera, click_pos, edited_node, gbm)
+		if seed_ei != -1:
+			var edge_indices: Array[int]
+			if ring:
+				edge_indices = SelectionHelpers.edge_ring(gbm, seed_ei)
+			else:
+				edge_indices = SelectionHelpers.edge_loop(gbm, seed_ei)
+			for ei: int in edge_indices:
+				sel.select_edge(ei)
+	elif mode == SelectionManager.Mode.FACE:
+		var fi: int = PickingHelper.find_nearest_face(camera, click_pos, edited_node, gbm)
+		if fi == -1:
+			edited_node.update_gizmos()
+			return 1
+		if ring:
+			var seed_ei: int = _nearest_edge_of_face(camera, click_pos, edited_node, gbm, fi)
+			if seed_ei != -1:
+				var face_indices: Array[int] = SelectionHelpers.face_ring(gbm, seed_ei, fi)
+				for fj: int in face_indices:
+					sel.select_face(fj)
+		else:
+			var start_fi: int
+			if pre_selected_faces.is_empty():
+				start_fi = -1
+			else:
+				start_fi = pre_selected_faces[pre_selected_faces.size() - 1]
+			if start_fi == -1 or start_fi == fi:
+				sel.select_face(fi)
+			else:
+				var path: Array[int] = SelectionHelpers.face_path(gbm, start_fi, fi)
+				if path.is_empty():
+					sel.select_face(fi)
+				else:
+					for fj: int in path:
+						sel.select_face(fj)
+	edited_node.update_gizmos()
+	return 1
+
+
+## Find the nearest edge of a face to the screen-space click position.
+func _nearest_edge_of_face(
+		camera: Camera3D,
+		click_pos: Vector2,
+		edited_node: GoBuildMeshInstance,
+		gbm: GoBuildMesh,
+		fi: int,
+) -> int:
+	var face_edges: Array[int] = gbm.edges_of_face(fi)
+	if face_edges.is_empty():
+		return -1
+	var best_ei: int = -1
+	var best_dist_sq: float = INF
+	var gt: Transform3D = edited_node.global_transform
+	for ei: int in face_edges:
+		var ed: GoBuildEdge = gbm.edges[ei]
+		var va: Vector3 = gt * gbm.vertices[ed.vertex_a]
+		var vb: Vector3 = gt * gbm.vertices[ed.vertex_b]
+		var pa: Vector2 = camera.unproject_position(va)
+		var pb: Vector2 = camera.unproject_position(vb)
+		# Distance from click_pos to the 2D line segment pa-pb.
+		var ab: Vector2 = pb - pa
+		var ap: Vector2 = click_pos - pa
+		var t: float = clampf(ap.dot(ab) / ab.dot(ab), 0.0, 1.0)
+		var closest: Vector2 = pa + ab * t
+		var dist_sq: float = click_pos.distance_squared_to(closest)
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best_ei = ei
+	return best_ei
+
+
+## Context-menu Face Loop (Path): raycast from the right-click position to
+## find the target face, then compute [method SelectionHelpers.face_path] from
+## the last selected face to the target face.  Additive: always adds to the
+## current selection (Shift is not needed from the context menu).
+func _context_face_loop(edited_node: GoBuildMeshInstance) -> void:
+	if _context_camera == null:
+		return
+	var gbm: GoBuildMesh = edited_node.go_build_mesh
+	if gbm == null or gbm.edges.is_empty():
+		return
+	var sel: SelectionManager = edited_node.selection
+	var fi: int = PickingHelper.find_nearest_face(
+			_context_camera, _right_click_press_pos, edited_node, gbm)
+	if fi == -1:
+		return
+	var selected_faces: Array[int] = sel.get_selected_faces()
+	if selected_faces.is_empty():
+		sel.select_face(fi)
+		edited_node.update_gizmos()
+		return
+	var start_fi: int = selected_faces[selected_faces.size() - 1]
+	var path: Array[int] = SelectionHelpers.face_path(gbm, start_fi, fi)
+	if path.is_empty():
+		return
+	for fj: int in path:
+		sel.select_face(fj)
+	edited_node.update_gizmos()
+
+
+## Context-menu Face Ring: raycast from the right-click position to find the
+## target face and its nearest edge, then compute the ring from that seed.
+func _context_face_ring(edited_node: GoBuildMeshInstance) -> void:
+	if _context_camera == null:
+		return
+	var gbm: GoBuildMesh = edited_node.go_build_mesh
+	if gbm == null or gbm.edges.is_empty():
+		return
+	var sel: SelectionManager = edited_node.selection
+	var fi: int = PickingHelper.find_nearest_face(
+			_context_camera, _right_click_press_pos, edited_node, gbm)
+	if fi == -1:
+		return
+	var seed_ei: int = _nearest_edge_of_face(
+			_context_camera, _right_click_press_pos, edited_node, gbm, fi)
+	if seed_ei == -1:
+		return
+	var face_indices: Array[int] = SelectionHelpers.face_ring(gbm, seed_ei, fi)
+	sel.clear()
+	for fj: int in face_indices:
+		sel.select_face(fj)
+	edited_node.update_gizmos()
+
+
+# ---------------------------------------------------------------------------
 # Box select
 # ---------------------------------------------------------------------------
 
@@ -1456,6 +1621,15 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 			popup.add_item("Grow Selection  (Ctrl+=)", 2)
 		if not sel.is_empty():
 			popup.add_item("Shrink Selection  (Ctrl+-)", 3)
+		if mode == SelectionManager.Mode.EDGE:
+			if not sel.is_empty():
+				popup.add_item("Select Loop  (Alt+Click)", 40)
+				popup.add_item("Select Ring  (Ctrl+Alt+Click)", 41)
+		elif mode == SelectionManager.Mode.FACE:
+			popup.add_item("Select Path  (Alt+Click)", 40)
+			popup.add_item("Select Ring  (Ctrl+Alt+Click)", 41)
+		if not sel.is_empty():
+			_add_similar_submenu(popup, mode, edited_node)
 
 	match mode:
 		SelectionManager.Mode.VERTEX:
@@ -1501,6 +1675,35 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 	return true
 
 
+## Add a "Select Similar" submenu to [param popup] with criteria appropriate
+## for the current selection [param mode].
+func _add_similar_submenu(
+		popup: PopupMenu,
+		mode: SelectionManager.Mode,
+		edited_node: GoBuildMeshInstance,
+) -> void:
+	var submenu := PopupMenu.new()
+	var mode_int: int = mode as int
+	match mode:
+		SelectionManager.Mode.VERTEX:
+			submenu.add_item("Valence", 58)
+		SelectionManager.Mode.EDGE:
+			submenu.add_item("Length", 55)
+			submenu.add_item("Face Count", 56)
+			submenu.add_item("Dihedral Angle", 57)
+		SelectionManager.Mode.FACE:
+			submenu.add_item("Material", 50)
+			submenu.add_item("Side Count", 51)
+			submenu.add_item("Normal", 52)
+			submenu.add_item("Coplanar", 53)
+			submenu.add_item("Area", 54)
+	popup.add_child(submenu)
+	popup.add_submenu_item("Select Similar", submenu.get_name())
+	submenu.id_pressed.connect(func(id: int) -> void:
+			_on_context_menu_pressed(id, mode_int, edited_node)
+	)
+
+
 func _on_context_menu_pressed(
 		id: int,
 		mode_int: int,
@@ -1537,6 +1740,16 @@ func _on_context_menu_pressed(
 		3:  # Shrink Selection
 			if _panel != null:
 				_panel.trigger_shrink()
+		40:  # Select Loop
+			if mode_int == SelectionManager.Mode.FACE:
+				_context_face_loop(edited_node)
+			elif _panel != null:
+				_panel.trigger_select_loop()
+		41:  # Select Ring
+			if mode_int == SelectionManager.Mode.FACE:
+				_context_face_ring(edited_node)
+			elif _panel != null:
+				_panel.trigger_select_ring()
 		10:  # Delete
 			if _panel != null:
 				_panel.trigger_delete()
@@ -1573,6 +1786,33 @@ func _on_context_menu_pressed(
 		37:  # Add Texture
 			if _panel != null:
 				_panel.trigger_add_tex()
+		50:  # Select Similar → Material (Face)
+			if _panel != null:
+				_panel.trigger_select_similar(SelectionHelpers.FaceSimilarCriterion.MATERIAL)
+		51:  # Select Similar → Side Count (Face)
+			if _panel != null:
+				_panel.trigger_select_similar(SelectionHelpers.FaceSimilarCriterion.SIDE_COUNT)
+		52:  # Select Similar → Normal (Face)
+			if _panel != null:
+				_panel.trigger_select_similar(SelectionHelpers.FaceSimilarCriterion.NORMAL)
+		53:  # Select Similar → Coplanar (Face)
+			if _panel != null:
+				_panel.trigger_select_similar(SelectionHelpers.FaceSimilarCriterion.COPLANAR)
+		54:  # Select Similar → Area (Face)
+			if _panel != null:
+				_panel.trigger_select_similar(SelectionHelpers.FaceSimilarCriterion.AREA)
+		55:  # Select Similar → Length (Edge)
+			if _panel != null:
+				_panel.trigger_select_similar(SelectionHelpers.EdgeSimilarCriterion.LENGTH)
+		56:  # Select Similar → Face Count (Edge)
+			if _panel != null:
+				_panel.trigger_select_similar(SelectionHelpers.EdgeSimilarCriterion.FACE_COUNT)
+		57:  # Select Similar → Dihedral Angle (Edge)
+			if _panel != null:
+				_panel.trigger_select_similar(SelectionHelpers.EdgeSimilarCriterion.DIHEDRAL)
+		58:  # Select Similar → Valence (Vertex)
+			if _panel != null:
+				_panel.trigger_select_similar(SelectionHelpers.VertexSimilarCriterion.VALENCE)
 
 
 ## Insert a new [GoBuildMeshInstance] at the right-click position.
