@@ -277,16 +277,22 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 	var seed_ed: GoBuildEdge = mesh.edges[seed_edge]
 	result.append(seed_edge)
 	visited[seed_edge] = true
+	# The seed edge's direction vector — used as a tiebreaker when multiple
+	# candidates at a vertex have similar local walk alignment.  This prevents
+	# the loop from branching off at T-junctions.
+	var seed_end: Vector3 = mesh.vertices[seed_ed.vertex_b]
+	var seed_start: Vector3 = mesh.vertices[seed_ed.vertex_a]
+	var seed_dir: Vector3 = (seed_end - seed_start).normalized()
 	# Walk in two directions from the seed.
-	# Direction 0 continues from vertex_a through one set of faces.
-	# Direction 1 continues from vertex_b through the other set.
+	# Direction 0 continues from vertex_a toward vertex_b.
+	# Direction 1 continues from vertex_b toward vertex_a.
 	for direction: int in 2:
 		var start_vi: int = seed_ed.vertex_a if direction == 0 else seed_ed.vertex_b
 		var end_vi: int = seed_ed.vertex_b if direction == 0 else seed_ed.vertex_a
-		# Direction hint: from start_vi toward end_vi.
+		# Walk direction: from start_vi toward end_vi.
 		var walk_dir: Vector3 = mesh.vertices[end_vi] - mesh.vertices[start_vi]
-		# At end_vi, find the edge opposite to the seed edge.
-		var next_ei: int = _loop_opposite_edge_at_vertex(mesh, seed_edge, end_vi, walk_dir)
+		# At end_vi, find the continuation edge.
+		var next_ei: int = _loop_continuation_edge(mesh, seed_edge, end_vi, walk_dir, seed_dir, visited)
 		if next_ei == -1 or visited.has(next_ei):
 			continue
 		var cur_ei: int = next_ei
@@ -306,60 +312,65 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 					else cur_ed.vertex_b
 			var continue_vi: int = cur_ed.vertex_b if arrive_vi == cur_ed.vertex_a else cur_ed.vertex_a
 			walk_dir = mesh.vertices[continue_vi] - mesh.vertices[arrive_vi]
-			var opp_ei: int = _loop_opposite_edge_at_vertex(mesh, cur_ei, continue_vi, walk_dir)
+			var opp_ei: int = _loop_continuation_edge(mesh, cur_ei, continue_vi, walk_dir, seed_dir, visited)
 			prev_ei = cur_ei
 			cur_ei = opp_ei
 	return result
 
 
-## Find the edge at [param vi] that is "opposite" to [param ei] in the
-## vertex's edge pairing.  For a valence-4 interior vertex, this is the
-## edge that does NOT share either of [param ei]'s faces.
+## Find the edge at [param vi] that continues the loop from [param ei].
 ##
-## When multiple candidates exist (T-junctions, poles), [param direction]
-## is used to pick the one whose other vertex is most aligned with the
-## continuation direction.  If [param direction] is [Vector3.ZERO], falls
-## back to the first candidate (legacy behaviour).
+## Uses a local walk direction ([param walk_dir]) and the original seed edge
+## direction ([param seed_dir]) to pick the best continuation.  The scoring
+## combines both: local walk alignment keeps the loop moving forward, while
+## seed alignment prevents the loop from branching off at T-junctions where
+## the local direction turns 90°.
 ##
-## Returns -1 if no opposite edge is found (boundary vertex, pole, etc.).
-static func _loop_opposite_edge_at_vertex(
+## Returns -1 only when the vertex has no other edges at all.
+static func _loop_continuation_edge(
 		mesh: GoBuildMesh,
 		ei: int,
 		vi: int,
-		direction: Vector3 = Vector3.ZERO) -> int:
+		walk_dir: Vector3,
+		seed_dir: Vector3,
+		visited: Dictionary) -> int:
 	var ed: GoBuildEdge = mesh.edges[ei]
 	var edge_faces: Array = ed.face_indices
 	var vertex_edges: Array = mesh.edges_of_vertex(vi)
+	# Collect candidates: edges at vi that are not the arriving edge
+	# and have not been visited yet.
 	var candidates: Array[int] = []
 	for candidate_ei: int in vertex_edges:
-		if candidate_ei == ei:
+		if candidate_ei == ei or visited.has(candidate_ei):
 			continue
-		var cand_ed: GoBuildEdge = mesh.edges[candidate_ei]
-		var shares_face: bool = false
-		for fi: int in cand_ed.face_indices:
-			if edge_faces.has(fi):
-				shares_face = true
-				break
-		if not shares_face:
-			candidates.append(candidate_ei)
+		candidates.append(candidate_ei)
 	if candidates.is_empty():
 		return -1
 	if candidates.size() == 1:
 		return candidates[0]
-	if direction == Vector3.ZERO:
-		return candidates[0]
+	# Score each candidate by combining local walk alignment with seed
+	# direction alignment.  Walk alignment keeps the loop moving forward;
+	# seed alignment prevents branching off at vertices where the walk has
+	# turned and the "most aligned" local direction is perpendicular to
+	# the intended loop.
 	var vi_pos: Vector3 = mesh.vertices[vi]
-	var dir_norm: Vector3 = direction.normalized()
+	var walk_norm: Vector3 = walk_dir.normalized()
+	var seed_norm: Vector3 = seed_dir.normalized()
 	var best_ei: int = candidates[0]
-	var best_dot: float = -2.0
+	var best_score: float = -2.0
 	for candidate_ei: int in candidates:
 		var cand_ed: GoBuildEdge = mesh.edges[candidate_ei]
 		var other_vi: int = cand_ed.vertex_a if cand_ed.vertex_a != vi else cand_ed.vertex_b
 		var other_pos: Vector3 = mesh.vertices[other_vi]
 		var cand_dir: Vector3 = (other_pos - vi_pos).normalized()
-		var dot: float = cand_dir.dot(dir_norm)
-		if dot > best_dot:
-			best_dot = dot
+		var walk_dot: float = cand_dir.dot(walk_norm)
+		var seed_dot: float = absf(cand_dir.dot(seed_norm))
+		# Combined score: walk direction must be positive (going forward),
+		# then use seed alignment as a tiebreaker.  A small bias toward
+		# walk direction so we don't backtrack.
+		var score: float = walk_dot + seed_dot * 0.5
+		if score > best_score:
+			best_score = score
 			best_ei = candidate_ei
 	return best_ei
 
