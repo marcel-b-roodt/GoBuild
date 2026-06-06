@@ -277,37 +277,13 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 	var seed_ed: GoBuildEdge = mesh.edges[seed_edge]
 	result.append(seed_edge)
 	visited[seed_edge] = true
-	var seed_end: Vector3 = mesh.vertices[seed_ed.vertex_b]
-	var seed_start: Vector3 = mesh.vertices[seed_ed.vertex_a]
-	var seed_dir: Vector3 = (seed_end - seed_start).normalized()
-	# Walk in two directions from the seed.
-	# Direction 0 continues from vertex_a toward vertex_b.
-	# Direction 1 continues from vertex_b toward vertex_a.
-	# Each direction discovers its own loop plane from the first step.
 	for direction: int in 2:
 		var start_vi: int = seed_ed.vertex_a if direction == 0 else seed_ed.vertex_b
 		var end_vi: int = seed_ed.vertex_b if direction == 0 else seed_ed.vertex_a
-		var walk_dir: Vector3 = mesh.vertices[end_vi] - mesh.vertices[start_vi]
-		# Find the first continuation to establish the loop plane.
-		var first_ei: int = _loop_continuation_edge(
-				mesh, seed_edge, end_vi, walk_dir, Vector3.ZERO, visited)
-		if first_ei == -1 or visited.has(first_ei):
+		var next_ei: int = _loop_opposite_edge_at_vertex(mesh, seed_edge, end_vi)
+		if next_ei == -1 or visited.has(next_ei):
 			continue
-		# Derive the loop plane from seed_dir and the first step direction.
-		var first_ed: GoBuildEdge = mesh.edges[first_ei]
-		var first_other_vi: int = first_ed.vertex_a \
-				if first_ed.vertex_a != end_vi else first_ed.vertex_b
-		var first_step: Vector3 = mesh.vertices[first_other_vi] - mesh.vertices[end_vi]
-		var plane_normal: Vector3 = seed_dir.cross(first_step.normalized())
-		# If the cross product is near-zero (collinear), the seed edge and
-		# first step lie on the same line — no meaningful plane.  Skip
-		# plane-based scoring and use walk direction only.
-		if plane_normal.length_squared() < 0.0001:
-			plane_normal = Vector3.ZERO
-		else:
-			plane_normal = plane_normal.normalized()
-		# Now walk, starting from the first continuation edge.
-		var cur_ei: int = first_ei
+		var cur_ei: int = next_ei
 		var prev_ei: int = seed_edge
 		while cur_ei != -1 and not visited.has(cur_ei):
 			visited[cur_ei] = true
@@ -321,65 +297,34 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 					if (prev_ed.vertex_a == cur_ed.vertex_a or prev_ed.vertex_b == cur_ed.vertex_a) \
 					else cur_ed.vertex_b
 			var continue_vi: int = cur_ed.vertex_b if arrive_vi == cur_ed.vertex_a else cur_ed.vertex_a
-			walk_dir = mesh.vertices[continue_vi] - mesh.vertices[arrive_vi]
-			var opp_ei: int = _loop_continuation_edge(
-					mesh, cur_ei, continue_vi, walk_dir, plane_normal, visited)
+			var opp_ei: int = _loop_opposite_edge_at_vertex(mesh, cur_ei, continue_vi)
 			prev_ei = cur_ei
 			cur_ei = opp_ei
 	return result
 
 
-## Find the edge at [param vi] that continues the loop from [param ei].
+## Find the edge at [param vi] that is "opposite" to [param ei] in the
+## vertex's edge pairing.  For a valence-4 interior vertex, this is the
+## edge that does NOT share either of [param ei]'s faces.
 ##
-## Uses a local walk direction ([param walk_dir]) to move forward, and a
-## loop plane normal ([param plane_normal]) to prefer candidates that stay
-## on the loop plane.  When [param plane_normal] is [Vector3.ZERO] (no
-## meaningful plane could be derived from the seed + first step), scoring
-## falls back to walk direction only.
-##
-## Returns -1 only when the vertex has no other edges at all.
-static func _loop_continuation_edge(
-		mesh: GoBuildMesh,
-		ei: int,
-		vi: int,
-		walk_dir: Vector3,
-		plane_normal: Vector3,
-		visited: Dictionary) -> int:
+## Returns -1 if no opposite edge is found (boundary vertex, T-junction,
+## pole, etc.) — the loop walk terminates at such vertices.
+static func _loop_opposite_edge_at_vertex(mesh: GoBuildMesh, ei: int, vi: int) -> int:
+	var ed: GoBuildEdge = mesh.edges[ei]
+	var edge_faces: Array = ed.face_indices
 	var vertex_edges: Array = mesh.edges_of_vertex(vi)
-	var candidates: Array[int] = []
 	for candidate_ei: int in vertex_edges:
-		if candidate_ei == ei or visited.has(candidate_ei):
+		if candidate_ei == ei:
 			continue
-		candidates.append(candidate_ei)
-	if candidates.is_empty():
-		return -1
-	if candidates.size() == 1:
-		return candidates[0]
-	var vi_pos: Vector3 = mesh.vertices[vi]
-	var walk_norm: Vector3 = walk_dir.normalized()
-	var has_plane: bool = plane_normal != Vector3.ZERO
-	var best_ei: int = candidates[0]
-	var best_score: float = -2.0
-	for candidate_ei: int in candidates:
 		var cand_ed: GoBuildEdge = mesh.edges[candidate_ei]
-		var other_vi: int = cand_ed.vertex_a if cand_ed.vertex_a != vi else cand_ed.vertex_b
-		var other_pos: Vector3 = mesh.vertices[other_vi]
-		var cand_dir: Vector3 = (other_pos - vi_pos).normalized()
-		var walk_dot: float = cand_dir.dot(walk_norm)
-		# walk_dot must be positive (going forward).  Negative means
-		# backtracking — heavily penalised.
-		if walk_dot < 0.0:
-			walk_dot = -1.0
-		var score: float = walk_dot
-		if has_plane:
-			# Distance of the candidate's far vertex from the loop plane.
-			# Vertices on the plane (small distance) are preferred.
-			var plane_dist: float = absf((other_pos - vi_pos).dot(plane_normal))
-			score -= plane_dist * 2.0
-		if score > best_score:
-			best_score = score
-			best_ei = candidate_ei
-	return best_ei
+		var shares_face: bool = false
+		for fi: int in cand_ed.face_indices:
+			if edge_faces.has(fi):
+				shares_face = true
+				break
+		if not shares_face:
+			return candidate_ei
+	return -1
 
 
 # ---------------------------------------------------------------------------
