@@ -280,7 +280,8 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 	for direction: int in 2:
 		var start_vi: int = seed_ed.vertex_a if direction == 0 else seed_ed.vertex_b
 		var end_vi: int = seed_ed.vertex_b if direction == 0 else seed_ed.vertex_a
-		var next_ei: int = _loop_opposite_edge_at_vertex(mesh, seed_edge, end_vi)
+		var walk_dir: Vector3 = mesh.vertices[end_vi] - mesh.vertices[start_vi]
+		var next_ei: int = _loop_opposite_edge_at_vertex(mesh, seed_edge, end_vi, walk_dir)
 		if next_ei == -1 or visited.has(next_ei):
 			continue
 		var cur_ei: int = next_ei
@@ -297,7 +298,8 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 					if (prev_ed.vertex_a == cur_ed.vertex_a or prev_ed.vertex_b == cur_ed.vertex_a) \
 					else cur_ed.vertex_b
 			var continue_vi: int = cur_ed.vertex_b if arrive_vi == cur_ed.vertex_a else cur_ed.vertex_a
-			var opp_ei: int = _loop_opposite_edge_at_vertex(mesh, cur_ei, continue_vi)
+			walk_dir = mesh.vertices[continue_vi] - mesh.vertices[arrive_vi]
+			var opp_ei: int = _loop_opposite_edge_at_vertex(mesh, cur_ei, continue_vi, walk_dir)
 			prev_ei = cur_ei
 			cur_ei = opp_ei
 	return result
@@ -307,12 +309,22 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 ## vertex's edge pairing.  For a valence-4 interior vertex, this is the
 ## edge that does NOT share either of [param ei]'s faces.
 ##
+## When multiple opposite candidates exist (high-valence vertices), the
+## one whose far vertex is most aligned with [param walk_dir] is chosen.
+## This disambiguates at vertices where several edges share no face with
+## the arriving edge — e.g. where two loops cross.
+##
 ## Returns -1 if no opposite edge is found (boundary vertex, T-junction,
 ## pole, etc.) — the loop walk terminates at such vertices.
-static func _loop_opposite_edge_at_vertex(mesh: GoBuildMesh, ei: int, vi: int) -> int:
+static func _loop_opposite_edge_at_vertex(
+		mesh: GoBuildMesh,
+		ei: int,
+		vi: int,
+		walk_dir: Vector3 = Vector3.ZERO) -> int:
 	var ed: GoBuildEdge = mesh.edges[ei]
 	var edge_faces: Array = ed.face_indices
 	var vertex_edges: Array = mesh.edges_of_vertex(vi)
+	var candidates: Array[int] = []
 	for candidate_ei: int in vertex_edges:
 		if candidate_ei == ei:
 			continue
@@ -323,8 +335,29 @@ static func _loop_opposite_edge_at_vertex(mesh: GoBuildMesh, ei: int, vi: int) -
 				shares_face = true
 				break
 		if not shares_face:
-			return candidate_ei
-	return -1
+			candidates.append(candidate_ei)
+	if candidates.is_empty():
+		return -1
+	if candidates.size() == 1:
+		return candidates[0]
+	# Multiple opposite candidates — pick the one most aligned with the
+	# walk direction.  Without a direction hint, fall back to first found.
+	if walk_dir == Vector3.ZERO:
+		return candidates[0]
+	var vi_pos: Vector3 = mesh.vertices[vi]
+	var walk_norm: Vector3 = walk_dir.normalized()
+	var best_ei: int = candidates[0]
+	var best_dot: float = -2.0
+	for candidate_ei: int in candidates:
+		var cand_ed: GoBuildEdge = mesh.edges[candidate_ei]
+		var other_vi: int = cand_ed.vertex_a if cand_ed.vertex_a != vi else cand_ed.vertex_b
+		var other_pos: Vector3 = mesh.vertices[other_vi]
+		var cand_dir: Vector3 = (other_pos - vi_pos).normalized()
+		var dot: float = cand_dir.dot(walk_norm)
+		if dot > best_dot:
+			best_dot = dot
+			best_ei = candidate_ei
+	return best_ei
 
 
 # ---------------------------------------------------------------------------
