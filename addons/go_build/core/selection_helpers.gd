@@ -37,11 +37,15 @@ const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
 
 # Quantisation tolerances for Select Similar comparisons.
-const _NORMAL_TOLERANCE: float = 0.0001
 const _AREA_TOLERANCE: float = 0.001
 const _LENGTH_TOLERANCE: float = 0.001
-const _COPLANAR_DIST_TOLERANCE: float = 0.001
 const _DIHEDRAL_TOLERANCE: float = 0.5
+# Dot-product threshold for normal similarity.  cos(2.5°) ≈ 0.999,
+# so faces whose normals differ by up to ~2.5° are considered similar.
+const _NORMAL_DOT_THRESHOLD: float = 0.999
+# Distance threshold for coplanar comparison.  Two faces with the same
+# normal are coplanar if their plane distances differ by less than this.
+const _COPLANAR_DIST_THRESHOLD: float = 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -637,8 +641,13 @@ static func similar_faces(
 ) -> Array[int]:
 	if seed_indices.is_empty() or mesh.faces.is_empty():
 		return []
-	# Collect the reference values from the seed faces.
+	# Collect reference values from seed faces.
+	# MATERIAL and SIDE_COUNT use exact-match dictionaries for O(1) lookup.
+	# NORMAL and COPLANAR use dot-product thresholds for fuzzy matching,
+	# which requires comparing each face against all reference values.
 	var ref_values: Dictionary = {}
+	var ref_normals: Array[Vector3] = []
+	var ref_planes: Array[Vector4] = []  # (nx, ny, nz, d)
 	match criterion:
 		FaceSimilarCriterion.MATERIAL:
 			for fi: int in seed_indices:
@@ -649,17 +658,13 @@ static func similar_faces(
 		FaceSimilarCriterion.NORMAL:
 			for fi: int in seed_indices:
 				var n: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
-				# Quantise normal to grid so near-identical normals match.
-				var key: String = _quantise_normal(n)
-				ref_values[key] = true
+				ref_normals.append(n.normalized())
 		FaceSimilarCriterion.COPLANAR:
 			for fi: int in seed_indices:
-				var n: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
-				# Plane equation: n·x = d. Use a vertex to find d.
+				var n: Vector3 = mesh.compute_face_normal(mesh.faces[fi]).normalized()
 				var v0: Vector3 = mesh.vertices[mesh.faces[fi].vertex_indices[0]]
 				var d: float = n.dot(v0)
-				var key: String = _quantise_normal(n) + "|" + str(roundf(d * 1000.0) / 1000.0)
-				ref_values[key] = true
+				ref_planes.append(Vector4(n.x, n.y, n.z, d))
 		FaceSimilarCriterion.AREA:
 			for fi: int in seed_indices:
 				var a: float = mesh.compute_face_area(mesh.faces[fi])
@@ -674,14 +679,21 @@ static func similar_faces(
 			FaceSimilarCriterion.SIDE_COUNT:
 				matches = ref_values.has(mesh.faces[fi].vertex_indices.size())
 			FaceSimilarCriterion.NORMAL:
-				var n: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
-				matches = ref_values.has(_quantise_normal(n))
+				var n: Vector3 = mesh.compute_face_normal(mesh.faces[fi]).normalized()
+				for ref_n: Vector3 in ref_normals:
+					if n.dot(ref_n) > _NORMAL_DOT_THRESHOLD:
+						matches = true
+						break
 			FaceSimilarCriterion.COPLANAR:
-				var n: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
+				var n: Vector3 = mesh.compute_face_normal(mesh.faces[fi]).normalized()
 				var v0: Vector3 = mesh.vertices[mesh.faces[fi].vertex_indices[0]]
 				var d: float = n.dot(v0)
-				var key: String = _quantise_normal(n) + "|" + str(roundf(d * 1000.0) / 1000.0)
-				matches = ref_values.has(key)
+				for ref_p: Vector4 in ref_planes:
+					var ref_n: Vector3 = Vector3(ref_p.x, ref_p.y, ref_p.z)
+					var ref_d: float = ref_p.w
+					if n.dot(ref_n) > _NORMAL_DOT_THRESHOLD and absf(d - ref_d) < _COPLANAR_DIST_THRESHOLD:
+						matches = true
+						break
 			FaceSimilarCriterion.AREA:
 				var a: float = mesh.compute_face_area(mesh.faces[fi])
 				matches = ref_values.has(roundf(a * 1000.0) / 1000.0)
@@ -762,14 +774,6 @@ static func similar_vertices(
 # Select Similar — internal helpers
 # ---------------------------------------------------------------------------
 
-
-## Quantise a normal vector to a string key so near-identical normals match.
-static func _quantise_normal(n: Vector3) -> String:
-	return "%.4f,%.4f,%.4f" % [
-		roundf(n.x * 10000.0) / 10000.0,
-		roundf(n.y * 10000.0) / 10000.0,
-		roundf(n.z * 10000.0) / 10000.0,
-	]
 
 
 ## Compute the dihedral angle (in degrees) between the two faces sharing
