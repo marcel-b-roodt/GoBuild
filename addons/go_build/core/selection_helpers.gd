@@ -281,7 +281,12 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 		var start_vi: int = seed_ed.vertex_a if direction == 0 else seed_ed.vertex_b
 		var end_vi: int = seed_ed.vertex_b if direction == 0 else seed_ed.vertex_a
 		var walk_dir: Vector3 = mesh.vertices[end_vi] - mesh.vertices[start_vi]
-		var next_ei: int = _loop_opposite_edge_at_vertex(mesh, seed_edge, end_vi, walk_dir)
+		# At the first step, momentum equals walk_dir (no previous edge to
+		# provide direction history).  After each step, momentum is the sum
+		# of the previous edge direction and current walk direction, smoothed
+		# through 90-degree corners.
+		var momentum_dir: Vector3 = walk_dir
+		var next_ei: int = _loop_opposite_edge_at_vertex(mesh, seed_edge, end_vi, walk_dir, momentum_dir)
 		if next_ei == -1 or visited.has(next_ei):
 			continue
 		var cur_ei: int = next_ei
@@ -299,7 +304,20 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 					else cur_ed.vertex_b
 			var continue_vi: int = cur_ed.vertex_b if arrive_vi == cur_ed.vertex_a else cur_ed.vertex_a
 			walk_dir = mesh.vertices[continue_vi] - mesh.vertices[arrive_vi]
-			var opp_ei: int = _loop_opposite_edge_at_vertex(mesh, cur_ei, continue_vi, walk_dir)
+			# Compute prev edge direction for momentum.  The previous edge
+			# points from its far end (opposite of arrive_vi) to arrive_vi.
+			var prev_far_vi: int = prev_ed.vertex_a \
+					if prev_ed.vertex_a != arrive_vi else prev_ed.vertex_b
+			var prev_dir: Vector3 = (mesh.vertices[arrive_vi] - mesh.vertices[prev_far_vi])
+			# Momentum = sum of walk_dir and prev_dir, normalised.
+			# At straight vertices this equals walk_dir.  At 90-degree
+			# corners it bisects the turn, preferring the continuation that
+			# keeps the loop going around the mesh rather than branching off.
+			momentum_dir = (walk_dir + prev_dir)
+			if momentum_dir.length_squared() < 0.0001:
+				momentum_dir = walk_dir
+			var opp_ei: int = _loop_opposite_edge_at_vertex(
+					mesh, cur_ei, continue_vi, walk_dir, momentum_dir)
 			prev_ei = cur_ei
 			cur_ei = opp_ei
 	return result
@@ -309,10 +327,12 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 ## vertex's edge pairing.  For a valence-4 interior vertex, this is the
 ## edge that does NOT share either of [param ei]'s faces.
 ##
-## When multiple opposite candidates exist (high-valence vertices), the
-## one whose far vertex is most aligned with [param walk_dir] is chosen.
-## This disambiguates at vertices where several edges share no face with
-## the arriving edge — e.g. where two loops cross.
+## When multiple opposite candidates exist (high-valence vertices), disam-
+## biguation uses [param momentum_dir] rather than [param walk_dir] alone.
+## [param momentum_dir] is the sum of the current walk direction and the
+## previous edge direction, smoothed through 90-degree corners.  Candidates
+## aligned with the momentum are preferred over those aligned with the raw
+## walk direction, which has already turned at corners.
 ##
 ## Returns -1 if no opposite edge is found (boundary vertex, T-junction,
 ## pole, etc.) — the loop walk terminates at such vertices.
@@ -320,7 +340,8 @@ static func _loop_opposite_edge_at_vertex(
 		mesh: GoBuildMesh,
 		ei: int,
 		vi: int,
-		walk_dir: Vector3 = Vector3.ZERO) -> int:
+		walk_dir: Vector3,
+		momentum_dir: Vector3) -> int:
 	var ed: GoBuildEdge = mesh.edges[ei]
 	var edge_faces: Array = ed.face_indices
 	var vertex_edges: Array = mesh.edges_of_vertex(vi)
@@ -340,12 +361,17 @@ static func _loop_opposite_edge_at_vertex(
 		return -1
 	if candidates.size() == 1:
 		return candidates[0]
-	# Multiple opposite candidates — pick the one most aligned with the
-	# walk direction.  Without a direction hint, fall back to first found.
-	if walk_dir == Vector3.ZERO:
+	# Multiple opposite candidates — disambiguate using momentum.
+	# Momentum bisects the turn at corners so the continuation that
+	# keeps the loop going around the mesh is preferred.
+	var score_dir: Vector3
+	if momentum_dir.length_squared() > 0.0001:
+		score_dir = momentum_dir.normalized()
+	elif walk_dir.length_squared() > 0.0001:
+		score_dir = walk_dir.normalized()
+	else:
 		return candidates[0]
 	var vi_pos: Vector3 = mesh.vertices[vi]
-	var walk_norm: Vector3 = walk_dir.normalized()
 	var best_ei: int = candidates[0]
 	var best_dot: float = -2.0
 	for candidate_ei: int in candidates:
@@ -353,7 +379,7 @@ static func _loop_opposite_edge_at_vertex(
 		var other_vi: int = cand_ed.vertex_a if cand_ed.vertex_a != vi else cand_ed.vertex_b
 		var other_pos: Vector3 = mesh.vertices[other_vi]
 		var cand_dir: Vector3 = (other_pos - vi_pos).normalized()
-		var dot: float = cand_dir.dot(walk_norm)
+		var dot: float = cand_dir.dot(score_dir)
 		if dot > best_dot:
 			best_dot = dot
 			best_ei = candidate_ei
