@@ -36,10 +36,14 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
 
-# Quantisation tolerances for Select Similar comparisons.
-const _AREA_TOLERANCE: float = 0.001
-const _LENGTH_TOLERANCE: float = 0.001
-const _DIHEDRAL_TOLERANCE: float = 0.5
+# Select Similar — tolerance thresholds.
+# Area and length use relative tolerance: two values match if their
+# difference is within this fraction of the larger value.
+const _AREA_RELATIVE_TOLERANCE: float = 0.001
+const _LENGTH_RELATIVE_TOLERANCE: float = 0.001
+# Dihedral angle tolerance in degrees.  Two edges match if their
+# dihedral angles differ by less than this threshold.
+const _DIHEDRAL_ANGLE_TOLERANCE: float = 0.5
 # Dot-product threshold for normal similarity.  cos(2.5°) ≈ 0.999,
 # so faces whose normals differ by up to ~2.5° are considered similar.
 const _NORMAL_DOT_THRESHOLD: float = 0.999
@@ -643,11 +647,12 @@ static func similar_faces(
 		return []
 	# Collect reference values from seed faces.
 	# MATERIAL and SIDE_COUNT use exact-match dictionaries for O(1) lookup.
-	# NORMAL and COPLANAR use dot-product thresholds for fuzzy matching,
+	# NORMAL, COPLANAR, and AREA use threshold-based fuzzy matching,
 	# which requires comparing each face against all reference values.
 	var ref_values: Dictionary = {}
 	var ref_normals: Array[Vector3] = []
 	var ref_planes: Array[Vector4] = []  # (nx, ny, nz, d)
+	var ref_areas: Array[float] = []
 	match criterion:
 		FaceSimilarCriterion.MATERIAL:
 			for fi: int in seed_indices:
@@ -667,8 +672,7 @@ static func similar_faces(
 				ref_planes.append(Vector4(n.x, n.y, n.z, d))
 		FaceSimilarCriterion.AREA:
 			for fi: int in seed_indices:
-				var a: float = mesh.compute_face_area(mesh.faces[fi])
-				ref_values[roundf(a * 1000.0) / 1000.0] = true
+				ref_areas.append(mesh.compute_face_area(mesh.faces[fi]))
 	# Scan all faces and collect matches.
 	var result: Array[int] = []
 	for fi: int in mesh.faces.size():
@@ -696,7 +700,11 @@ static func similar_faces(
 						break
 			FaceSimilarCriterion.AREA:
 				var a: float = mesh.compute_face_area(mesh.faces[fi])
-				matches = ref_values.has(roundf(a * 1000.0) / 1000.0)
+				for ref_a: float in ref_areas:
+					var larger: float = maxf(a, ref_a)
+					if larger > 0.0 and absf(a - ref_a) / larger < _AREA_RELATIVE_TOLERANCE:
+						matches = true
+						break
 		if matches:
 			result.append(fi)
 	return result
@@ -712,19 +720,20 @@ static func similar_edges(
 	if seed_indices.is_empty() or mesh.edges.is_empty():
 		return []
 	var ref_values: Dictionary = {}
+	var ref_lengths: Array[float] = []
+	var ref_angles: Array[float] = []
 	match criterion:
 		EdgeSimilarCriterion.LENGTH:
 			for ei: int in seed_indices:
 				var ed: GoBuildEdge = mesh.edges[ei]
 				var length: float = (mesh.vertices[ed.vertex_b] - mesh.vertices[ed.vertex_a]).length()
-				ref_values[roundf(length * 1000.0) / 1000.0] = true
+				ref_lengths.append(length)
 		EdgeSimilarCriterion.FACE_COUNT:
 			for ei: int in seed_indices:
 				ref_values[mesh.edges[ei].face_indices.size()] = true
 		EdgeSimilarCriterion.DIHEDRAL:
 			for ei: int in seed_indices:
-				var angle: float = _compute_dihedral_angle(mesh, ei)
-				ref_values[roundf(angle * 10.0) / 10.0] = true
+				ref_angles.append(_compute_dihedral_angle(mesh, ei))
 	# Scan all edges and collect matches.
 	var result: Array[int] = []
 	for ei: int in mesh.edges.size():
@@ -733,12 +742,19 @@ static func similar_edges(
 			EdgeSimilarCriterion.LENGTH:
 				var ed: GoBuildEdge = mesh.edges[ei]
 				var length: float = (mesh.vertices[ed.vertex_b] - mesh.vertices[ed.vertex_a]).length()
-				matches = ref_values.has(roundf(length * 1000.0) / 1000.0)
+				for ref_l: float in ref_lengths:
+					var larger: float = maxf(length, ref_l)
+					if larger > 0.0 and absf(length - ref_l) / larger < _LENGTH_RELATIVE_TOLERANCE:
+						matches = true
+						break
 			EdgeSimilarCriterion.FACE_COUNT:
 				matches = ref_values.has(mesh.edges[ei].face_indices.size())
 			EdgeSimilarCriterion.DIHEDRAL:
 				var angle: float = _compute_dihedral_angle(mesh, ei)
-				matches = ref_values.has(roundf(angle * 10.0) / 10.0)
+				for ref_a: float in ref_angles:
+					if absf(angle - ref_a) < _DIHEDRAL_ANGLE_TOLERANCE:
+						matches = true
+						break
 		if matches:
 			result.append(ei)
 	return result
