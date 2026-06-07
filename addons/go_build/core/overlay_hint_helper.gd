@@ -83,7 +83,7 @@ static func build_hint(
 					hints.append("Shift: Extrude")
 				elif mode == SelectionManager.Mode.EDGE:
 					hints.append("Shift: Extrude Edge")
-				hints.append("Ctrl: Snap")
+				hints.append("Ctrl+Click: Toggle  Ctrl+Drag: Snap")
 				hints.append("Alt: Vertex Snap")
 				hints.append("Ctrl+=: Grow  Ctrl+-: Shrink")
 				if mode == SelectionManager.Mode.EDGE:
@@ -93,7 +93,7 @@ static func build_hint(
 			SCALE:
 				if mode == SelectionManager.Mode.FACE:
 					hints.append("Shift: Inset")
-				hints.append("Ctrl: Snap")
+				hints.append("Ctrl+Click: Toggle  Ctrl+Drag: Snap")
 				hints.append("Ctrl+=: Grow  Ctrl+-: Shrink")
 				if mode == SelectionManager.Mode.EDGE:
 					hints.append("Alt+Click: Loop  Ctrl+Alt+Click: Ring")
