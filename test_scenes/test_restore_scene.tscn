@@ -954,7 +954,7 @@ _surfaces = [{
 
 [sub_resource type="Resource" id="Resource_ip7l5"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([28, 29, 30, 31])
+vertex_indices = Array[int]([27, 28, 29, 24])
 uvs = Array[Vector2]([Vector2(0, 0), Vector2(0.5201099, 0), Vector2(0.5201099, 1.3623002), Vector2(0, 1.3623002)])
 material_index = 7
 
@@ -965,25 +965,25 @@ uvs = Array[Vector2]([Vector2(0, 0), Vector2(1.1453639, 0), Vector2(1.1453639, 3
 
 [sub_resource type="Resource" id="Resource_ve016"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([19, 38, 39, 12])
+vertex_indices = Array[int]([19, 36, 37, 12])
 uvs = Array[Vector2]([Vector2(1.1453639, 0), Vector2(1.1453639, 1.4532748), Vector2(0, 1.4532748), Vector2(0, 0)])
 material_index = 8
 
 [sub_resource type="Resource" id="Resource_mrhg2"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([13, 34, 35, 18])
+vertex_indices = Array[int]([13, 32, 33, 18])
 uvs = Array[Vector2]([Vector2(1.1453639, 0), Vector2(1.1453639, 1.4532748), Vector2(0, 1.4532748), Vector2(0, 0)])
 material_index = 5
 
 [sub_resource type="Resource" id="Resource_lpa3q"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([5, 36, 37, 7])
+vertex_indices = Array[int]([5, 34, 35, 7])
 uvs = Array[Vector2]([Vector2(0.0035712123, 0), Vector2(0, 1.4532748), Vector2(3.0000002, 1.4532748), Vector2(3.0035713, 0)])
 material_index = 5
 
 [sub_resource type="Resource" id="Resource_ya0q4"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([6, 32, 33, 4])
+vertex_indices = Array[int]([6, 30, 31, 4])
 uvs = Array[Vector2]([Vector2(0, 0), Vector2(0.0035710335, 1.4532748), Vector2(3.0035713, 1.4532748), Vector2(3, 0)])
 material_index = 5
 
@@ -1018,7 +1018,7 @@ uvs = Array[Vector2]([Vector2(0.75660634, 3), Vector2(0, 3), Vector2(0, 0), Vect
 
 [sub_resource type="Resource" id="Resource_d5qyk"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([4, 33, 34, 13])
+vertex_indices = Array[int]([4, 31, 32, 13])
 uvs = Array[Vector2]([Vector2(0.75660634, 0), Vector2(0.75660634, 1.4532748), Vector2(0, 1.4532748), Vector2(0, 0)])
 material_index = 5
 
@@ -1042,7 +1042,7 @@ material_index = 2
 
 [sub_resource type="Resource" id="Resource_sffu3"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([12, 39, 32, 6])
+vertex_indices = Array[int]([12, 37, 30, 6])
 uvs = Array[Vector2]([Vector2(0.75660634, 0), Vector2(0.75660634, 1.4532748), Vector2(0, 1.4532748), Vector2(0, 0)])
 material_index = 5
 
@@ -1053,7 +1053,7 @@ uvs = Array[Vector2]([Vector2(0, 0), Vector2(2.0980296, 0), Vector2(2.0980296, 3
 
 [sub_resource type="Resource" id="Resource_85rfn"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([7, 37, 38, 19])
+vertex_indices = Array[int]([7, 35, 36, 19])
 uvs = Array[Vector2]([Vector2(2.0980296, 0), Vector2(2.0980296, 1.4532748), Vector2(0, 1.4532748), Vector2(0, 0)])
 material_index = 5
 
@@ -1077,7 +1077,7 @@ material_index = 2
 
 [sub_resource type="Resource" id="Resource_7rwp6"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([18, 35, 36, 5])
+vertex_indices = Array[int]([18, 33, 34, 5])
 uvs = Array[Vector2]([Vector2(2.0980296, 0), Vector2(2.0980296, 1.4532748), Vector2(0, 1.4532748), Vector2(0, 0)])
 material_index = 5
 
@@ -1107,79 +1107,79 @@ material_index = 7
 
 [sub_resource type="Resource" id="Resource_u0a3l"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([16, 21, 29, 28])
+vertex_indices = Array[int]([16, 21, 28, 27])
 uvs = Array[Vector2]([Vector2(0, 0), Vector2(0.5201099, 0), Vector2(0.5201099, 0.34975266), Vector2(0, 0.34975266)])
 material_index = 7
 
 [sub_resource type="Resource" id="Resource_n513o"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([21, 22, 30, 29])
+vertex_indices = Array[int]([21, 22, 29, 28])
 uvs = Array[Vector2]([Vector2(1.3623002, 0), Vector2(0, 0), Vector2(0, 0.34975266), Vector2(1.3623002, 0.34975266)])
 material_index = 7
 
 [sub_resource type="Resource" id="Resource_vilf5"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([22, 15, 31, 30])
+vertex_indices = Array[int]([22, 15, 24, 29])
 uvs = Array[Vector2]([Vector2(0, 0), Vector2(0.5201099, 0), Vector2(0.5201099, 0.34975266), Vector2(0, 0.34975266)])
 material_index = 7
 
 [sub_resource type="Resource" id="Resource_it35c"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([15, 16, 28, 31])
+vertex_indices = Array[int]([15, 16, 27, 24])
 uvs = Array[Vector2]([Vector2(1.3623002, 0), Vector2(0, 0), Vector2(0, 0.34975266), Vector2(1.3623002, 0.34975266)])
 material_index = 7
 
 [sub_resource type="Resource" id="Resource_11jdr"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([32, 0, 2, 33])
+vertex_indices = Array[int]([30, 0, 2, 31])
 uvs = Array[Vector2]([Vector2(0, 0), Vector2(0.0013408661, 0.545624), Vector2(3.0013409, 0.545624), Vector2(3.0000002, 0)])
 material_index = 5
 
 [sub_resource type="Resource" id="Resource_qkofb"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([33, 2, 14, 34])
+vertex_indices = Array[int]([31, 2, 14, 32])
 uvs = Array[Vector2]([Vector2(0.75660634, 0), Vector2(0.75660634, 0.545624), Vector2(0, 0.545624), Vector2(0, 0)])
 material_index = 5
 
 [sub_resource type="Resource" id="Resource_o17es"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([34, 14, 23, 35])
+vertex_indices = Array[int]([32, 14, 23, 33])
 uvs = Array[Vector2]([Vector2(1.1453639, 0), Vector2(1.1453639, 0.545624), Vector2(0, 0.545624), Vector2(0, 0)])
 material_index = 5
 
 [sub_resource type="Resource" id="Resource_fbvcg"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([35, 23, 3, 36])
+vertex_indices = Array[int]([33, 23, 3, 34])
 uvs = Array[Vector2]([Vector2(2.0980296, 0), Vector2(2.0980296, 0.545624), Vector2(0, 0.545624), Vector2(0, 0)])
 material_index = 5
 
 [sub_resource type="Resource" id="Resource_veu5q"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([36, 3, 1, 37])
+vertex_indices = Array[int]([34, 3, 1, 35])
 uvs = Array[Vector2]([Vector2(0.0013408065, 0), Vector2(0, 0.545624), Vector2(3, 0.545624), Vector2(3.0013409, 0)])
 material_index = 5
 
 [sub_resource type="Resource" id="Resource_tu0rc"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([37, 1, 20, 38])
+vertex_indices = Array[int]([35, 1, 20, 36])
 uvs = Array[Vector2]([Vector2(2.0980296, 0), Vector2(2.0980296, 0.545624), Vector2(0, 0.545624), Vector2(0, 0)])
 material_index = 5
 
 [sub_resource type="Resource" id="Resource_t5h68"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([38, 20, 17, 39])
+vertex_indices = Array[int]([36, 20, 17, 37])
 uvs = Array[Vector2]([Vector2(1.1453639, 0), Vector2(1.1453639, 0.545624), Vector2(0, 0.545624), Vector2(0, 0)])
 material_index = 5
 
 [sub_resource type="Resource" id="Resource_je57e"]
 script = ExtResource("2_phtbm")
-vertex_indices = Array[int]([39, 17, 0, 32])
+vertex_indices = Array[int]([37, 17, 0, 30])
 uvs = Array[Vector2]([Vector2(0.75660634, 0), Vector2(0.75660634, 0.545624), Vector2(0, 0.545624), Vector2(0, 0)])
 material_index = 5
 
 [sub_resource type="Resource" id="Resource_vls2d"]
 script = ExtResource("2_f08cm")
-vertices = Array[Vector3]([Vector3(-0.5, 1.4988989, 2.495088), Vector3(3.5, 1.4988989, 2.495088), Vector3(-0.5, 1.4988989, -0.504912), Vector3(3.5, 1.4988989, -0.504912), Vector3(-0.5, -0.5, -0.5), Vector3(3.5, -0.5, -0.5), Vector3(-0.5, -0.5, 2.5), Vector3(3.5, -0.5, 2.5), Vector3(0.59179986, 2.498899, 1.6762381), Vector3(2.4082003, 2.498899, 1.6762381), Vector3(2.4082003, 2.498899, 0.3139379), Vector3(0.59179986, 2.498899, 0.3139379), Vector3(0.25660634, -0.5, 2.5), Vector3(0.25660634, -0.5, -0.5), Vector3(0.25660634, 1.4988989, -0.504912), Vector3(0.93537486, 2.498899, 0.3139379), Vector3(0.93537486, 2.498899, 1.6762381), Vector3(0.25660634, 1.4988989, 2.495088), Vector3(1.4019703, -0.5, -0.5), Vector3(1.4019703, -0.5, 2.5), Vector3(1.4019703, 1.4988989, 2.495088), Vector3(1.4554847, 2.498899, 1.6762381), Vector3(1.4554847, 2.498899, 0.3139379), Vector3(1.4019703, 1.4988989, -0.504912), Vector3(0.93537486, 2.8486516, 0.3139379), Vector3(0.59179986, 2.8486516, 0.3139379), Vector3(0.59179986, 2.8486516, 1.6762381), Vector3(0.93537486, 2.8486516, 1.6762381), Vector3(0.93537486, 2.8486516, 1.6762381), Vector3(1.4554847, 2.8486516, 1.6762381), Vector3(1.4554847, 2.8486516, 0.3139379), Vector3(0.93537486, 2.8486516, 0.3139379), Vector3(-0.5, 0.95327485, 2.496429), Vector3(-0.5, 0.95327485, -0.5035712), Vector3(0.25660634, 0.95327485, -0.5035712), Vector3(1.4019703, 0.95327485, -0.5035712), Vector3(3.5, 0.95327485, -0.5035712), Vector3(3.5, 0.95327485, 2.496429), Vector3(1.4019703, 0.95327485, 2.496429), Vector3(0.25660634, 0.95327485, 2.496429)])
+vertices = Array[Vector3]([Vector3(-0.5, 1.4988989, 2.495088), Vector3(3.5, 1.4988989, 2.495088), Vector3(-0.5, 1.4988989, -0.504912), Vector3(3.5, 1.4988989, -0.504912), Vector3(-0.5, -0.5, -0.5), Vector3(3.5, -0.5, -0.5), Vector3(-0.5, -0.5, 2.5), Vector3(3.5, -0.5, 2.5), Vector3(0.59179986, 2.498899, 1.6762381), Vector3(2.4082003, 2.498899, 1.6762381), Vector3(2.4082003, 2.498899, 0.3139379), Vector3(0.59179986, 2.498899, 0.3139379), Vector3(0.25660634, -0.5, 2.5), Vector3(0.25660634, -0.5, -0.5), Vector3(0.25660634, 1.4988989, -0.504912), Vector3(0.93537486, 2.498899, 0.3139379), Vector3(0.93537486, 2.498899, 1.6762381), Vector3(0.25660634, 1.4988989, 2.495088), Vector3(1.4019703, -0.5, -0.5), Vector3(1.4019703, -0.5, 2.5), Vector3(1.4019703, 1.4988989, 2.495088), Vector3(1.4554847, 2.498899, 1.6762381), Vector3(1.4554847, 2.498899, 0.3139379), Vector3(1.4019703, 1.4988989, -0.504912), Vector3(0.93537486, 2.8486516, 0.3139379), Vector3(0.59179986, 2.8486516, 0.3139379), Vector3(0.59179986, 2.8486516, 1.6762381), Vector3(0.93537486, 2.8486516, 1.6762381), Vector3(1.4554847, 2.8486516, 1.6762381), Vector3(1.4554847, 2.8486516, 0.3139379), Vector3(-0.5, 0.95327485, 2.496429), Vector3(-0.5, 0.95327485, -0.5035712), Vector3(0.25660634, 0.95327485, -0.5035712), Vector3(1.4019703, 0.95327485, -0.5035712), Vector3(3.5, 0.95327485, -0.5035712), Vector3(3.5, 0.95327485, 2.496429), Vector3(1.4019703, 0.95327485, 2.496429), Vector3(0.25660634, 0.95327485, 2.496429)])
 faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_ip7l5"), SubResource("Resource_he7vn"), SubResource("Resource_ve016"), SubResource("Resource_mrhg2"), SubResource("Resource_lpa3q"), SubResource("Resource_ya0q4"), SubResource("Resource_8s1eg"), SubResource("Resource_8x574"), SubResource("Resource_sjisu"), SubResource("Resource_am3w1"), SubResource("Resource_oaykq"), SubResource("Resource_d5qyk"), SubResource("Resource_uk0i5"), SubResource("Resource_acstr"), SubResource("Resource_x4smr"), SubResource("Resource_sffu3"), SubResource("Resource_hv3yx"), SubResource("Resource_85rfn"), SubResource("Resource_ej2pc"), SubResource("Resource_1twof"), SubResource("Resource_olxqf"), SubResource("Resource_7rwp6"), SubResource("Resource_ln1kq"), SubResource("Resource_tddfr"), SubResource("Resource_a75l3"), SubResource("Resource_q8bb2"), SubResource("Resource_u0a3l"), SubResource("Resource_n513o"), SubResource("Resource_vilf5"), SubResource("Resource_it35c"), SubResource("Resource_11jdr"), SubResource("Resource_qkofb"), SubResource("Resource_o17es"), SubResource("Resource_fbvcg"), SubResource("Resource_veu5q"), SubResource("Resource_tu0rc"), SubResource("Resource_t5h68"), SubResource("Resource_je57e")])
 material_slots = Array[Material]([ExtResource("8_gr644"), ExtResource("4_wbdyi"), SubResource("StandardMaterial3D_ip7l5"), null, ExtResource("4_wbdyi"), ExtResource("5_gr644"), null, ExtResource("7_vbxf4"), SubResource("StandardMaterial3D_dwmxf")])
 

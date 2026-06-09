@@ -100,10 +100,10 @@ func _ready() -> void:
 	header_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header_row.add_child(header_label)
 	var help_btn := Button.new()
-	help_btn.text = "?"
-	help_btn.tooltip_text = "Show keyboard shortcuts (F1)"
+	help_btn.text = "Help"
+	help_btn.tooltip_text = "Show keyboard shortcuts"
 	help_btn.add_theme_font_size_override("font_size", 11)
-	help_btn.custom_minimum_size = Vector2(24, 0)
+	help_btn.custom_minimum_size = Vector2(40, 0)
 	help_btn.pressed.connect(_on_help_pressed)
 	header_row.add_child(help_btn)
 	add_child(header_row)
