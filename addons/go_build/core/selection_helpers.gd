@@ -43,7 +43,10 @@ const _AREA_RELATIVE_TOLERANCE: float = 0.001
 const _LENGTH_RELATIVE_TOLERANCE: float = 0.001
 # Dihedral angle tolerance in degrees.  Two edges match if their
 # dihedral angles differ by less than this threshold.
-const _DIHEDRAL_ANGLE_TOLERANCE: float = 0.5
+# 3° is generous enough to group edges that are visually the same
+# but differ slightly due to mesh topology (subdivided surfaces,
+# slightly non-planar faces, etc.).
+const _DIHEDRAL_ANGLE_TOLERANCE: float = 3.0
 # Dot-product threshold for normal similarity.  cos(2.5°) ≈ 0.999,
 # so faces whose normals differ by up to ~2.5° are considered similar.
 const _NORMAL_DOT_THRESHOLD: float = 0.999
