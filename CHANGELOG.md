@@ -8,8 +8,62 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
----
+### Added
+- Shape placement at cursor — right-click "Add Shape" submenu in all modes;
+  raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane
+  fallback for miss case; normal-aligned surface placement and align-to-surface toggle
+- Adjacency caches on `GoBuildMesh` — O(1) lookup dicts (`_vertex_to_faces`,
+  `_vertex_to_edges`, `_face_to_edges`, `_edge_lookup`) rebuilt in `rebuild_edges()`;
+  replaces O(n) scans in `faces_of_vertex`, `find_edge`, etc.
+- Selection helpers — `SelectionHelpers` with `grow_vertices/edges/faces`,
+  `shrink_vertices/edges/faces`; wired to Ctrl+=/Ctrl+- keyboard shortcuts and
+  context menu in all sub-element modes
+- Loop/Ring select — `edge_loop` (with momentum disambiguation at multi-candidate
+  vertices), `edge_ring`, `face_loop`, `face_ring`; Alt+LMB (loop),
+  Ctrl+Alt+LMB (ring); context menu "Select Loop/Ring"; Shift adds to selection
+- Face path select — Alt+LMB in Face mode finds the shortest path (BFS) from the
+  last selected face to the clicked face; Shift+Alt adds to selection
+- Select Similar — context menu submenu per mode; Face: material, side count,
+  normal, coplanar, area; Edge: length, face count, dihedral; Vertex: valence;
+  dot-product comparison for normals, relative tolerance for area/length,
+  absolute tolerance for dihedral angles
+- UV texture visibility dropdown, face isolation toggle, and Add Texture button
+  in UV panel; drawer-based panel layout for UV controls
+- Cheatsheet popup — `GoBuildCheatsheetPopup` with balanced 2-column layout;
+  accessible via "Help" button in panel header; Escape to dismiss
 
+### Changed
+- Mode-switch keys (1-4) now handled in global `_input` callback to take priority
+  over Godot's built-in viewport orthographic shortcuts
+- Selected-edge ribbons now face the camera for consistent visual thickness from
+  every viewing angle (no more paper-thin appearance when viewed edge-on)
+- Edge loop disambiguation at multi-candidate vertices now uses momentum (sum of
+  walk direction + previous walk direction) for reliable continuation
+- Overlay hints updated: Face mode shows "Alt+Click: Path" and "Ctrl+Alt+Click:
+  Ring"; Edge mode shows "Alt+Click: Loop" and "Ctrl+Alt+Click: Ring"; all modes
+  show "Ctrl+Click: Toggle" and "Ctrl+Drag: Snap"
+- F1 hotkey removed from cheatsheet (conflicts with Godot's add-child-node)
+
+### Fixed
+- Keys 1-4 for GoBuild mode switching no longer conflict with Godot's orthographic
+  view shortcuts (Top/Front/Side etc.)
+- Vertex and edge pick radii now computed per-element through the node's global
+  transform, correctly handling perspective foreshortening and non-uniform scale;
+  circumscribe multipliers increased for comfortable click targets that are
+  visibly larger than the drawn elements; minimum pick radius floor raised to 10 px
+- `close_requested` signal on cheatsheet popup now uses a lambda instead of
+  `unbind()` which was invalid in GDScript
+- Select Similar: Normal and Coplanar criteria now use dot-product comparison
+  (0.999 threshold ≈ 2.5°) instead of quantised string matching; Area and Length
+  use relative tolerance (0.1%); Dihedral uses absolute angle tolerance (3°)
+- UV general controls split into two rows for narrow panels; tile texture repeat
+  extends symmetrically into negative UV space; repeat value of 0 now valid
+  (single tile, no surrounding ring)
+- Shape placement offset, parenting, and preview positioning bugs fixed
+
+### Tests
+- Adjacency cache unit tests added
+- 11 failing assertions across 6 test suites fixed
 ## [0.6.0] — 2026-05-15
 
 ### Added

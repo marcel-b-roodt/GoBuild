@@ -45,7 +45,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 |---|---|---|
 | `SelectionManager` — mode + element selection state | ✅ Complete | `core/selection_manager.gd`; 28 unit tests |
 | Edit-mode toolbar (Object / Vertex / Edge / Face) | ✅ Complete | Radio buttons in GoBuildPanel; synced via `mode_changed` signal |
-| Keyboard shortcuts 1/2/3/4 (mode switch) | ✅ Complete | `_forward_3d_gui_input` in `plugin.gd` |
+| Keyboard shortcuts 1/2/3/4 (mode switch) | ✅ Complete | Global `_input` in `plugin.gd` — intercepts before Godot's orthographic view shortcuts |
 | Viewport gizmos (`EditorNode3DGizmoPlugin`) | ✅ Complete | `GoBuildGizmoPlugin` + `GoBuildGizmo`; vertex/edge/face overlays with selected/unselected colour coding |
 | Click-picking (select element on click) | ✅ Complete | `PickingHelper` — screen-space vertex/edge + Möller-Trumbore face; Shift=add, Ctrl=toggle; 11 unit tests |
 | Multi-select (box, Shift, Ctrl) | ✅ Complete | Left-drag → rubber-band box select; Shift=additive, Ctrl=toggle; `_forward_3d_draw_over_viewport` fills + outlines rect; `PickingHelper.find_*_in_rect` |
@@ -169,7 +169,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Feature | Status | Notes |
 |---|---|---|
 | Keyboard shortcut map | 📋 Planned | Configurable; Blender-compatible defaults |
-| Cheatsheet popup | ✅ Complete | `GoBuildCheatsheetPopup`; F1 key or panel ? button; organised by category (Mode, Transform, Selection, Modelling, Context Menu, General); key–description rows |
+| Cheatsheet popup | ✅ Complete | `GoBuildCheatsheetPopup`; "Help" button in panel header; balanced 2-column layout; Escape to dismiss |
 | Contextual tooltips | 📋 Planned | Status bar hints |
 | Right-click context menu | ✅ Complete | Quick-actions for selection; per-mode items; Add Shape submenu |
 | Bug report recorder / replay system | 📋 Planned | `GoBuildReplayLogger` records operations (type, parameters, mesh snapshot hash) to JSON; `GoBuildReplayPlayer` replays them for bug reports; design needed before implementation |
