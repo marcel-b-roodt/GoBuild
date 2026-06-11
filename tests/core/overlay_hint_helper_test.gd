@@ -59,7 +59,7 @@ func test_hint_translate_no_modifiers_shows_move() -> void:
 
 func test_hint_translate_no_modifiers_shows_ctrl_snap_hint() -> void:
 	var h := OverlayHintHelper.build_hint(SelectionManager.Mode.VERTEX, T, false, false)
-	assert_str(h).contains("Ctrl: Snap")
+	assert_str(h).contains("Ctrl+Drag: Snap")
 
 
 func test_hint_translate_no_modifiers_face_shows_extrude_hint() -> void:

@@ -80,6 +80,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Tests
 - Adjacency cache unit tests added
 - 11 failing assertions across 6 test suites fixed
+
+---
+
 ## [0.6.0] — 2026-05-15
 
 ### Added

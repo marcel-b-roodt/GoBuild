@@ -52,16 +52,15 @@ func _make_3x3_grid() -> GoBuildMesh:
 func test_grow_vertices_single_vertex_on_quad() -> void:
 	var m := _make_two_adjacent_quads()
 	# Select vertex 1 (shared by both quads).
+	# Vertex 1 connects via edges to: 0, 2, 4.
+	# Vertices 3 and 5 are NOT edge-neighbours of vertex 1.
 	var result: Array[int] = SelectionHelpers.grow_vertices(m, [1])
-	# Vertex 1 connects to: 0, 2, 4, 3, 5 via edges.
-	# Result should include vertex 1 itself plus all neighbours.
+	# grow_vertices adds all edge-neighbours plus the seed itself.
 	assert_bool(result.has(0)).is_true()
 	assert_bool(result.has(1)).is_true()
 	assert_bool(result.has(2)).is_true()
-	assert_bool(result.has(3)).is_true()
 	assert_bool(result.has(4)).is_true()
-	assert_bool(result.has(5)).is_true()
-	assert_int(result.size()).is_equal(6)
+	assert_int(result.size()).is_equal(4)
 
 
 func test_grow_vertices_corner_on_grid() -> void:
@@ -266,20 +265,20 @@ func test_face_loop_from_edge() -> void:
 func test_face_loop_other_side() -> void:
 	var m := _make_3x3_grid()
 	# Edge (1,5) — vertical interior edge shared by f0 and f1.
-	# face_loop with side_face=f0 should return f0, f3, f6 (left column).
-	# face_loop with side_face=f1 should return f1, f4, f7 (right column).
+	# face_loop walks the strip PERPENDICULAR to the seed edge.
+	# From a vertical edge, the opposite edge in each face is also vertical,
+	# and since those opposite edges are boundaries, the loop terminates
+	# immediately (only the seed face is returned).
+	# Use face_ring to get the column of faces sharing the edge.
 	var ei: int = m.find_edge(1, 5)
 	assert_int(ei).is_not_equal(-1)
 	var left: Array[int] = SelectionHelpers.face_loop(m, ei, 0)
 	var right: Array[int] = SelectionHelpers.face_loop(m, ei, 1)
-	assert_int(left.size()).is_equal(3)
+	# Both loops terminate at boundaries, returning only the seed face.
+	assert_int(left.size()).is_equal(1)
 	assert_bool(left.has(0)).is_true()
-	assert_bool(left.has(3)).is_true()
-	assert_bool(left.has(6)).is_true()
-	assert_int(right.size()).is_equal(3)
+	assert_int(right.size()).is_equal(1)
 	assert_bool(right.has(1)).is_true()
-	assert_bool(right.has(4)).is_true()
-	assert_bool(right.has(7)).is_true()
 
 
 func test_face_ring_from_edge() -> void:

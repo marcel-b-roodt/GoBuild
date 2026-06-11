@@ -236,8 +236,10 @@ static func shrink_edges(mesh: GoBuildMesh, indices: Array[int]) -> Array[int]:
 	return result
 
 
-## Remove faces from [param indices] that have at least one edge shared with an
-## unselected face (i.e., keep only interior faces of the selection).
+## Remove faces from [param indices] that have at least one edge on the boundary
+## of the selection (i.e., an edge that either borders an unselected face or is a
+## mesh boundary edge with only one adjacent face).  Keeps only interior faces
+## whose every edge is shared with another selected face.
 static func shrink_faces(mesh: GoBuildMesh, indices: Array[int]) -> Array[int]:
 	if indices.is_empty() or mesh.edges.is_empty():
 		return []
@@ -246,19 +248,25 @@ static func shrink_faces(mesh: GoBuildMesh, indices: Array[int]) -> Array[int]:
 		selected_set[fi] = true
 	var result: Array[int] = []
 	for fi: int in indices:
-		var all_selected: bool = true
+		var all_shared_and_selected: bool = true
 		var edge_indices: Array = mesh._face_to_edges[fi] as Array
 		if edge_indices == null:
 			continue
 		for ei: int in edge_indices:
 			var ed: GoBuildEdge = mesh.edges[ei]
+			# A face survives only if every edge is shared with another
+			# selected face.  Boundary edges (single adjacent face) mean
+			# the face is on the mesh boundary and should be removed.
+			if ed.face_indices.size() < 2:
+				all_shared_and_selected = false
+				break
 			for adj_fi: int in ed.face_indices:
 				if not selected_set.has(adj_fi):
-					all_selected = false
+					all_shared_and_selected = false
 					break
-			if not all_selected:
+			if not all_shared_and_selected:
 				break
-		if all_selected:
+		if all_shared_and_selected:
 			result.append(fi)
 	return result
 
