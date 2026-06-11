@@ -310,11 +310,56 @@ func _notification(what: int) -> void:
 ## (MOUSE_MODE_CAPTURED), the viewport stops forwarding events through
 ## _forward_3d_gui_input, so the plugin intercepts them globally and delegates
 ## to [method SelectionInputController.handle_global_input].
+##
+## Mode-switch keys (1-4) and grow/shrink (Ctrl+=/Ctrl+-) must also be handled
+## here because Godot's built-in viewport shortcuts (1-6 for orthographic views)
+## consume these keys before [method _forward_3d_gui_input] is called.  The global
+## _input callback runs first, letting us intercept and mark them handled.
 func _input(event: InputEvent) -> void:
 	if _input_controller == null:
 		return
 	if _input_controller.handle_global_input(event):
 		get_viewport().set_input_as_handled()
+		return
+	if not (event is InputEventKey):
+		return
+	var key := event as InputEventKey
+	if key.echo or not key.pressed:
+		return
+	if _handle_mode_switch_in_global(key):
+		get_viewport().set_input_as_handled()
+
+
+## Handle mode-switch shortcuts (1-4) and grow/shrink (Ctrl+=/Ctrl+-) in the
+## global _input callback so they take priority over Godot's built-in viewport
+## shortcuts.  Returns [code]true[/code] if the event was consumed.
+func _handle_mode_switch_in_global(key: InputEventKey) -> bool:
+	if _edited_node == null:
+		return false
+	# Grow/Shrink: Ctrl+= / Ctrl+- (only in sub-element modes).
+	if key.ctrl_pressed and _panel != null \
+			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+		match key.keycode:
+			KEY_EQUAL, KEY_PLUS, KEY_KP_ADD:
+				_panel.trigger_grow()
+				return true
+			KEY_MINUS, KEY_KP_SUBTRACT:
+				_panel.trigger_shrink()
+				return true
+	# Mode-switch keys (1-4).
+	if _shortcut_object.matches_event(key):
+		switch_mode(SelectionManager.Mode.OBJECT)
+		return true
+	if _shortcut_vertex.matches_event(key):
+		switch_mode(SelectionManager.Mode.VERTEX)
+		return true
+	if _shortcut_edge.matches_event(key):
+		switch_mode(SelectionManager.Mode.EDGE)
+		return true
+	if _shortcut_face.matches_event(key):
+		switch_mode(SelectionManager.Mode.FACE)
+		return true
+	return false
 
 
 func _on_editor_focus_regained() -> void:
@@ -500,32 +545,13 @@ func _handle_keyboard(event: InputEvent) -> int:
 
 
 func _handle_keyboard_shortcut(key: InputEventKey) -> int:
-	# Grow/Shrink: Ctrl+= or Ctrl+Keypad+ / Ctrl+- or Ctrl+Keypad-
-	if key.ctrl_pressed and _edited_node != null and _panel != null \
-			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
-		match key.keycode:
-			KEY_EQUAL, KEY_PLUS, KEY_KP_ADD:
-				_panel.trigger_grow()
-				return 1
-			KEY_MINUS, KEY_KP_SUBTRACT:
-				_panel.trigger_shrink()
-				return 1
-	# Transform-mode keys and delete are handled inline; mode-switch shortcuts
-	# go through the shared _set_mode / switch_mode path below.
+	# Mode-switch (1-4) and grow/shrink (Ctrl+=/Ctrl+-) are handled in
+	# _handle_mode_switch_in_global via _input so they take priority over
+	# Godot's built-in viewport orthographic shortcuts (1-6).
 	var handled: int = _handle_action_key(key.keycode)
 	if handled != -1:
 		return handled
-	if _shortcut_object.matches_event(key):
-		switch_mode(SelectionManager.Mode.OBJECT)
-	elif _shortcut_vertex.matches_event(key):
-		switch_mode(SelectionManager.Mode.VERTEX)
-	elif _shortcut_edge.matches_event(key):
-		switch_mode(SelectionManager.Mode.EDGE)
-	elif _shortcut_face.matches_event(key):
-		switch_mode(SelectionManager.Mode.FACE)
-	else:
-		return 0
-	return 1
+	return 0
 
 
 ## Handle single-key action shortcuts (W/E/R transform modes, Delete/X, M, F).
@@ -582,23 +608,6 @@ func _handle_bridge_key() -> int:
 
 
 ## Intercept = / + in sub-element modes; triggers Grow Selection.
-func _handle_grow_key() -> int:
-	if _edited_node != null and _panel != null \
-			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
-		_panel.trigger_grow()
-		return 1
-	return 0
-
-
-## Intercept - in sub-element modes; triggers Shrink Selection.
-func _handle_shrink_key() -> int:
-	if _edited_node != null and _panel != null \
-			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
-		_panel.trigger_shrink()
-		return 1
-	return 0
-
-
 func _set_transform_mode(mode: GoBuildGizmoPlugin.TransformMode) -> int:
 	if _gizmo_plugin == null:
 		return 0

@@ -167,8 +167,19 @@ func _redraw() -> void:
 		SelectionManager.Mode.EDGE:
 			var edge_norm: Material = plugin.mat_edge_normal_depth \
 					if not plugin.xray_mode else plugin.mat_edge_normal
+			# Camera forward in local space so the selected-edge ribbon faces the viewer.
+			var cam_fwd_local: Vector3 = Vector3.BACK
+			var cam: Camera3D = plugin.call("get_editor_camera")
+			if cam != null:
+				# Camera looks along -Z in Godot; the forward vector is -basis.z.
+				var cam_fwd_world: Vector3 = -cam.global_basis.z
+				cam_fwd_local = (node.global_transform.affine_inverse().basis) * cam_fwd_world
+				if cam_fwd_local.length_squared() < 1e-9:
+					cam_fwd_local = Vector3.BACK
+				else:
+					cam_fwd_local = cam_fwd_local.normalized()
 			_draw_edges(gbm, sel, edge_norm, plugin.mat_edge_selected,
-					plugin.get("mat_edge_selected_ribbon"), gizmo_s)
+					plugin.get("mat_edge_selected_ribbon"), gizmo_s, cam_fwd_local)
 
 		SelectionManager.Mode.FACE:
 			var edge_mat: Material = plugin.mat_edge_context_depth \
@@ -208,15 +219,17 @@ func _draw_context_edges(gbm: GoBuildMesh, mat: Material) -> void:
 ## Draw all edges, colouring selected ones as orange flat-ribbon quads and
 ## unselected ones as near-black lines.
 ##
-## Selected edges are rendered as flat screen-axis-aligned quads (two triangles
-## per edge) with width [code]VERTEX_CUBE_HALF * 0.8 * scale[/code].  This gives
-## a visually thicker appearance because Godot 4 / Vulkan does not support
-## line-width > 1 px via [method EditorNode3DGizmo.add_lines].
+## Selected edges are rendered as camera-facing flat quads (two triangles
+## per edge) with width [code]VERTEX_CUBE_HALF * 0.8 * scale[/code].  The
+## ribbon faces the camera so it appears consistently thick from every viewing
+## angle, rather than paper-thin when viewed edge-on.
 ##
 ## [param mat_selected_ribbon] — solid orange mesh material for selected edge quads.
 ## When [code]null[/code] (should not happen in practice) falls back to
 ## [param mat_selected] via add_lines.
 ## [param scale] — gizmo scale from [method GoBuildGizmoPlugin.compute_world_gizmo_scale].
+## [param cam_forward] — camera forward direction in local space, used to orient
+## the selected-edge ribbon towards the viewer.
 func _draw_edges(
 		gbm: GoBuildMesh,
 		sel: SelectionManager,
@@ -224,6 +237,7 @@ func _draw_edges(
 		mat_selected: Material,
 		mat_selected_ribbon: Variant = null,
 		scale: float = 1.0,
+		cam_forward: Vector3 = Vector3.FORWARD,
 ) -> void:
 	var lines_normal        := PackedVector3Array()
 	var lines_selected_fb   := PackedVector3Array()  # fallback: ribbon mat unavailable
@@ -237,7 +251,7 @@ func _draw_edges(
 		var vb: Vector3 = gbm.vertices[edge.vertex_b]
 		if sel.is_edge_selected(idx):
 			if use_ribbon:
-				ribbon_verts.append_array(_edge_ribbon_tris(va, vb, hw))
+				ribbon_verts.append_array(_edge_ribbon_tris(va, vb, hw, cam_forward))
 			else:
 				lines_selected_fb.append(va)
 				lines_selected_fb.append(vb)
@@ -292,22 +306,45 @@ func _solid_cube_tris_at(pos: Vector3, half: float) -> PackedVector3Array:
 ## Build 6 triangle vertices (2 triangles) forming a flat quad ribbon along
 ## [param va]→[param vb] with world-space half-width [param hw].
 ##
-## The ribbon lies in the plane spanned by the edge direction and an up vector
-## ([constant Vector3.UP], or [constant Vector3.RIGHT] when the edge is nearly
-## vertical).  It is double-sided via [code]mat_edge_selected_ribbon[/code] so
-## it remains visible from either face.
+## The ribbon faces the camera by choosing its perpendicular as the cross product
+## of the edge direction and [param cam_forward] (the camera's view direction in
+## local space).  This makes the ribbon appear consistently thick from every
+## viewing angle — never paper-thin when viewed edge-on.
+##
+## Falls back to [constant Vector3.UP] (or [constant Vector3.RIGHT] for vertical
+## edges) when no camera forward is available.
 ##
 ## Returns an empty array when the edge is degenerate (zero length).
-func _edge_ribbon_tris(va: Vector3, vb: Vector3, hw: float) -> PackedVector3Array:
+func _edge_ribbon_tris(
+		va: Vector3,
+		vb: Vector3,
+		hw: float,
+		cam_forward: Vector3 = Vector3.FORWARD,
+) -> PackedVector3Array:
 	var d: Vector3 = vb - va
 	if d.length_squared() < 1e-9:
 		return PackedVector3Array()
 	d = d.normalized()
-	# Choose a stable perpendicular: prefer UP, fall back to RIGHT when edge is vertical.
-	var up: Vector3 = Vector3.UP
-	if abs(d.dot(up)) > 0.9:
-		up = Vector3.RIGHT
-	var perp: Vector3 = d.cross(up).normalized() * hw
+	# Choose perpendicular that faces the camera: cross(edge, cam_forward).
+	# This makes the ribbon always face the viewer.
+	var perp: Vector3
+	if cam_forward.length_squared() > 1e-6:
+		perp = d.cross(cam_forward.normalized())
+		if perp.length_squared() < 1e-9:
+			# Edge is parallel to camera forward — fall back to UP.
+			var up: Vector3 = Vector3.UP
+			if abs(d.dot(up)) > 0.9:
+				up = Vector3.RIGHT
+			perp = d.cross(up).normalized()
+		else:
+			perp = perp.normalized()
+	else:
+		# No camera info — fall back to world UP / RIGHT.
+		var up: Vector3 = Vector3.UP
+		if abs(d.dot(up)) > 0.9:
+			up = Vector3.RIGHT
+		perp = d.cross(up).normalized()
+	perp = perp * hw
 	return PackedVector3Array([
 		va + perp, va - perp, vb + perp,
 		va - perp, vb - perp, vb + perp,
