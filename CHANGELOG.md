@@ -15,7 +15,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - Shape placement at cursor — right-click "Add Shape" submenu in all modes;
   raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane
-  fallback for miss case; normal-aligned surface placement and align-to-surface toggle
+  fallback for miss case; normal-aligned surface placement and align-to-surface
+  toggle in the General drawer
+- World-grid snap mode for gizmo drags — Ctrl+drag on any translate/rotate/scale
+  handle now snaps to the editor grid step; axis-aware flush offset and normal
+  clamping for placement operations
 - Adjacency caches on `GoBuildMesh` — O(1) lookup dicts (`_vertex_to_faces`,
   `_vertex_to_edges`, `_face_to_edges`, `_edge_lookup`) rebuilt in `rebuild_edges()`;
   replaces O(n) scans in `faces_of_vertex`, `find_edge`, etc.
@@ -31,10 +35,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   normal, coplanar, area; Edge: length, face count, dihedral; Vertex: valence;
   dot-product comparison for normals, relative tolerance for area/length,
   absolute tolerance for dihedral angles
-- UV texture visibility dropdown, face isolation toggle, and Add Texture button
-  in UV panel; drawer-based panel layout for UV controls
+- UV texture visibility dropdown — per-material texture backgrounds in the UV
+  canvas; auto-switches on face selection
+- UV face isolation toggle — show only selected faces in UV canvas, hiding all
+  others to reduce visual noise during alignment
+- UV vertex drag and snap — per-UV-vertex selection and drag in the UV canvas;
+  grid snap during UV editing
+- Add Texture button in UV panel and via face context menu — file picker assigns
+  a texture to selected faces, creating or reusing a `StandardMaterial3D`
+- UV drawer-based panel layout — collapsible drawers for UV controls that fit
+  narrow dock widths
 - Cheatsheet popup — `GoBuildCheatsheetPopup` with balanced 2-column layout;
   accessible via "Help" button in panel header; Escape to dismiss
+- Ctrl+Click toggle select — clicking with Ctrl held toggles element selection
+  (add if absent, remove if present); overlay hints show the modifier
 
 ### Changed
 - Mode-switch keys (1-4) now handled in global `_input` callback to take priority
