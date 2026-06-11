@@ -10,8 +10,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.7.0] — 2026-06-11
-
 ### Added
 - Shape placement at cursor — right-click "Add Shape" submenu in all modes;
   raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane
