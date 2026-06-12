@@ -10,6 +10,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.1] — 2026-06-12
+
+---
+
 ### Added
 - World/Local transform space toggle — "Space: Local/World" dropdown in the
   toolbar switches gizmo handles between object-aligned (Local) and
