@@ -11,6 +11,10 @@ extends EditorNode3DGizmoPlugin
 ## Declared before all const to satisfy gdlint class-definitions-order (enum < const).
 enum TransformMode { TRANSLATE = 0, ROTATE = 1, SCALE = 2 }
 
+## Transform coordinate space — controls whether gizmo handles follow the
+## object's local rotation (LOCAL) or stay aligned to world axes (WORLD).
+enum TransformSpace { LOCAL = 0, WORLD = 1 }
+
 # Self-preloads (dependency order):
 # go_build_gizmo.gd transitively loads the mesh types; explicit preloads here
 # make this file self-sufficient per the self-preload rule.
@@ -141,6 +145,11 @@ var xray_mode: bool = true
 ## Active transform mode.  Defaults to TRANSLATE on plugin load.
 ## Written by plugin.gd when W/E/R is pressed; read by GoBuildGizmo via Object.get().
 var transform_mode: TransformMode = TransformMode.TRANSLATE
+
+## Current transform coordinate space (LOCAL or WORLD).
+## When LOCAL, gizmo handles follow the object's rotation.
+## When WORLD, handles stay aligned to world X/Y/Z axes.
+var transform_space: TransformSpace = TransformSpace.LOCAL
 
 ## Cached unit-scale cone meshes — built once in [method setup] and reused by
 ## every [GoBuildGizmo._redraw] call via [method EditorNode3DGizmo.add_mesh]
@@ -431,13 +440,20 @@ func get_transform_handle_world_positions(node: GoBuildMeshInstance) -> Array[Ve
 	var arr: float = ARROW_LENGTH * s
 	var ring: float = ROT_RING_RADIUS * s
 
+	var inv_basis: Basis = Basis()
+	if transform_space == TransformSpace.WORLD:
+		inv_basis = gt.basis.inverse()
+	var axis_x := inv_basis * Vector3.RIGHT
+	var axis_y := inv_basis * Vector3.UP
+	var axis_z := inv_basis * Vector3.BACK
+
 	var result: Array[Vector3] = [
-		gt * (lc + Vector3(arr,  0.0,  0.0)),          # translate X tip
-		gt * (lc + Vector3(0.0,  arr,  0.0)),          # translate Y tip
-		gt * (lc + Vector3(0.0,  0.0,  arr)),          # translate Z tip
-		gt * (lc + Vector3.UP    * ring),               # rotate X ring dot
-		gt * (lc + Vector3.BACK  * ring),               # rotate Y ring dot
-		gt * (lc + Vector3.RIGHT * ring),               # rotate Z ring dot
+		gt * (lc + axis_x * arr),                # translate X tip
+		gt * (lc + axis_y * arr),                # translate Y tip
+		gt * (lc + axis_z * arr),                # translate Z tip
+		gt * (lc + axis_y * ring),               # rotate X ring dot
+		gt * (lc + axis_z * ring),               # rotate Y ring dot
+		gt * (lc + axis_x * ring),               # rotate Z ring dot
 	]
 	return result
 

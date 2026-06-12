@@ -704,7 +704,8 @@ func _begin_inset_drag(
 			centroids_out,
 			0.0,
 			true,
-			preview_mode)
+			preview_mode,
+			_gizmo_plugin.transform_space)
 	if op == null:
 		edited_node.restore_and_bake(pre_snap)
 		return false
@@ -839,11 +840,14 @@ func _find_translate_handle(
 	var s: float        = _gizmo_plugin.compute_world_gizmo_scale(gt * lc)
 	var cone_h: float   = GoBuildGizmoPlugin.CONE_HEIGHT * s
 	var local_axes: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
+	var use_basis: Basis = gt.basis
+	if _gizmo_plugin.transform_space == GoBuildGizmoPlugin.TransformSpace.WORLD:
+		use_basis = Basis()
 	for i: int in 3:
 		var apex_world: Vector3 = positions[i]
 		if not camera.is_position_in_frustum(apex_world):
 			continue
-		var world_axis: Vector3 = (gt.basis * local_axes[i]).normalized()
+		var world_axis: Vector3 = (use_basis * local_axes[i]).normalized()
 		var base_world: Vector3 = apex_world - world_axis * cone_h
 		if PickingHelper.point_to_segment_dist(
 				click_pos,
@@ -862,22 +866,22 @@ func _find_plane_handle(
 	var gt: Transform3D = edited_node.global_transform
 	var lc: Vector3 = _gizmo_plugin.get_selection_local_centroid(edited_node)
 	var inner: float = GoBuildGizmoPlugin.PLANE_INNER_OFFSET * s
+	var inv_basis: Basis = Basis()
+	if _gizmo_plugin.transform_space == GoBuildGizmoPlugin.TransformSpace.WORLD:
+		inv_basis = gt.basis.inverse()
+	var axis_x := inv_basis * Vector3.RIGHT
+	var axis_y := inv_basis * Vector3.UP
+	var axis_z := inv_basis * Vector3.BACK
 	var local_centers: Array[Vector3] = [
-		lc + Vector3(inner, inner, 0.0),
-		lc + Vector3(0.0,  inner, inner),
-		lc + Vector3(inner, 0.0,  inner),
+		lc + (axis_x + axis_y) * inner,
+		lc + (axis_y + axis_z) * inner,
+		lc + (axis_x + axis_z) * inner,
 	]
-	# Per-plane axis offset (local space) used to project the visual edge to
-	# screen for a resolution-independent pick radius. Each vector points
-	# along one axis that lies within the corresponding plane:
-	#   i=0  XY plane → X axis
-	#   i=1  YZ plane → Y axis
-	#   i=2  XZ plane → X axis
 	var half: float = GoBuildGizmoPlugin.PLANE_HALF * s
 	var plane_edge_offsets: Array[Vector3] = [
-		Vector3(half, 0.0,  0.0),
-		Vector3(0.0,  half, 0.0),
-		Vector3(half, 0.0,  0.0),
+		axis_x * half,
+		axis_y * half,
+		axis_x * half,
 	]
 	for i: int in 3:
 		var world_pos: Vector3 = gt * local_centers[i]
@@ -939,11 +943,14 @@ func _find_rotate_handle(
 	var ray_dir: Vector3    = camera.project_ray_normal(click_pos)
 
 	var local_normals: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
+	var use_basis: Basis = gt.basis
+	if _gizmo_plugin.transform_space == GoBuildGizmoPlugin.TransformSpace.WORLD:
+		use_basis = Basis()
 	var best_id:  int   = -1
 	var best_err: float = tol
 
 	for i: int in 3:
-		var world_normal: Vector3 = (gt.basis * local_normals[i]).normalized()
+		var world_normal: Vector3 = (use_basis * local_normals[i]).normalized()
 		var hit: Vector3 = GoBuildTransformHelpers.ray_plane_intersect(
 				ray_origin, ray_dir, world_centroid, world_normal)
 		if hit == Vector3.INF:
@@ -1514,7 +1521,8 @@ func _start_normal_gizmo_drag(
 			{},  # no inset centroids
 			0.0,  # no inset offset
 			vertex_update_mode,
-			preview_mode)
+			preview_mode,
+			_gizmo_plugin.transform_space)
 	if op == null:
 		return false
 	_drag_controller.begin(op, false)
@@ -1554,7 +1562,8 @@ func _start_gizmo_drag_with_verts(
 			{},  # no inset centroids
 			0.0,  # no inset offset
 			true,  # vertex_update_mode
-			preview_mode)
+			preview_mode,
+			_gizmo_plugin.transform_space)
 	if op == null:
 		return false
 	_drag_controller.begin(op, false)

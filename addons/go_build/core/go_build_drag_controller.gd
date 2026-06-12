@@ -397,7 +397,7 @@ func _compute_frame_result(
 		snap_enabled: bool,
 		snap_step: float,
 ) -> GoBuildDeltaStrategy.StrategyResult:
-	var world_axis: Vector3 = (node_xform.basis * op.world_axis).normalized()
+	var world_axis: Vector3 = op.world_axis.normalized()
 
 	# Raw accumulators always grow by the un-snapped per-frame delta.
 	# Snap is applied to a copy for display/mutation — never overwriting the
@@ -446,9 +446,16 @@ func _compute_frame_result(
 			return total_result
 
 		GoBuildDragOperation.DeltaMode.ROTATE:
+			var rot_world_axis: Vector3
+			if op.transform_space == 1:  # WORLD
+				rot_world_axis = _TRANSFORM_HELPERS_SCRIPT.get_local_axis(
+						op.axis_index)
+			else:
+				rot_world_axis = (node_xform.basis * _TRANSFORM_HELPERS_SCRIPT \
+						.get_local_axis(op.axis_index)).normalized()
 			frame_result = GoBuildDeltaStrategy.rotate_frame(
 					frame_delta, camera, world_centroid,
-					(node_xform.basis * _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)).normalized(),
+					rot_world_axis,
 					precision_mult)
 			_raw_angle += frame_result.float_value
 			var result_val: float = _raw_angle
@@ -545,13 +552,23 @@ func _apply_strategy_result(
 			op._gizmo_cumulative_translate = result.vec_value
 		GoBuildDragOperation.DeltaMode.ROTATE:
 			if mutate:
-				var local_axis: Vector3 = _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)
+				var local_axis: Vector3
+				if op.transform_space == 1:  # WORLD
+					var inv_basis: Basis = op.node.global_transform.basis.inverse()
+					local_axis = (inv_basis * _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)).normalized()
+				else:
+					local_axis = _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)
 				_apply_vertex_rotate(node, op, local_axis, op.drag_centroid, result.float_value)
 			op._gizmo_cumulative_angle = result.float_value
 		GoBuildDragOperation.DeltaMode.SCALE_AXIS:
 			if mutate:
-				_apply_vertex_scale_axis(op, _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index),
-						result.float_value)
+				var local_axis: Vector3
+				if op.transform_space == 1:  # WORLD
+					var inv_basis: Basis = op.node.global_transform.basis.inverse()
+					local_axis = (inv_basis * _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)).normalized()
+				else:
+					local_axis = _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)
+				_apply_vertex_scale_axis(op, local_axis, result.float_value)
 			op._gizmo_cumulative_scale = result.float_value
 		GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
 			if mutate:
@@ -777,7 +794,7 @@ func _compute_initial_world_size(op: GoBuildDragOperation) -> void:
 	var axis: Vector3
 	match op.delta_mode:
 		GoBuildDragOperation.DeltaMode.SCALE_AXIS:
-			axis = op.world_axis.normalized()
+			axis = _TRANSFORM_HELPERS_SCRIPT.get_local_axis(op.axis_index)
 		GoBuildDragOperation.DeltaMode.SCALE_UNIFORM:
 			axis = Vector3.ONE.normalized()
 		_:

@@ -66,6 +66,9 @@ const _SCALE_SNAP_DEFAULT_IDX: int = 0   # 0.1
 ## Snap mode labels shown in the toolbar dropdown.
 const _SNAP_MODE_LABELS: Array[String] = ["World Grid", "Delta Grid"]
 
+## Transform space labels shown in the toolbar dropdown.
+const _TRANSFORM_SPACE_LABELS: Array[String] = ["Local", "World"]
+
 var _panel: GoBuildPanel                         = null
 var _panel_scroll: ScrollContainer               = null
 var _uv_panel: GoBuildUvPanel                    = null
@@ -79,6 +82,7 @@ var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
 var _scale_snap_btn: OptionButton                = null
 var _snap_mode_btn: OptionButton                 = null
+var _transform_space_btn: OptionButton           = null
 ## Keeps the native Physical/V tool mode pinned whenever in a sub-element mode.
 var _tool_pinner: Node3DEditorToolPinner         = null
 ## True when GoBuild is in a sub-element mode (Vertex/Edge/Face).
@@ -161,6 +165,20 @@ func _build_toolbar() -> void:
 	_toolbar = HBoxContainer.new()
 	_toolbar.add_child(VSeparator.new())
 
+	var space_lbl := Label.new()
+	space_lbl.text = "Space:"
+	_toolbar.add_child(space_lbl)
+
+	_transform_space_btn = OptionButton.new()
+	_transform_space_btn.flat = true
+	for label: String in _TRANSFORM_SPACE_LABELS:
+		_transform_space_btn.add_item(label)
+	_transform_space_btn.select(GoBuildGizmoPlugin.TransformSpace.LOCAL)
+	_transform_space_btn.item_selected.connect(_on_transform_space_selected)
+	_toolbar.add_child(_transform_space_btn)
+
+	_toolbar.add_child(VSeparator.new())
+
 	var lbl := Label.new()
 	lbl.text = "Snap:"
 	_toolbar.add_child(lbl)
@@ -229,6 +247,7 @@ func _exit_tree() -> void:
 		_rot_snap_btn = null
 		_scale_snap_btn = null
 		_snap_mode_btn = null
+		_transform_space_btn = null
 
 	if _panel:
 		remove_control_from_docks(_panel_scroll)
@@ -937,6 +956,14 @@ func _on_snap_mode_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
 	_gizmo_plugin.snap_mode_override = index
+
+
+func _on_transform_space_selected(index: int) -> void:
+	if _gizmo_plugin == null:
+		return
+	_gizmo_plugin.transform_space = index
+	if _edited_node:
+		_edited_node.update_gizmos()
 
 
 func _on_mode_changed(mode: SelectionManager.Mode) -> void:

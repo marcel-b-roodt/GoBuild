@@ -513,25 +513,35 @@ func _compute_selection_centroid(gbm: GoBuildMesh, sel: SelectionManager) -> Vec
 ## with [GoBuildGizmoPlugin].
 func _draw_transform_handles(centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin) -> void:
 	var tmode: int = int(plugin.get("transform_mode"))
+	var tspace: int = int(plugin.get("transform_space"))
+	var world_basis: Basis = Basis()
+	if tspace == 1 and get_node_3d() != null:
+		world_basis = get_node_3d().global_transform.basis.inverse()
 	if tmode == 1:   # GoBuildGizmoPlugin.TransformMode.ROTATE
-		_draw_rotate_rings(centroid, s, plugin)
+		_draw_rotate_rings(centroid, s, plugin, world_basis)
 		return
 	if tmode == 2:   # GoBuildGizmoPlugin.TransformMode.SCALE
-		_draw_scale_handles(centroid, s, plugin)
+		_draw_scale_handles(centroid, s, plugin, world_basis)
 		return
 	# TRANSLATE (default = 0)
-	_draw_translate_handles(centroid, s, plugin)
-	_draw_plane_handles(centroid, s, plugin)
+	_draw_translate_handles(centroid, s, plugin, world_basis)
+	_draw_plane_handles(centroid, s, plugin, world_basis)
 	_draw_viewport_plane_handle(centroid, s, plugin)
 
 
 ## Draw the 3-axis translate arrow widget (shafts + cone arrowheads + billboard dots).
 ## Extracted from the old [method _draw_transform_handles] to allow mode dispatch.
-func _draw_translate_handles(centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin) -> void:
+func _draw_translate_handles(
+		centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin,
+		world_basis: Basis = Basis(),
+) -> void:
 	var arr: float = ARROW_LENGTH * s
-	var tip_x := centroid + Vector3(arr, 0.0, 0.0)
-	var tip_y := centroid + Vector3(0.0, arr, 0.0)
-	var tip_z := centroid + Vector3(0.0, 0.0, arr)
+	var axis_x := world_basis * Vector3.RIGHT
+	var axis_y := world_basis * Vector3.UP
+	var axis_z := world_basis * Vector3.BACK
+	var tip_x := centroid + axis_x * arr
+	var tip_y := centroid + axis_y * arr
+	var tip_z := centroid + axis_z * arr
 
 	# Resolve hover state.
 	var hov: int        = int(plugin.get("_hovered_handle_id"))
@@ -550,15 +560,22 @@ func _draw_translate_handles(centroid: Vector3, s: float, plugin: EditorNode3DGi
 	# ── Cone arrowheads ───────────────────────────────────────────────────────
 	var basis_s := Basis().scaled(Vector3.ONE * s)
 	var off: float = (ARROW_LENGTH - CONE_HEIGHT) * s
+	var cone_basis_x := basis_s
+	var cone_basis_y := basis_s
+	var cone_basis_z := basis_s
+	if not world_basis.is_equal_approx(Basis()):
+		cone_basis_x = world_basis * basis_s
+		cone_basis_y = world_basis * basis_s
+		cone_basis_z = world_basis * basis_s
 	add_mesh(plugin.get("cone_mesh_x"),
 			hover_cone if hov == AXIS_HANDLE_OFFSET + 0 else plugin.get("mat_cone_x"),
-			Transform3D(basis_s, centroid + Vector3(off, 0.0, 0.0)))
+			Transform3D(cone_basis_x, centroid + axis_x * off))
 	add_mesh(plugin.get("cone_mesh_y"),
 			hover_cone if hov == AXIS_HANDLE_OFFSET + 1 else plugin.get("mat_cone_y"),
-			Transform3D(basis_s, centroid + Vector3(0.0, off, 0.0)))
+			Transform3D(cone_basis_y, centroid + axis_y * off))
 	add_mesh(plugin.get("cone_mesh_z"),
 			hover_cone if hov == AXIS_HANDLE_OFFSET + 2 else plugin.get("mat_cone_z"),
-			Transform3D(basis_s, centroid + Vector3(0.0, 0.0, off)))
+			Transform3D(cone_basis_z, centroid + axis_z * off))
 
 	# ── Billboard handle dots at each tip ─────────────────────────────────────
 	add_handles(PackedVector3Array([tip_x]),
@@ -578,35 +595,43 @@ func _draw_translate_handles(centroid: Vector3, s: float, plugin: EditorNode3DGi
 ## and has a half-size of [code]PLANE_HALF * s[/code].  Colour matches the
 ## excluded-axis convention (XY=blue/Z, YZ=red/X, XZ=green/Y).
 ## A billboard handle dot is registered at each centre for picking.
-func _draw_plane_handles(centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin) -> void:
+func _draw_plane_handles(
+		centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin,
+		world_basis: Basis = Basis(),
+) -> void:
 	var inner: float  = PLANE_INNER_OFFSET * s
 	var hov: int      = int(plugin.get("_hovered_handle_id"))
 	var hover_mat     = plugin.get("mat_handle_hover_cone")
 	var basis_s       = Basis().scaled(Vector3.ONE * PLANE_HALF * s)
+	var axis_x := world_basis * Vector3.RIGHT
+	var axis_y := world_basis * Vector3.UP
+	var axis_z := world_basis * Vector3.BACK
+
+	var plane_basis: Basis = world_basis * basis_s
 
 	# XY plane (normal=Z, colour=blue): square in XY at (inner, inner, 0)
-	var cxy := centroid + Vector3(inner, inner, 0.0)
+	var cxy := centroid + (axis_x + axis_y) * inner
 	add_mesh(plugin.get("plane_quad_mesh_xy"),
 			hover_mat if hov == PLANE_HANDLE_OFFSET + 0 else plugin.get("mat_plane_z"),
-			Transform3D(basis_s, cxy))
+			Transform3D(plane_basis, cxy))
 	add_handles(PackedVector3Array([cxy]),
 			hover_mat if hov == PLANE_HANDLE_OFFSET + 0 else plugin.get("mat_axis_z"),
 			PackedInt32Array([PLANE_HANDLE_OFFSET + 0]), true)
 
 	# YZ plane (normal=X, colour=red): square in YZ at (0, inner, inner)
-	var cyz := centroid + Vector3(0.0, inner, inner)
+	var cyz := centroid + (axis_y + axis_z) * inner
 	add_mesh(plugin.get("plane_quad_mesh_yz"),
 			hover_mat if hov == PLANE_HANDLE_OFFSET + 1 else plugin.get("mat_plane_x"),
-			Transform3D(basis_s, cyz))
+			Transform3D(plane_basis, cyz))
 	add_handles(PackedVector3Array([cyz]),
 			hover_mat if hov == PLANE_HANDLE_OFFSET + 1 else plugin.get("mat_axis_x"),
 			PackedInt32Array([PLANE_HANDLE_OFFSET + 1]), true)
 
 	# XZ plane (normal=Y, colour=green): square in XZ at (inner, 0, inner)
-	var cxz := centroid + Vector3(inner, 0.0, inner)
+	var cxz := centroid + (axis_x + axis_z) * inner
 	add_mesh(plugin.get("plane_quad_mesh_xz"),
 			hover_mat if hov == PLANE_HANDLE_OFFSET + 2 else plugin.get("mat_plane_y"),
-			Transform3D(basis_s, cxz))
+			Transform3D(plane_basis, cxz))
 	add_handles(PackedVector3Array([cxz]),
 			hover_mat if hov == PLANE_HANDLE_OFFSET + 2 else plugin.get("mat_axis_y"),
 			PackedInt32Array([PLANE_HANDLE_OFFSET + 2]), true)
@@ -630,11 +655,17 @@ func _draw_viewport_plane_handle(
 
 
 ## Draw the 3-axis scale widget: axis shafts + solid cube tips.
-func _draw_scale_handles(centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin) -> void:
+func _draw_scale_handles(
+		centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin,
+		world_basis: Basis = Basis(),
+) -> void:
 	var arr: float = ARROW_LENGTH * s
-	var tip_x := centroid + Vector3(arr, 0.0, 0.0)
-	var tip_y := centroid + Vector3(0.0, arr, 0.0)
-	var tip_z := centroid + Vector3(0.0, 0.0, arr)
+	var axis_x := world_basis * Vector3.RIGHT
+	var axis_y := world_basis * Vector3.UP
+	var axis_z := world_basis * Vector3.BACK
+	var tip_x := centroid + axis_x * arr
+	var tip_y := centroid + axis_y * arr
+	var tip_z := centroid + axis_z * arr
 
 	var hov: int        = int(plugin.get("_hovered_handle_id"))
 	var hover_line      = plugin.get("mat_handle_hover_line")
@@ -649,17 +680,18 @@ func _draw_scale_handles(centroid: Vector3, s: float, plugin: EditorNode3DGizmoP
 	add_lines(PackedVector3Array([centroid, tip_z]),
 			hover_line if hov == SCALE_HANDLE_OFFSET + 2 else plugin.get("mat_axis_line_z"))
 
-	# Scale cube tips — small axis-aligned solid cubes at the shaft ends.
+	# Scale cube tips — small solid cubes at the shaft ends.
 	var basis_s = Basis().scaled(Vector3.ONE * SCALE_CUBE_HALF * s)
+	var scale_basis: Basis = world_basis * basis_s
 	add_mesh(plugin.get("scale_cube_mesh"),
 			hover_cube if hov == SCALE_HANDLE_OFFSET + 0 else plugin.get("mat_cone_x"),
-			Transform3D(basis_s, tip_x))
+			Transform3D(scale_basis, tip_x))
 	add_mesh(plugin.get("scale_cube_mesh"),
 			hover_cube if hov == SCALE_HANDLE_OFFSET + 1 else plugin.get("mat_cone_y"),
-			Transform3D(basis_s, tip_y))
+			Transform3D(scale_basis, tip_y))
 	add_mesh(plugin.get("scale_cube_mesh"),
 			hover_cube if hov == SCALE_HANDLE_OFFSET + 2 else plugin.get("mat_cone_z"),
-			Transform3D(basis_s, tip_z))
+			Transform3D(scale_basis, tip_z))
 
 	# Billboard handle dots for picking
 	add_handles(PackedVector3Array([tip_x]),
@@ -693,24 +725,31 @@ func _draw_scale_handles(centroid: Vector3, s: float, plugin: EditorNode3DGizmoP
 ## - X ring (YZ plane): handle dot at [code]centroid + UP * radius[/code]
 ## - Y ring (XZ plane): handle dot at [code]centroid + BACK * radius[/code]
 ## - Z ring (XY plane): handle dot at [code]centroid + RIGHT * radius[/code]
-func _draw_rotate_rings(centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin) -> void:
+func _draw_rotate_rings(
+		centroid: Vector3, s: float, plugin: EditorNode3DGizmoPlugin,
+		world_basis: Basis = Basis(),
+) -> void:
 	var ring_r: float = ROT_RING_RADIUS * s
 	var hov: int      = int(plugin.get("_hovered_handle_id"))
 	var hover_line    = plugin.get("mat_handle_hover_line")
 	var hover_dot     = plugin.get("mat_handle_hover_dot")
 
+	var up := world_basis * Vector3.UP
+	var back := world_basis * Vector3.BACK
+	var right := world_basis * Vector3.RIGHT
+
 	# X-axis rotation ring — in the YZ plane (tangent=UP, bitangent=BACK).
-	_draw_rotate_ring(centroid, Vector3.UP, Vector3.BACK, ring_r,
+	_draw_rotate_ring(centroid, up, back, ring_r,
 			hover_line if hov == ROT_HANDLE_OFFSET + 0 else plugin.get("mat_axis_line_x"),
 			ROT_HANDLE_OFFSET + 0,
 			hover_dot  if hov == ROT_HANDLE_OFFSET + 0 else plugin.get("mat_axis_x"))
 	# Y-axis rotation ring — in the XZ plane (tangent=BACK, bitangent=RIGHT).
-	_draw_rotate_ring(centroid, Vector3.BACK, Vector3.RIGHT, ring_r,
+	_draw_rotate_ring(centroid, back, right, ring_r,
 			hover_line if hov == ROT_HANDLE_OFFSET + 1 else plugin.get("mat_axis_line_y"),
 			ROT_HANDLE_OFFSET + 1,
 			hover_dot  if hov == ROT_HANDLE_OFFSET + 1 else plugin.get("mat_axis_y"))
 	# Z-axis rotation ring — in the XY plane (tangent=RIGHT, bitangent=UP).
-	_draw_rotate_ring(centroid, Vector3.RIGHT, Vector3.UP, ring_r,
+	_draw_rotate_ring(centroid, right, up, ring_r,
 			hover_line if hov == ROT_HANDLE_OFFSET + 2 else plugin.get("mat_axis_line_z"),
 			ROT_HANDLE_OFFSET + 2,
 			hover_dot  if hov == ROT_HANDLE_OFFSET + 2 else plugin.get("mat_axis_z"))

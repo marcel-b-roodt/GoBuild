@@ -68,6 +68,11 @@ var plane_index: int = 0
 var rotation_axis: Vector3 = Vector3.UP
 var world_axis: Vector3 = Vector3.ZERO
 
+## Transform coordinate space used for this drag (0 = LOCAL, 1 = WORLD).
+## Set by [method create_for_gizmo_handle] from the gizmo plugin's
+## [member GoBuildGizmoPlugin.transform_space].
+var transform_space: int = 0
+
 var inset_centroids: Dictionary = {}
 
 var preview_mode: bool = false
@@ -124,6 +129,8 @@ static func action_name_for_handle(handle_id: int) -> String:
 ## [param inset_offset] is the accumulated inset offset before drag start.
 ## [param vertex_update_mode] enables the fast vertex-only bake path.
 ## [param preview_mode] enables bake_preview instead of full bake during drag.
+## [param transform_space] selects LOCAL (object-aligned) or WORLD (global axes)
+## orientation for the drag.  When WORLD, axes use identity basis.
 static func create_for_gizmo_handle(
 		node: GoBuildMeshInstance,
 		handle_id: int,
@@ -138,6 +145,7 @@ static func create_for_gizmo_handle(
 		inset_offset: float,
 		vertex_update_mode: bool,
 		preview_mode: bool,
+		transform_space: int = 0,
 ) -> GoBuildDragOperation:
 	if initial_verts.is_empty() or node == null:
 		return null
@@ -153,8 +161,12 @@ static func create_for_gizmo_handle(
 	op._gizmo_inset_offset = inset_offset
 	op.snap_step = snap_step_default
 	op.snap_mode = snap_mode
+	op.transform_space = transform_space
 
 	var local_axes: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
+	var use_basis: Basis = node.global_transform.basis
+	if transform_space == 1:  # TransformSpace.WORLD
+		use_basis = Basis()
 	if handle_id >= UNIFORM_SCALE_HANDLE_ID:
 		op.delta_mode = DeltaMode.SCALE_UNIFORM
 	elif handle_id >= VIEW_PLANE_HANDLE_ID:
@@ -163,19 +175,19 @@ static func create_for_gizmo_handle(
 		var plane_idx: int = handle_id - PLANE_HANDLE_OFFSET
 		op.delta_mode = DeltaMode.PLANE_PROJECT
 		var plane_normals: Array[Vector3] = [Vector3.BACK, Vector3.RIGHT, Vector3.UP]
-		op.world_axis = (node.global_transform.basis * plane_normals[plane_idx]).normalized()
+		op.world_axis = (use_basis * plane_normals[plane_idx]).normalized()
 		op.plane_index = plane_idx
 	elif handle_id >= SCALE_HANDLE_OFFSET:
 		var axis_idx: int = handle_id - SCALE_HANDLE_OFFSET
 		op.delta_mode = DeltaMode.SCALE_AXIS
-		op.world_axis = (node.global_transform.basis * local_axes[axis_idx]).normalized()
+		op.world_axis = (use_basis * local_axes[axis_idx]).normalized()
 		op.axis_index = axis_idx
 		op.snap_step = snap_step_scale
 	elif handle_id >= ROT_HANDLE_OFFSET:
 		var axis_idx: int = handle_id - ROT_HANDLE_OFFSET
 		op.delta_mode = DeltaMode.ROTATE
 		var local_axis: Vector3 = local_axes[axis_idx]
-		op.world_axis = (node.global_transform.basis * local_axis).normalized()
+		op.world_axis = (use_basis * local_axis).normalized()
 		op.axis_index = axis_idx
 		op.snap_step = snap_step_rotate
 	elif not inset_centroids.is_empty():
@@ -184,7 +196,7 @@ static func create_for_gizmo_handle(
 	else:
 		var axis_idx: int = handle_id - AXIS_HANDLE_OFFSET
 		op.delta_mode = DeltaMode.AXIS_PROJECT
-		op.world_axis = (node.global_transform.basis * local_axes[axis_idx]).normalized()
+		op.world_axis = (use_basis * local_axes[axis_idx]).normalized()
 		op.axis_index = axis_idx
 
 	op.drag_centroid = _compute_centroid_from_verts(initial_verts)
