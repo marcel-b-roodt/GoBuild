@@ -11,6 +11,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ---
 
 ### Added
+- World/Local transform space toggle — "Space: Local/World" dropdown in the
+  toolbar switches gizmo handles between object-aligned (Local) and
+  world-aligned (World) orientation; all drag modes (translate, rotate,
+  scale, plane, viewport-plane) respect the selected space
+- Transform helpers unit tests — 18 pure-math tests covering
+  `get_local_axis`, `ray_plane_intersect`, basis transform orthogonality,
+  and double-transform regression guard
+
+### Fixed
+- Gizmo drags on rotated child meshes now move along the displayed gizmo
+  axes instead of world-space axes — removed double-basis-transform bug in
+  `GoBuildDragController._compute_frame_result()` where `op.world_axis`
+  (already in world space) was re-transformed through the node's basis
+- `_compute_initial_world_size` for scale handles now uses the local-space
+  axis instead of the world-space axis for projecting local vertex
+  positions, fixing incorrect scale sensitivity on rotated meshes
+
+---
+
+### Added
 - Shape placement at cursor — right-click "Add Shape" submenu in all modes;
   raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane
   fallback for miss case; normal-aligned surface placement and align-to-surface
