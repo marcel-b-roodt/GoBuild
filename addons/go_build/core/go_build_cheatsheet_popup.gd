@@ -119,7 +119,7 @@ static func _get_sections() -> Array[Dictionary]:
 			{key = "LMB Drag", desc = "Box select"},
 			{key = "Ctrl + =", desc = "Grow selection"},
 			{key = "Ctrl + -", desc = "Shrink selection"},
-		{key = "Alt + Click (Edge)", desc = "Select Loop / Path to edge"},
+		{key = "Alt + Click (Edge)", desc = "Cycle Loop / Path to edge"},
 		{key = "Alt + Click (Face)", desc = "Select Path to face"},
 			{key = "Ctrl+Alt + Click", desc = "Select Ring"},
 		]
