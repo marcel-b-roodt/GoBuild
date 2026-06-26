@@ -216,13 +216,66 @@ func test_edge_loop_on_grid_horizontal() -> void:
 func test_edge_loop_on_grid_boundary() -> void:
 	var m := _make_3x3_grid()
 	# Top edge of the grid — a boundary edge.
+	# With boundary loop fallback, this should walk all the top boundary edges.
 	var ei: int = m.find_edge(3, 7)
 	assert_int(ei).is_not_equal(-1)
 	var result: Array[int] = SelectionHelpers.edge_loop(m, ei)
-	# Boundary edges only have one face, so the loop walks one direction.
-	# Should return at least 1 edge (the seed itself).
-	assert_int(result.size()).is_greater_equal(1)
+	# Boundary loop fallback walks connected boundary edges.
+	# Top boundary: (3,7), (7,11), (11,15) — but also wraps around.
+	assert_int(result.size()).is_greater_equal(3)
 	assert_bool(result.has(ei)).is_true()
+
+
+func test_edge_loop_boundary_on_cube() -> void:
+	# On a cube, a boundary edge (1 face) should trigger the boundary loop
+	# fallback, selecting all edges around that face.
+	var m: GoBuildMesh = CubeGenerator.generate(2.0, 2.0, 2.0, 0)
+	m.rebuild_edges()
+	# Find a boundary edge (1 face) on the front face.
+	var boundary_ei: int = -1
+	for i: int in m.edges.size():
+		if m.edges[i].face_indices.size() == 1:
+			boundary_ei = i
+			break
+	assert_int(boundary_ei).is_not_equal(-1)
+	var result: Array[int] = SelectionHelpers.edge_loop(m, boundary_ei)
+	# Cube has 12 boundary edges total, 4 per face.
+	# A boundary loop starting from any boundary edge should select
+	# at least the 4 edges around that face.
+	assert_int(result.size()).is_greater_equal(4)
+	assert_bool(result.has(boundary_ei)).is_true()
+
+
+func test_edge_loop_interior_on_grid() -> void:
+	# Interior edge (2 faces) on a grid — standard topology loop should work.
+	var m := _make_3x3_grid()
+	var ei: int = m.find_edge(1, 5)
+	assert_int(ei).is_not_equal(-1)
+	var result: Array[int] = SelectionHelpers.edge_loop(m, ei)
+	# Interior edge in a grid — topology loop walks the column.
+	assert_int(result.size()).is_equal(3)
+	assert_bool(result.has(ei)).is_true()
+
+
+func test_edge_loop_boundary_on_staircase() -> void:
+	# Staircase has many boundary edges.  A boundary edge on a tread should
+	# trigger boundary loop fallback and walk around the tread's boundary.
+	var m: GoBuildMesh = StaircaseGenerator.generate(4, 1.0, 0.25, 0.3)
+	m.rebuild_edges()
+	# Find a boundary edge on the first tread (normal +Y).
+	var boundary_ei: int = -1
+	for i: int in m.edges.size():
+		var ed: GoBuildEdge = m.edges[i]
+		if ed.face_indices.size() == 1:
+			# Check if this boundary edge belongs to face 0 (first tread)
+			if ed.face_indices.has(0):
+				boundary_ei = i
+				break
+	assert_int(boundary_ei).is_not_equal(-1)
+	var result: Array[int] = SelectionHelpers.edge_loop(m, boundary_ei)
+	# Should walk around the tread's boundary (4 edges per tread).
+	assert_int(result.size()).is_greater_equal(4)
+	assert_bool(result.has(boundary_ei)).is_true()
 
 
 func test_edge_returns_empty_for_invalid_index() -> void:

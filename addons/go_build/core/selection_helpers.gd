@@ -448,6 +448,23 @@ static func shrink_faces(mesh: GoBuildMesh, indices: Array[int]) -> Array[int]:
 static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 	if mesh.edges.is_empty() or seed_edge < 0 or seed_edge >= mesh.edges.size():
 		return []
+	# First, try the standard quad-topology loop (opposite-edge walk).
+	var topo_result: Array[int] = _topology_edge_loop(mesh, seed_edge)
+	if topo_result.size() > 1:
+		return topo_result
+	# Topology loop returned only the seed — the quad walk couldn't continue.
+	# If the seed is a boundary edge (1 face), fall back to a boundary loop
+	# that walks connected boundary edges in both directions.
+	var seed_ed: GoBuildEdge = mesh.edges[seed_edge]
+	if seed_ed.face_indices.size() == 1:
+		return _boundary_edge_loop(mesh, seed_edge)
+	# Interior edge with no topology continuation — just the seed.
+	return topo_result
+
+
+## Quad-topology edge loop: walks "opposite edge at vertex" through
+## valence-4 interior vertices.  Terminates at corners, poles, and boundaries.
+static func _topology_edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 	var result: Array[int] = []
 	var visited: Dictionary = {}
 	var seed_ed: GoBuildEdge = mesh.edges[seed_edge]
@@ -457,10 +474,6 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 		var start_vi: int = seed_ed.vertex_a if direction == 0 else seed_ed.vertex_b
 		var end_vi: int = seed_ed.vertex_b if direction == 0 else seed_ed.vertex_a
 		var walk_dir: Vector3 = mesh.vertices[end_vi] - mesh.vertices[start_vi]
-		# At the first step, momentum equals walk_dir (no previous edge to
-		# provide direction history).  After each step, momentum is the sum
-		# of the previous edge direction and current walk direction, smoothed
-		# through 90-degree corners.
 		var momentum_dir: Vector3 = walk_dir
 		var next_ei: int = _loop_opposite_edge_at_vertex(mesh, seed_edge, end_vi, walk_dir, momentum_dir)
 		if next_ei == -1 or visited.has(next_ei):
@@ -480,15 +493,9 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 					else cur_ed.vertex_b
 			var continue_vi: int = cur_ed.vertex_b if arrive_vi == cur_ed.vertex_a else cur_ed.vertex_a
 			walk_dir = mesh.vertices[continue_vi] - mesh.vertices[arrive_vi]
-			# Compute prev edge direction for momentum.  The previous edge
-			# points from its far end (opposite of arrive_vi) to arrive_vi.
 			var prev_far_vi: int = prev_ed.vertex_a \
 					if prev_ed.vertex_a != arrive_vi else prev_ed.vertex_b
 			var prev_dir: Vector3 = (mesh.vertices[arrive_vi] - mesh.vertices[prev_far_vi])
-			# Momentum = sum of walk_dir and prev_dir, normalised.
-			# At straight vertices this equals walk_dir.  At 90-degree
-			# corners it bisects the turn, preferring the continuation that
-			# keeps the loop going around the mesh rather than branching off.
 			momentum_dir = (walk_dir + prev_dir)
 			if momentum_dir.length_squared() < 0.0001:
 				momentum_dir = walk_dir
@@ -496,6 +503,65 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 					mesh, cur_ei, continue_vi, walk_dir, momentum_dir)
 			prev_ei = cur_ei
 			cur_ei = opp_ei
+	return result
+
+
+## Boundary edge loop: walks connected boundary edges (edges with exactly
+## 1 adjacent face) from [param seed_edge] in both directions.
+##
+## At each vertex, picks the next boundary edge that is most aligned with
+## the current walk direction.  This produces a continuous loop around
+## mesh boundaries, 90° corners, and shapes where the quad-topology loop
+## would terminate.
+static func _boundary_edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
+	var result: Array[int] = []
+	var visited: Dictionary = {}
+	var seed_ed: GoBuildEdge = mesh.edges[seed_edge]
+	result.append(seed_edge)
+	visited[seed_edge] = true
+	for direction: int in 2:
+		var start_vi: int = seed_ed.vertex_a if direction == 0 else seed_ed.vertex_b
+		var end_vi: int = seed_ed.vertex_b if direction == 0 else seed_ed.vertex_a
+		var walk_dir: Vector3 = mesh.vertices[end_vi] - mesh.vertices[start_vi]
+		var cur_ei: int = seed_edge
+		var cur_vi: int = end_vi
+		while true:
+			# Find all boundary edges at cur_vi (excluding cur_ei).
+			var candidates: Array[int] = []
+			var vertex_edges: Array = mesh.edges_of_vertex(cur_vi)
+			for cand_ei: int in vertex_edges:
+				if cand_ei == cur_ei:
+					continue
+				if mesh.edges[cand_ei].face_indices.size() == 1:
+					candidates.append(cand_ei)
+			# Pick the boundary edge most aligned with walk direction.
+			var best_ei: int = -1
+			var best_dot: float = -2.0
+			var cur_pos: Vector3 = mesh.vertices[cur_vi]
+			for cand_ei: int in candidates:
+				if visited.has(cand_ei):
+					continue
+				var cand_ed: GoBuildEdge = mesh.edges[cand_ei]
+				var other_vi: int = cand_ed.vertex_a \
+						if cand_ed.vertex_a != cur_vi else cand_ed.vertex_b
+				var cand_dir: Vector3 = (mesh.vertices[other_vi] - cur_pos).normalized()
+				var dot: float = cand_dir.dot(walk_dir.normalized())
+				if dot > best_dot:
+					best_dot = dot
+					best_ei = cand_ei
+			if best_ei == -1:
+				break
+			visited[best_ei] = true
+			if direction == 0:
+				result.append(best_ei)
+			else:
+				result.insert(0, best_ei)
+			var best_ed: GoBuildEdge = mesh.edges[best_ei]
+			var next_vi: int = best_ed.vertex_a \
+					if best_ed.vertex_a != cur_vi else best_ed.vertex_b
+			walk_dir = mesh.vertices[next_vi] - cur_pos
+			cur_ei = best_ei
+			cur_vi = next_vi
 	return result
 
 
