@@ -196,4 +196,3 @@ func test_staircase_all_uvs_in_unit_range() -> void:
 
 func test_staircase_bake_returns_one_surface() -> void:
 	assert_int(StaircaseGenerator.generate().bake().get_surface_count()).is_equal(1)
-

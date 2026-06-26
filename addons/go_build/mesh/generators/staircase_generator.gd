@@ -111,4 +111,3 @@ static func generate(
 
 	WeldOperation.apply_weld_by_threshold(mesh)
 	return mesh
-

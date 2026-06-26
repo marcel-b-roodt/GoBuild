@@ -175,6 +175,88 @@ static func preview_param_specs(shape_name: String) -> Array[Dictionary]:
 			return []
 
 
+## Default values for non-drawable (structural) parameters only.
+## Size/radius params are excluded — those are determined by the interactive
+## draw flow.  Used by [GoBuildShapeDrawController] to seed the extra-params
+## dictionary.
+static func default_non_drawable_params(shape_name: String) -> Dictionary:
+	match shape_name:
+		"Cube":
+			return {"subdivisions": 0}
+		"Plane":
+			return {"subdivisions_x": 0, "subdivisions_z": 0}
+		"Cylinder":
+			return {"sides": 16, "cap_top": true, "cap_bottom": true}
+		"Sphere":
+			return {"rings": 8, "segments": 16}
+		"Cone":
+			return {"sides": 16, "cap_bottom": true}
+		"Torus":
+			return {"rings": 24, "tube_segments": 12}
+		"Staircase":
+			return {"steps": 4}
+		"Arch":
+			return {"angle_degrees": 180.0, "segments": 8, "thickness": 0.2}
+		_:
+			return {}
+
+
+## Parameter schema for non-drawable (structural) params only.
+## These are the controls shown in the compact panel strip during draw.
+## Size/radius params are excluded — they are drawn in the viewport.
+static func non_drawable_param_specs(shape_name: String) -> Array[Dictionary]:
+	match shape_name:
+		"Cube":
+			return [
+				{"type": "int", "key": "subdivisions", "label": "Subdivs", "min": 0, "max": 256, "step": 1},
+			]
+		"Plane":
+			return [
+				{"type": "int", "key": "subdivisions_x", "label": "Sub X", "min": 0, "max": 256, "step": 1},
+				{"type": "int", "key": "subdivisions_z", "label": "Sub Z", "min": 0, "max": 256, "step": 1},
+			]
+		"Cylinder":
+			return [
+				{"type": "int", "key": "sides", "label": "Sides", "min": 3, "max": 256, "step": 1},
+				{"type": "bool", "key": "cap_top", "label": "Cap Top"},
+				{"type": "bool", "key": "cap_bottom", "label": "Cap Bottom"},
+			]
+		"Sphere":
+			return [
+				{"type": "int", "key": "rings", "label": "Rings", "min": 2, "max": 256, "step": 1},
+				{"type": "int", "key": "segments", "label": "Segments", "min": 3, "max": 512, "step": 1},
+			]
+		"Cone":
+			return [
+				{"type": "int", "key": "sides", "label": "Sides", "min": 3, "max": 256, "step": 1},
+				{"type": "bool", "key": "cap_bottom", "label": "Cap Bottom"},
+			]
+		"Torus":
+			return [
+				{"type": "int", "key": "rings", "label": "Rings", "min": 3, "max": 256, "step": 1},
+				{"type": "int", "key": "tube_segments", "label": "Tube Segs", "min": 3, "max": 256, "step": 1},
+			]
+		"Staircase":
+			return [
+				{"type": "int", "key": "steps", "label": "Steps", "min": 1, "max": 256, "step": 1},
+			]
+		"Arch":
+			return [
+				{
+					"type": "float", "key": "angle_degrees",
+					"label": "Angle", "min": 1.0, "max": 360.0, "step": 1.0,
+				},
+				{"type": "int", "key": "segments", "label": "Segments",
+					"min": 1, "max": 256, "step": 1},
+				{
+					"type": "float", "key": "thickness",
+					"label": "Thickness", "min": 0.01, "max": 99.0, "step": 0.01,
+				},
+			]
+		_:
+			return []
+
+
 static func normalise_params(shape_name: String, raw_params: Dictionary) -> Dictionary:
 	var p: Dictionary = raw_params.duplicate(true)
 	match shape_name:
