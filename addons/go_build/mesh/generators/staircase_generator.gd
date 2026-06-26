@@ -3,27 +3,20 @@
 ## Steps are built along the +Z axis and rise along +Y. The staircase starts
 ## at the origin (bottom-front corner) and extends in +Z / +Y.
 ## Produces a closed solid: treads, risers, left/right side wall grid cells,
-## bottom, and back.
+## bottom strips, and back strips.
 ##
-## Side walls are decomposed into a grid of quads aligned with step boundaries
-## so that every side wall edge aligns with tread/riser boundaries and
-## adjacent cells share complete edges. Cell [code](r, c)[/code] where
-## [code]c >= r[/code] covers y=[code]r*sh[/code]..[code](r+1)*sh[/code],
-## z=[code]c*sd[/code]..[code](c+1)*sd[/code].
-##
-## Bottom and back are single quads. Their edges along the staircase profile
-## will have T-junctions with the side wall cells; this is intentional —
-## these faces are flat and need no subdivision for rendering.
+## Side walls, bottom, and back are all subdivided to align with step
+## boundaries so that edges are shared (no duplicate T-junction edges).
 ##
 ## Face order:
 ##   [code]0 .. steps-1[/code]                          tread[i]       (normal +Y)
 ##   [code]steps .. 2*steps-1[/code]                     riser[i]       (normal -Z)
 ##   [code]2*steps .. 2*steps+n*(n+1)/2-1[/code]         left cell      (normal -X)
 ##   [code]2*steps+n*(n+1)/2 .. 2*steps+n*(n+1)-1[/code] right cell     (normal +X)
-##   [code]2*steps+n*(n+1)[/code]                       bottom          (normal -Y)
-##   [code]2*steps+n*(n+1)+1[/code]                     back            (normal +Z)
+##   [code]2*steps+n*(n+1) .. 3*steps+n*(n+1)-1[/code]   bottom strip   (normal -Y)
+##   [code]3*steps+n*(n+1) .. 4*steps+n*(n+1)-1[/code]   back strip     (normal +Z)
 ##
-## Total face count: [code]2*steps + steps*(steps+1) + 2[/code]
+## Total face count: [code]4*steps + steps*(steps+1)[/code]
 class_name StaircaseGenerator
 extends RefCounted
 
@@ -106,17 +99,27 @@ static func generate(
 				Vector3(hw, y1, z0), Vector3(hw, y1, z1),
 				1, 1, material_index)
 
-	# ── Bottom face (normal -Y) ───────────────────────────────────────────
-	MeshGeneratorUtils.add_quad_grid(mesh,
-		Vector3( hw, 0.0, 0.0), Vector3(-hw, 0.0, 0.0),
-		Vector3(-hw, 0.0, total_depth), Vector3( hw, 0.0, total_depth),
-		1, 1, material_index)
+	# ── Bottom strips (normal -Y) ──────────────────────────────────────────
+	# One strip per step column so edges align with side wall cells.
+	# Strip i: y=0, z from i*sd to (i+1)*sd, full width.
+	for i in range(steps):
+		var z0: float = float(i)     * step_depth
+		var z1: float = float(i + 1) * step_depth
+		MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3( hw, 0.0, z0), Vector3(-hw, 0.0, z0),
+			Vector3(-hw, 0.0, z1), Vector3( hw, 0.0, z1),
+			1, 1, material_index)
 
-	# ── Back face (normal +Z) ─────────────────────────────────────────────
-	MeshGeneratorUtils.add_quad_grid(mesh,
-		Vector3(-hw, 0.0,          total_depth), Vector3( hw, 0.0,          total_depth),
-		Vector3( hw, total_height, total_depth), Vector3(-hw, total_height, total_depth),
-		1, 1, material_index)
+	# ── Back strips (normal +Z) ───────────────────────────────────────────
+	# One strip per step row so edges align with side wall cells.
+	# Strip i: z=total_depth, y from i*sh to (i+1)*sh, full width.
+	for i in range(steps):
+		var y0: float = float(i)     * step_height
+		var y1: float = float(i + 1) * step_height
+		MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3(-hw, y0, total_depth), Vector3( hw, y0, total_depth),
+			Vector3( hw, y1, total_depth), Vector3(-hw, y1, total_depth),
+			1, 1, material_index)
 
 	WeldOperation.apply_weld_by_threshold(mesh)
 	return mesh
