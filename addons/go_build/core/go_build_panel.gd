@@ -399,7 +399,15 @@ func trigger_select_loop() -> void:
 			var edges: Array[int] = sel.get_selected_edges()
 			if edges.is_empty():
 				return
-			sel.set_selected_edges(SelectionHelpers.edge_loop(mesh, edges[0]))
+			if edges.size() >= 2:
+				var start: int = edges[edges.size() - 2]
+				var end: int = edges[edges.size() - 1]
+				var result: Array[int] = SelectionHelpers.edge_path(mesh, start, end)
+				if result.is_empty():
+					return
+				sel.set_selected_edges(result)
+			else:
+				sel.set_selected_edges(SelectionHelpers.edge_loop(mesh, edges[0]))
 		SelectionManager.Mode.FACE:
 			var faces: Array[int] = sel.get_selected_faces()
 			if faces.size() < 2:

@@ -56,14 +56,93 @@ const _COPLANAR_DIST_THRESHOLD: float = 0.01
 
 
 # ---------------------------------------------------------------------------
-# Face path (shortest path between two faces)
+# Weighted pathfinding (shared Dijkstra core)
 # ---------------------------------------------------------------------------
 
-## Find the shortest path of face indices from [param face_a] to [param face_b].
+## Normal-deviation penalty weight.  When two adjacent faces differ in
+## normal direction, the cost to traverse between them increases.
+## A value of 1.0 means a 90° normal deviation adds the same cost as
+## a 1-unit-long edge.  Higher values make paths stick to coplanar surfaces.
+const _NORMAL_DEVIATION_WEIGHT: float = 2.0
+
+## Generic Dijkstra shortest-path over an element graph.
 ##
-## Two faces are adjacent if they share an edge.  Uses BFS to find the
-## shortest path through the face adjacency graph.  The result includes
-## both [param face_a] and [param face_b].
+## [param start] is the start element index.
+## [param goal] is the goal element index.
+## [param neighbors_fn] returns an [Array[int]] of neighbour element indices
+## for a given element index.
+## [param cost_fn] returns the traversal cost from element [param from_idx] to
+## [param to_idx].  Must be non-negative.
+##
+## Returns an [Array[int]] path from [param start] to [param goal]
+## (inclusive), or an empty array if no path exists.
+static func _dijkstra(
+		start: int,
+		goal: int,
+		neighbors_fn: Callable,
+		cost_fn: Callable,
+) -> Array[int]:
+	if start == goal:
+		return [start]
+	# dist[element] = best known cost from start
+	var dist: Dictionary = {}
+	dist[start] = 0.0
+	# parent[element] = previous element on best path
+	var parent: Dictionary = {}
+	parent[start] = -1
+	# Priority queue as sorted array of [cost, element] pairs.
+	# For the mesh sizes we handle this is sufficient; a binary heap
+	# would be faster for very large meshes but adds complexity.
+	var open: Array = [[0.0, start]]
+	var visited: Dictionary = {}
+	while not open.is_empty():
+		# Find minimum-cost entry.
+		var best_idx: int = 0
+		var best_cost: float = open[0][0]
+		for i: int in range(1, open.size()):
+			if open[i][0] < best_cost:
+				best_cost = open[i][0]
+				best_idx = i
+		var cur_cost: float = open[best_idx][0]
+		var cur: int = open[best_idx][1]
+		open.remove(best_idx)
+		if visited.has(cur):
+			continue
+		visited[cur] = true
+		if cur == goal:
+			break
+		var neighbors: Array[int] = neighbors_fn.call(cur)
+		for nb: int in neighbors:
+			if visited.has(nb):
+				continue
+			var edge_cost: float = cost_fn.call(cur, nb)
+			var new_dist: float = cur_cost + edge_cost
+			if not dist.has(nb) or new_dist < dist[nb]:
+				dist[nb] = new_dist
+				parent[nb] = cur
+				open.append([new_dist, nb])
+	if not parent.has(goal):
+		return []
+	var path: Array[int] = []
+	var cur: int = goal
+	while cur != -1:
+		path.append(cur)
+		cur = int(parent[cur])
+	path.reverse()
+	return path
+
+
+# ---------------------------------------------------------------------------
+# Face path (shortest weighted path between two faces)
+# ---------------------------------------------------------------------------
+
+## Find the shortest weighted path of face indices from [param face_a] to [param face_b].
+##
+## Two faces are adjacent if they share an edge.  Uses Dijkstra with a cost
+## function that penalises normal deviation between adjacent faces, so paths
+## prefer to stay on coplanar or near-coplanar surfaces rather than taking
+## the fewest-hop route through sharp bends.  The result includes both
+## [param face_a] and [param face_b].
 ##
 ## Returns an [Array[int]] of face indices in path order, or an empty array
 ## if no path exists (disconnected mesh regions).
@@ -75,33 +154,42 @@ static func face_path(mesh: GoBuildMesh, face_a: int, face_b: int) -> Array[int]
 		return []
 	if face_a == face_b:
 		return [face_a]
-	# BFS from face_a to face_b.
-	# For each face, find adjacent faces (sharing an edge).
-	var queue: Array[int] = [face_a]
-	var visited: Dictionary = {}
-	visited[face_a] = true
-	var parent: Dictionary = {}
-	parent[face_a] = -1
-	while not queue.is_empty():
-		var fi: int = queue.pop_front()
-		if fi == face_b:
-			break
-		var adj: Array[int] = _adjacent_faces(mesh, fi)
-		for adj_fi: int in adj:
-			if not visited.has(adj_fi):
-				visited[adj_fi] = true
-				parent[adj_fi] = fi
-				queue.append(adj_fi)
-	if not parent.has(face_b):
-		return []
-	# Reconstruct path from face_b back to face_a.
-	var path: Array[int] = []
-	var cur: int = face_b
-	while cur != -1:
-		path.append(cur)
-		cur = int(parent[cur])
-	path.reverse()
-	return path
+	var neighbors_fn: Callable = func(fi: int) -> Array[int]:
+		return _adjacent_faces(mesh, fi)
+	var cost_fn: Callable = func(from_fi: int, to_fi: int) -> float:
+		return _face_edge_cost(mesh, from_fi, to_fi)
+	return _dijkstra(face_a, face_b, neighbors_fn, cost_fn)
+
+
+## Cost to traverse from face [param from_fi] to face [param to_fi].
+##
+## The cost is the length of the shared edge plus a penalty proportional
+## to the normal deviation between the two faces.  This makes paths
+## prefer to stay on coplanar surfaces and avoid shortcuts through
+## perpendicular faces (e.g. going through the back face of a staircase
+## instead of following the side).
+static func _face_edge_cost(mesh: GoBuildMesh, from_fi: int, to_fi: int) -> float:
+	var shared_length: float = _shared_edge_length(mesh, from_fi, to_fi)
+	var from_n: Vector3 = mesh.compute_face_normal(mesh.faces[from_fi])
+	var to_n: Vector3 = mesh.compute_face_normal(mesh.faces[to_fi])
+	var normal_dot: float = from_n.dot(to_n)
+	# normal_dot ranges from -1 (opposite) to 1 (same).
+	# Deviation cost: 0 when coplanar (dot=1), maximum when perpendicular (dot=0).
+	var deviation_cost: float = (1.0 - normal_dot) * _NORMAL_DEVIATION_WEIGHT
+	return shared_length + deviation_cost
+
+
+## Return the total length of edges shared between two faces.
+static func _shared_edge_length(mesh: GoBuildMesh, fi_a: int, fi_b: int) -> float:
+	var total: float = 0.0
+	var edges_a: Array = mesh.edges_of_face(fi_a)
+	for ei: int in edges_a:
+		var ed: GoBuildEdge = mesh.edges[ei]
+		if fi_b in ed.face_indices:
+			var va: Vector3 = mesh.vertices[ed.vertex_a]
+			var vb: Vector3 = mesh.vertices[ed.vertex_b]
+			total += (vb - va).length()
+	return total
 
 
 ## Return face indices adjacent to [param fi] (faces sharing an edge).
@@ -117,6 +205,82 @@ static func _adjacent_faces(mesh: GoBuildMesh, fi: int) -> Array[int]:
 	for adj_fi: int in result_set:
 		result.append(adj_fi)
 	return result
+
+
+# ---------------------------------------------------------------------------
+# Edge path (shortest weighted path between two edges)
+# ---------------------------------------------------------------------------
+
+## Find the shortest weighted path of edge indices from [param edge_a] to [param edge_b].
+##
+## Two edges are adjacent if they share a vertex.  Uses Dijkstra with a cost
+## function that penalises normal deviation between faces adjacent to the
+## edge pair, so paths prefer to stay on coplanar surfaces.  The result
+## includes both [param edge_a] and [param edge_b].
+##
+## Returns an [Array[int]] of edge indices in path order, or an empty array
+## if no path exists.
+static func edge_path(mesh: GoBuildMesh, edge_a: int, edge_b: int) -> Array[int]:
+	if mesh.edges.is_empty():
+		return []
+	if edge_a < 0 or edge_a >= mesh.edges.size() \
+			or edge_b < 0 or edge_b >= mesh.edges.size():
+		return []
+	if edge_a == edge_b:
+		return [edge_a]
+	var neighbors_fn: Callable = func(ei: int) -> Array[int]:
+		return _adjacent_edges(mesh, ei)
+	var cost_fn: Callable = func(from_ei: int, to_ei: int) -> float:
+		return _edge_step_cost(mesh, from_ei, to_ei)
+	return _dijkstra(edge_a, edge_b, neighbors_fn, cost_fn)
+
+
+## Return edge indices adjacent to [param ei] (edges sharing a vertex).
+static func _adjacent_edges(mesh: GoBuildMesh, ei: int) -> Array[int]:
+	var ed: GoBuildEdge = mesh.edges[ei]
+	var result_set: Dictionary = {}
+	for vi: int in [ed.vertex_a, ed.vertex_b]:
+		var vertex_edges: Array = mesh.edges_of_vertex(vi)
+		for adj_ei: int in vertex_edges:
+			if adj_ei != ei:
+				result_set[adj_ei] = true
+	var result: Array[int] = []
+	for adj_ei: int in result_set:
+		result.append(adj_ei)
+	return result
+
+
+## Cost to step from edge [param from_ei] to adjacent edge [param to_ei].
+##
+## The cost is the length of [param to_ei] plus a penalty for normal
+## deviation between the faces of [param from_ei] and [param to_ei].
+## For edges that share faces, the deviation is computed directly.
+## For edges that only share a vertex (no common face), the penalty
+## uses the maximum deviation among all face pairs.
+static func _edge_step_cost(mesh: GoBuildMesh, from_ei: int, to_ei: int) -> float:
+	var to_ed: GoBuildEdge = mesh.edges[to_ei]
+	var step_length: float = (mesh.vertices[to_ed.vertex_b] - mesh.vertices[to_ed.vertex_a]).length()
+	var from_ed: GoBuildEdge = mesh.edges[from_ei]
+	# Find common faces between the two edges.
+	var deviation_cost: float = 0.0
+	var has_common_face: bool = false
+	for fi: int in from_ed.face_indices:
+		for fj: int in to_ed.face_indices:
+			if fi == fj:
+				continue
+			has_common_face = true
+			var n_from: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
+			var n_to: Vector3 = mesh.compute_face_normal(mesh.faces[fj])
+			var dot: float = n_from.dot(n_to)
+			var pair_cost: float = (1.0 - dot) * _NORMAL_DEVIATION_WEIGHT
+			deviation_cost = maxf(deviation_cost, pair_cost)
+	# If no face pairs exist (boundary or disconnected), use a default
+	# moderate penalty to still allow traversal.
+	if not has_common_face:
+		# Edges share a vertex but no common face context.
+		# Use a small fixed penalty — still traversable but not preferred.
+		deviation_cost = 1.0
+	return step_length + deviation_cost
 
 
 

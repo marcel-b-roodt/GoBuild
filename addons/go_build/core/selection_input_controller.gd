@@ -1205,22 +1205,40 @@ func _handle_loop_ring_pick(
 		return 1
 	if mode == SelectionManager.Mode.VERTEX:
 		return _handle_pick(edited_node, camera, click_pos, additive, false)
-	# Capture face selection before any clear for face-path computation.
+	# Capture selection before any clear for path computation.
+	var pre_selected_edges: Array[int] = []
 	var pre_selected_faces: Array[int] = []
-	if mode == SelectionManager.Mode.FACE and not ring:
+	if mode == SelectionManager.Mode.EDGE and not ring:
+		pre_selected_edges = sel.get_selected_edges()
+	elif mode == SelectionManager.Mode.FACE and not ring:
 		pre_selected_faces = sel.get_selected_faces()
 	if not additive:
 		sel.clear()
 	if mode == SelectionManager.Mode.EDGE:
 		var seed_ei: int = PickingHelper.find_nearest_edge(camera, click_pos, edited_node, gbm)
 		if seed_ei != -1:
-			var edge_indices: Array[int]
 			if ring:
-				edge_indices = SelectionHelpers.edge_ring(gbm, seed_ei)
+				var edge_indices: Array[int] = SelectionHelpers.edge_ring(gbm, seed_ei)
+				for ei: int in edge_indices:
+					sel.select_edge(ei)
+			elif not pre_selected_edges.is_empty():
+				# Edge path: find shortest weighted path from last
+				# selected edge to the clicked edge.
+				var start_ei: int = pre_selected_edges[pre_selected_edges.size() - 1]
+				if start_ei == seed_ei:
+					sel.select_edge(seed_ei)
+				else:
+					var path: Array[int] = SelectionHelpers.edge_path(gbm, start_ei, seed_ei)
+					if path.is_empty():
+						sel.select_edge(seed_ei)
+					else:
+						for ei: int in path:
+							sel.select_edge(ei)
 			else:
-				edge_indices = SelectionHelpers.edge_loop(gbm, seed_ei)
-			for ei: int in edge_indices:
-				sel.select_edge(ei)
+				# No prior selection — fall back to edge loop.
+				var edge_indices: Array[int] = SelectionHelpers.edge_loop(gbm, seed_ei)
+				for ei: int in edge_indices:
+					sel.select_edge(ei)
 	elif mode == SelectionManager.Mode.FACE:
 		var fi: int = PickingHelper.find_nearest_face(camera, click_pos, edited_node, gbm)
 		if fi == -1:
@@ -1837,9 +1855,6 @@ func _insert_shape_at_cursor(
 ) -> void:
 	if _editor_plugin == null:
 		return
-	var scene_root: Node = EditorInterface.get_edited_scene_root()
-	if scene_root == null:
-		return
 
 	var camera: Camera3D = _context_camera
 	if camera == null:
@@ -1847,33 +1862,13 @@ func _insert_shape_at_cursor(
 	if camera == null:
 		return
 
-	var placement := ShapePlacement.find_placement(
-			camera, _right_click_press_pos, edited_node)
-
 	var align_to_surface: bool = true
 	if _panel != null and _panel.get_create_drawer() != null:
 		align_to_surface = _panel.get_create_drawer().is_align_to_surface()
 
-	ShapePlacement.apply_bottom_offset(placement, shape_name, align_to_surface)
-
-	if ShapeCreationCatalog.supports_preview(shape_name):
-		# Preview shapes: delegate to the create drawer's preview system.
-		if _panel != null and _panel.get_create_drawer() != null:
-			_panel.get_create_drawer().start_shape_preview_at(
-					shape_name, placement, edited_node)
-		return
-
-	# Instant shapes: resolve parent/position and insert via create drawer.
-	var resolved: Dictionary = ShapePlacement.resolve_parent_and_position(
-			placement, edited_node, scene_root)
 	if _panel != null and _panel.get_create_drawer() != null:
-		_panel.get_create_drawer().insert_shape(
-			func() -> GoBuildMesh: return ShapeCreationCatalog.build_mesh(
-					shape_name, ShapeCreationCatalog.default_params(shape_name)),
-			ShapeCreationCatalog.node_name(shape_name),
-			resolved["parent"],
-			resolved["local_pos"],
-			resolved["local_basis"])
+		_panel.get_create_drawer().start_shape_draw_at(
+				shape_name, camera, _right_click_press_pos, edited_node)
 
 
 func _deferred_context_op(id: int) -> void:
