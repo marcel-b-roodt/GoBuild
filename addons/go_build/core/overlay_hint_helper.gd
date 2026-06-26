@@ -87,7 +87,7 @@ static func build_hint(
 				hints.append("Alt: Vertex Snap")
 				hints.append("Ctrl+=: Grow  Ctrl+-: Shrink")
 				if mode == SelectionManager.Mode.EDGE:
-					hints.append("Alt+Click: Loop  Ctrl+Alt+Click: Ring")
+					hints.append("Alt+Click: Loop (cycle)  Ctrl+Alt+Click: Ring")
 				elif mode == SelectionManager.Mode.FACE:
 					hints.append("Alt+Click: Path  Shift+Alt: Add to path  Ctrl+Alt+Click: Ring")
 			SCALE:
@@ -96,7 +96,7 @@ static func build_hint(
 				hints.append("Ctrl+Click: Toggle  Ctrl+Drag: Snap")
 				hints.append("Ctrl+=: Grow  Ctrl+-: Shrink")
 				if mode == SelectionManager.Mode.EDGE:
-					hints.append("Alt+Click: Loop  Ctrl+Alt+Click: Ring")
+					hints.append("Alt+Click: Loop (cycle)  Ctrl+Alt+Click: Ring")
 				elif mode == SelectionManager.Mode.FACE:
 					hints.append("Alt+Click: Path  Shift+Alt: Add to path  Ctrl+Alt+Click: Ring")
 	elif shift:

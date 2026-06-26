@@ -462,6 +462,36 @@ static func edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 	return topo_result
 
 
+## Return all loop/ring selections for [param seed_edge], in order of
+## preference: topology loop, boundary loop, ring.  Used by the input
+## controller to cycle through options when the user Alt+Clicks the
+## same edge repeatedly.
+##
+## Each entry is a Dictionary with "type" (String) and "edges" (Array[int]).
+static func edge_loop_options(mesh: GoBuildMesh, seed_edge: int) -> Array[Dictionary]:
+	var options: Array[Dictionary] = []
+	# 1. Topology loop (opposite-edge walk through quads).
+	var topo: Array[int] = _topology_edge_loop(mesh, seed_edge)
+	if topo.size() > 1:
+		options.append({"type": "loop", "edges": topo})
+	# 2. Boundary loop (walk boundary edges, only for boundary edges).
+	var seed_ed: GoBuildEdge = mesh.edges[seed_edge]
+	if seed_ed.face_indices.size() == 1:
+		var boundary: Array[int] = _boundary_edge_loop(mesh, seed_edge)
+		if boundary.size() > 1:
+			# Avoid duplicating the topology loop result.
+			if options.is_empty() or boundary != topo:
+				options.append({"type": "boundary", "edges": boundary})
+	# 3. Ring (opposite-edge-in-quad walk).
+	var ring: Array[int] = edge_ring(mesh, seed_edge)
+	if ring.size() > 1:
+		options.append({"type": "ring", "edges": ring})
+	# If no options found, return just the seed edge.
+	if options.is_empty():
+		options.append({"type": "single", "edges": [seed_edge]})
+	return options
+
+
 ## Quad-topology edge loop: walks "opposite edge at vertex" through
 ## valence-4 interior vertices.  Terminates at corners, poles, and boundaries.
 static func _topology_edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
@@ -509,10 +539,11 @@ static func _topology_edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]
 ## Boundary edge loop: walks connected boundary edges (edges with exactly
 ## 1 adjacent face) from [param seed_edge] in both directions.
 ##
-## At each vertex, picks the next boundary edge that is most aligned with
-## the current walk direction.  This produces a continuous loop around
-## mesh boundaries, 90° corners, and shapes where the quad-topology loop
-## would terminate.
+## At each vertex, picks the next boundary edge that (1) shares a face with
+## the current edge, and (2) is most aligned with the walk direction.  If
+## no face-sharing candidate exists, falls back to alignment alone.  This
+## keeps the loop walking along the same face's boundary rather than
+## jumping to an unrelated face at T-junctions.
 static func _boundary_edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]:
 	var result: Array[int] = []
 	var visited: Dictionary = {}
@@ -526,26 +557,40 @@ static func _boundary_edge_loop(mesh: GoBuildMesh, seed_edge: int) -> Array[int]
 		var cur_ei: int = seed_edge
 		var cur_vi: int = end_vi
 		while true:
-			# Find all boundary edges at cur_vi (excluding cur_ei).
+			var cur_ed: GoBuildEdge = mesh.edges[cur_ei]
+			var cur_faces: Array = cur_ed.face_indices
 			var candidates: Array[int] = []
+			var face_candidates: Array[int] = []
 			var vertex_edges: Array = mesh.edges_of_vertex(cur_vi)
 			for cand_ei: int in vertex_edges:
 				if cand_ei == cur_ei:
 					continue
-				if mesh.edges[cand_ei].face_indices.size() == 1:
-					candidates.append(cand_ei)
+				if visited.has(cand_ei):
+					continue
+				var cand_ed: GoBuildEdge = mesh.edges[cand_ei]
+				if cand_ed.face_indices.size() != 1:
+					continue
+				candidates.append(cand_ei)
+				# Check if this candidate shares a face with the current edge.
+				for fi: int in cand_ed.face_indices:
+					if cur_faces.has(fi):
+						face_candidates.append(cand_ei)
+						break
+			# Prefer face-sharing candidates first; fall back to all candidates.
+			var pool: Array[int] = face_candidates if not face_candidates.is_empty() else candidates
+			if pool.is_empty():
+				break
 			# Pick the boundary edge most aligned with walk direction.
 			var best_ei: int = -1
 			var best_dot: float = -2.0
 			var cur_pos: Vector3 = mesh.vertices[cur_vi]
-			for cand_ei: int in candidates:
-				if visited.has(cand_ei):
-					continue
+			var walk_norm: Vector3 = walk_dir.normalized()
+			for cand_ei: int in pool:
 				var cand_ed: GoBuildEdge = mesh.edges[cand_ei]
 				var other_vi: int = cand_ed.vertex_a \
 						if cand_ed.vertex_a != cur_vi else cand_ed.vertex_b
 				var cand_dir: Vector3 = (mesh.vertices[other_vi] - cur_pos).normalized()
-				var dot: float = cand_dir.dot(walk_dir.normalized())
+				var dot: float = cand_dir.dot(walk_norm)
 				if dot > best_dot:
 					best_dot = dot
 					best_ei = cand_ei

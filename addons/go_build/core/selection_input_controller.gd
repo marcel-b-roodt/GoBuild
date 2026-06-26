@@ -110,6 +110,14 @@ var _right_click_dragged:   bool    = false
 var _context_menu_open:     bool    = false
 var _context_camera:        Camera3D = null
 
+# ── Loop cycling state ─────────────────────────────────────────────────
+## When the user Alt+Clicks the same edge repeatedly, cycle through loop
+## options (topology loop → boundary loop → ring).  Stored as the seed edge
+## index, the list of options, and the current cycle index.
+var _loop_cycle_seed: int = -1
+var _loop_cycle_options: Array[Dictionary] = []
+var _loop_cycle_index: int = 0
+
 # ── Parameter-preview state ─────────────────────────────────────────────────
 ## Active preview, or [code]null[/code] when idle.
 var _param_preview: GoBuildParamPreview = null
@@ -1237,13 +1245,28 @@ func _handle_edge_loop_ring(
 	if ring:
 		for ei: int in SelectionHelpers.edge_ring(gbm, seed_ei):
 			sel.select_edge(ei)
+		_loop_cycle_seed = -1
 		return
 	# Loop / path mode.
 	if not pre_edges.is_empty():
 		var start_ei: int = pre_edges[pre_edges.size() - 1]
 		if start_ei == seed_ei:
-			sel.select_edge(seed_ei)
+			# Clicked same edge as last selected — cycle loop options.
+			if _loop_cycle_seed == seed_ei and not _loop_cycle_options.is_empty():
+				_loop_cycle_index = (_loop_cycle_index + 1) % _loop_cycle_options.size()
+				var option: Dictionary = _loop_cycle_options[_loop_cycle_index]
+				var edges: Array[int] = option["edges"]
+				sel.set_selected_edges(edges)
+				return
+			# First click on this edge — compute and store options for cycling.
+			_loop_cycle_options = SelectionHelpers.edge_loop_options(gbm, seed_ei)
+			_loop_cycle_seed = seed_ei
+			_loop_cycle_index = 0
+			var first_option: Dictionary = _loop_cycle_options[0]
+			var edges: Array[int] = first_option["edges"]
+			sel.set_selected_edges(edges)
 			return
+		_loop_cycle_seed = -1
 		var path: Array[int] = SelectionHelpers.edge_path(gbm, start_ei, seed_ei)
 		if path.is_empty():
 			sel.select_edge(seed_ei)
@@ -1251,8 +1274,13 @@ func _handle_edge_loop_ring(
 			for ei: int in path:
 				sel.select_edge(ei)
 	else:
-		for ei: int in SelectionHelpers.edge_loop(gbm, seed_ei):
-			sel.select_edge(ei)
+		# No prior selection — compute loop options and select first.
+		_loop_cycle_options = SelectionHelpers.edge_loop_options(gbm, seed_ei)
+		_loop_cycle_seed = seed_ei
+		_loop_cycle_index = 0
+		var first_option: Dictionary = _loop_cycle_options[0]
+		var edges: Array[int] = first_option["edges"]
+		sel.set_selected_edges(edges)
 
 
 func _handle_face_loop_ring(

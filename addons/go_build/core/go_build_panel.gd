@@ -407,7 +407,9 @@ func trigger_select_loop() -> void:
 					return
 				sel.set_selected_edges(result)
 			else:
-				sel.set_selected_edges(SelectionHelpers.edge_loop(mesh, edges[0]))
+				var options: Array[Dictionary] = SelectionHelpers.edge_loop_options(mesh, edges[0])
+				var first: Dictionary = options[0]
+				sel.set_selected_edges(first["edges"])
 		SelectionManager.Mode.FACE:
 			var faces: Array[int] = sel.get_selected_faces()
 			if faces.size() < 2:
