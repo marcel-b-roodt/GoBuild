@@ -2,15 +2,24 @@
 ##
 ## Steps are built along the +Z axis and rise along +Y. The staircase starts
 ## at the origin (bottom-front corner) and extends in +Z / +Y.
-## Produces a closed solid: treads, risers, left/right side wall strips, bottom, and back.
+## Produces a closed solid: treads, risers, left/right side wall grid cells,
+## bottom, and back.
+##
+## Side walls are decomposed into a grid of quads so that every edge aligns
+## with tread/riser boundaries. Cell [code](r, c)[/code] where [code]c >= r[/code]
+## covers the region from [code]y=r*sh[/code] to [code]y=(r+1)*sh[/code] and
+## [code]z=c*sd[/code] to [code]z=(c+1)*sd[/code]. This ensures proper edge
+## sharing with treads, risers, and adjacent cells for correct manifold topology.
 ##
 ## Face order:
-##   [code]0 .. steps-1[/code]             tread[i]       (normal +Y)
-##   [code]steps .. 2*steps-1[/code]        riser[i]       (normal -Z)
-##   [code]2*steps .. 3*steps-1[/code]      left strip[i]  (normal -X)
-##   [code]3*steps .. 4*steps-1[/code]     right strip[i]  (normal +X)
-##   [code]4*steps[/code]                  bottom          (normal -Y)
-##   [code]4*steps + 1[/code]              back            (normal +Z)
+##   [code]0 .. steps-1[/code]                          tread[i]       (normal +Y)
+##   [code]steps .. 2*steps-1[/code]                     riser[i]       (normal -Z)
+##   [code]2*steps .. 2*steps+n*(n+1)/2-1[/code]         left cell      (normal -X)
+##   [code]2*steps+n*(n+1)/2 .. 2*steps+n*(n+1)-1[/code] right cell     (normal +X)
+##   [code]2*steps+n*(n+1)[/code]                       bottom          (normal -Y)
+##   [code]2*steps+n*(n+1)+1[/code]                     back            (normal +Z)
+##
+## Total face count: [code]2*steps + steps*(steps+1) + 2[/code]
 class_name StaircaseGenerator
 extends RefCounted
 
@@ -62,30 +71,36 @@ static func generate(
 			Vector3(-hw, y1, z0), Vector3( hw, y1, z0),
 			1, 1, material_index)
 
-	# ── Left side wall strips (normal -X) ──────────────────────────────────
-	# Each step i gets one quad on the left wall covering the step profile.
-	# The quad spans from z=i*sd (riser front) to z=total_depth (back wall)
-	# and from y=i*sh (tread bottom) to y=(i+1)*sh (tread top).
-	# CCW from -X side: front-bottom → back-bottom → back-top → front-top.
-	for i in range(steps):
-		var y_bot: float = float(i)     * step_height
-		var y_top: float = float(i + 1) * step_height
-		var z_front: float = float(i) * step_depth
-		MeshGeneratorUtils.add_quad_grid(mesh,
-			Vector3(-hw, y_bot, z_front), Vector3(-hw, y_bot, total_depth),
-			Vector3(-hw, y_top, total_depth), Vector3(-hw, y_top, z_front),
-			1, 1, material_index)
+	# ── Left side wall grid (normal -X) ─────────────────────────────────────
+	# Decompose the staircase profile into a grid of quads aligned with every
+	# step boundary. Cell (r, c) where c >= r covers:
+	#   y from r*sh to (r+1)*sh,  z from c*sd to (c+1)*sd.
+	# This ensures every side wall edge aligns with tread/riser edges and
+	# adjacent cells share complete edges (not just single vertices).
+	for r in range(steps):
+		for c in range(r, steps):
+			var y0: float = float(r)     * step_height
+			var y1: float = float(r + 1) * step_height
+			var z0: float = float(c)     * step_depth
+			var z1: float = float(c + 1) * step_depth
+			# CCW from -X side: front-bottom → back-bottom → back-top → front-top
+			MeshGeneratorUtils.add_quad_grid(mesh,
+				Vector3(-hw, y0, z0), Vector3(-hw, y0, z1),
+				Vector3(-hw, y1, z1), Vector3(-hw, y1, z0),
+				1, 1, material_index)
 
-	# ── Right side wall strips (normal +X) ─────────────────────────────────
-	# Same as left but mirrored: CCW from +X.
-	for i in range(steps):
-		var y_bot: float = float(i)     * step_height
-		var y_top: float = float(i + 1) * step_height
-		var z_front: float = float(i) * step_depth
-		MeshGeneratorUtils.add_quad_grid(mesh,
-			Vector3(hw, y_bot, total_depth), Vector3(hw, y_bot, z_front),
-			Vector3(hw, y_top, z_front), Vector3(hw, y_top, total_depth),
-			1, 1, material_index)
+	# ── Right side wall grid (normal +X) ────────────────────────────────────
+	# Same grid as left but mirrored: CCW from +X.
+	for r in range(steps):
+		for c in range(r, steps):
+			var y0: float = float(r)     * step_height
+			var y1: float = float(r + 1) * step_height
+			var z0: float = float(c)     * step_depth
+			var z1: float = float(c + 1) * step_depth
+			MeshGeneratorUtils.add_quad_grid(mesh,
+				Vector3(hw, y0, z1), Vector3(hw, y0, z0),
+				Vector3(hw, y1, z0), Vector3(hw, y1, z1),
+				1, 1, material_index)
 
 	# ── Bottom face (normal -Y) ───────────────────────────────────────────
 	MeshGeneratorUtils.add_quad_grid(mesh,
