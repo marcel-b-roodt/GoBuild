@@ -1205,68 +1205,87 @@ func _handle_loop_ring_pick(
 		return 1
 	if mode == SelectionManager.Mode.VERTEX:
 		return _handle_pick(edited_node, camera, click_pos, additive, false)
-	# Capture selection before any clear for path computation.
-	var pre_selected_edges: Array[int] = []
-	var pre_selected_faces: Array[int] = []
+	# Capture pre-clear selection for path computation.
+	var pre_edges: Array[int] = []
+	var pre_faces: Array[int] = []
 	if mode == SelectionManager.Mode.EDGE and not ring:
-		pre_selected_edges = sel.get_selected_edges()
+		pre_edges = sel.get_selected_edges()
 	elif mode == SelectionManager.Mode.FACE and not ring:
-		pre_selected_faces = sel.get_selected_faces()
+		pre_faces = sel.get_selected_faces()
 	if not additive:
 		sel.clear()
 	if mode == SelectionManager.Mode.EDGE:
-		var seed_ei: int = PickingHelper.find_nearest_edge(camera, click_pos, edited_node, gbm)
-		if seed_ei != -1:
-			if ring:
-				var edge_indices: Array[int] = SelectionHelpers.edge_ring(gbm, seed_ei)
-				for ei: int in edge_indices:
-					sel.select_edge(ei)
-			elif not pre_selected_edges.is_empty():
-				# Edge path: find shortest weighted path from last
-				# selected edge to the clicked edge.
-				var start_ei: int = pre_selected_edges[pre_selected_edges.size() - 1]
-				if start_ei == seed_ei:
-					sel.select_edge(seed_ei)
-				else:
-					var path: Array[int] = SelectionHelpers.edge_path(gbm, start_ei, seed_ei)
-					if path.is_empty():
-						sel.select_edge(seed_ei)
-					else:
-						for ei: int in path:
-							sel.select_edge(ei)
-			else:
-				# No prior selection — fall back to edge loop.
-				var edge_indices: Array[int] = SelectionHelpers.edge_loop(gbm, seed_ei)
-				for ei: int in edge_indices:
-					sel.select_edge(ei)
+		_handle_edge_loop_ring(gbm, edited_node, camera, click_pos, sel, pre_edges, ring)
 	elif mode == SelectionManager.Mode.FACE:
-		var fi: int = PickingHelper.find_nearest_face(camera, click_pos, edited_node, gbm)
-		if fi == -1:
-			edited_node.update_gizmos()
-			return 1
-		if ring:
-			var seed_ei: int = _nearest_edge_of_face(camera, click_pos, edited_node, gbm, fi)
-			if seed_ei != -1:
-				var face_indices: Array[int] = SelectionHelpers.face_ring(gbm, seed_ei, fi)
-				for fj: int in face_indices:
-					sel.select_face(fj)
-		else:
-			var start_fi: int
-			if pre_selected_faces.is_empty():
-				start_fi = -1
-			else:
-				start_fi = pre_selected_faces[pre_selected_faces.size() - 1]
-			if start_fi == -1 or start_fi == fi:
-				sel.select_face(fi)
-			else:
-				var path: Array[int] = SelectionHelpers.face_path(gbm, start_fi, fi)
-				if path.is_empty():
-					sel.select_face(fi)
-				else:
-					for fj: int in path:
-						sel.select_face(fj)
+		_handle_face_loop_ring(gbm, edited_node, camera, click_pos, sel, pre_faces, ring)
 	edited_node.update_gizmos()
 	return 1
+
+
+func _handle_edge_loop_ring(
+		gbm: GoBuildMesh,
+		edited_node: GoBuildMeshInstance,
+		camera: Camera3D,
+		click_pos: Vector2,
+		sel: SelectionManager,
+		pre_edges: Array[int],
+		ring: bool,
+) -> void:
+	var seed_ei: int = PickingHelper.find_nearest_edge(camera, click_pos, edited_node, gbm)
+	if seed_ei == -1:
+		return
+	if ring:
+		for ei: int in SelectionHelpers.edge_ring(gbm, seed_ei):
+			sel.select_edge(ei)
+		return
+	# Loop / path mode.
+	if not pre_edges.is_empty():
+		var start_ei: int = pre_edges[pre_edges.size() - 1]
+		if start_ei == seed_ei:
+			sel.select_edge(seed_ei)
+			return
+		var path: Array[int] = SelectionHelpers.edge_path(gbm, start_ei, seed_ei)
+		if path.is_empty():
+			sel.select_edge(seed_ei)
+		else:
+			for ei: int in path:
+				sel.select_edge(ei)
+	else:
+		for ei: int in SelectionHelpers.edge_loop(gbm, seed_ei):
+			sel.select_edge(ei)
+
+
+func _handle_face_loop_ring(
+		gbm: GoBuildMesh,
+		edited_node: GoBuildMeshInstance,
+		camera: Camera3D,
+		click_pos: Vector2,
+		sel: SelectionManager,
+		pre_faces: Array[int],
+		ring: bool,
+) -> void:
+	var fi: int = PickingHelper.find_nearest_face(camera, click_pos, edited_node, gbm)
+	if fi == -1:
+		return
+	if ring:
+		var seed_ei: int = _nearest_edge_of_face(camera, click_pos, edited_node, gbm, fi)
+		if seed_ei != -1:
+			for fj: int in SelectionHelpers.face_ring(gbm, seed_ei, fi):
+				sel.select_face(fj)
+		return
+	# Path mode.
+	var start_fi: int = -1
+	if not pre_faces.is_empty():
+		start_fi = pre_faces[pre_faces.size() - 1]
+	if start_fi == -1 or start_fi == fi:
+		sel.select_face(fi)
+		return
+	var path: Array[int] = SelectionHelpers.face_path(gbm, start_fi, fi)
+	if path.is_empty():
+		sel.select_face(fi)
+	else:
+		for fj: int in path:
+			sel.select_face(fj)
 
 
 ## Find the nearest edge of a face to the screen-space click position.

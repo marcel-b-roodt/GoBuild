@@ -84,19 +84,15 @@ static func _dijkstra(
 ) -> Array[int]:
 	if start == goal:
 		return [start]
-	# dist[element] = best known cost from start
 	var dist: Dictionary = {}
 	dist[start] = 0.0
-	# parent[element] = previous element on best path
 	var parent: Dictionary = {}
 	parent[start] = -1
-	# Priority queue as sorted array of [cost, element] pairs.
-	# For the mesh sizes we handle this is sufficient; a binary heap
-	# would be faster for very large meshes but adds complexity.
+	# Priority queue: array of [cost, element] pairs.
+	# Scanned linearly for the minimum — adequate for typical mesh sizes.
 	var open: Array = [[0.0, start]]
 	var visited: Dictionary = {}
 	while not open.is_empty():
-		# Find minimum-cost entry.
 		var best_idx: int = 0
 		var best_cost: float = open[0][0]
 		for i: int in range(1, open.size()):
@@ -104,8 +100,8 @@ static func _dijkstra(
 				best_cost = open[i][0]
 				best_idx = i
 		var cur_cost: float = open[best_idx][0]
-		var cur: int = open[best_idx][1]
-		open.remove(best_idx)
+		var cur: int = int(open[best_idx][1])
+		open.pop_at(best_idx)
 		if visited.has(cur):
 			continue
 		visited[cur] = true
@@ -115,8 +111,8 @@ static func _dijkstra(
 		for nb: int in neighbors:
 			if visited.has(nb):
 				continue
-			var edge_cost: float = cost_fn.call(cur, nb)
-			var new_dist: float = cur_cost + edge_cost
+			var step_cost: float = cost_fn.call(cur, nb)
+			var new_dist: float = cur_cost + step_cost
 			if not dist.has(nb) or new_dist < dist[nb]:
 				dist[nb] = new_dist
 				parent[nb] = cur
@@ -254,32 +250,45 @@ static func _adjacent_edges(mesh: GoBuildMesh, ei: int) -> Array[int]:
 ##
 ## The cost is the length of [param to_ei] plus a penalty for normal
 ## deviation between the faces of [param from_ei] and [param to_ei].
-## For edges that share faces, the deviation is computed directly.
-## For edges that only share a vertex (no common face), the penalty
-## uses the maximum deviation among all face pairs.
+## Edges that share a face have lower deviation cost than edges that
+## only share a vertex.
 static func _edge_step_cost(mesh: GoBuildMesh, from_ei: int, to_ei: int) -> float:
 	var to_ed: GoBuildEdge = mesh.edges[to_ei]
 	var step_length: float = (mesh.vertices[to_ed.vertex_b] - mesh.vertices[to_ed.vertex_a]).length()
 	var from_ed: GoBuildEdge = mesh.edges[from_ei]
-	# Find common faces between the two edges.
+	# Check whether the two edges share a face. If they do, the deviation
+	# is between the two distinct faces (the shared face is "free").
+	# If they don't share a face, compute max deviation across all
+	# face pairs and add a fixed connectivity penalty.
 	var deviation_cost: float = 0.0
-	var has_common_face: bool = false
+	var shares_face: bool = false
 	for fi: int in from_ed.face_indices:
-		for fj: int in to_ed.face_indices:
-			if fi == fj:
-				continue
-			has_common_face = true
-			var n_from: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
-			var n_to: Vector3 = mesh.compute_face_normal(mesh.faces[fj])
-			var dot: float = n_from.dot(n_to)
-			var pair_cost: float = (1.0 - dot) * _NORMAL_DEVIATION_WEIGHT
-			deviation_cost = maxf(deviation_cost, pair_cost)
-	# If no face pairs exist (boundary or disconnected), use a default
-	# moderate penalty to still allow traversal.
-	if not has_common_face:
-		# Edges share a vertex but no common face context.
-		# Use a small fixed penalty — still traversable but not preferred.
-		deviation_cost = 1.0
+		if fi in to_ed.face_indices:
+			shares_face = true
+			break
+	if shares_face:
+		# The edges share at least one face. Compute deviation between
+		# the non-shared faces of each edge.
+		for fi: int in from_ed.face_indices:
+			for fj: int in to_ed.face_indices:
+				if fi == fj:
+					continue
+				var n_from: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
+				var n_to: Vector3 = mesh.compute_face_normal(mesh.faces[fj])
+				var pair_cost: float = (1.0 - n_from.dot(n_to)) * _NORMAL_DEVIATION_WEIGHT
+				deviation_cost = maxf(deviation_cost, pair_cost)
+	else:
+		# Edges share a vertex but no face. Compute max deviation across
+		# all face pairs and add a fixed penalty.
+		for fi: int in from_ed.face_indices:
+			for fj: int in to_ed.face_indices:
+				var n_from: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
+				var n_to: Vector3 = mesh.compute_face_normal(mesh.faces[fj])
+				var pair_cost: float = (1.0 - n_from.dot(n_to)) * _NORMAL_DEVIATION_WEIGHT
+				deviation_cost = maxf(deviation_cost, pair_cost)
+		# Fixed connectivity penalty: paths through shared vertices (not
+		# shared faces) are less preferred but still traversable.
+		deviation_cost += 1.0
 	return step_length + deviation_cost
 
 
