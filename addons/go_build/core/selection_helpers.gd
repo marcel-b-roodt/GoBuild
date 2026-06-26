@@ -66,34 +66,30 @@ const _COPLANAR_DIST_THRESHOLD: float = 0.01
 ## to coplanar surfaces.
 const _NORMAL_DEVIATION_WEIGHT: float = 2.0
 
-## Direction-change penalty weight for edge paths.  When two consecutive
-## edges in a path change direction, the cost increases proportionally
-## to how much they turn.  A value of 1.0 means a 90° direction change
-## costs the same as 1 extra hop.
-const _DIRECTION_CHANGE_WEIGHT: float = 1.5
-
 ## Fixed cost per hop (traversing from one element to an adjacent one).
 ## This normalises the cost so that each step contributes a baseline
 ## regardless of edge length, preventing the pathfinder from
 ## preferring long edges over short ones.
 const _HOP_COST: float = 1.0
 
-## Generic Dijkstra shortest-path over an element graph.
+
+## A* shortest-path over an element graph.
 ##
 ## [param start] is the start element index.
 ## [param goal] is the goal element index.
-## [param neighbors_fn] returns an [Array[int]] of neighbour element indices
-## for a given element index.
-## [param cost_fn] returns the traversal cost from element [param from_idx] to
-## [param to_idx].  Must be non-negative.
+## [param neighbors_fn] returns an [Array[int]] of neighbour element indices.
+## [param cost_fn] returns the traversal cost from [param from_idx] to [param to_idx].
+## [param heuristic_fn] returns an admissible estimate of the remaining cost
+## from element [param idx] to the goal.
 ##
 ## Returns an [Array[int]] path from [param start] to [param goal]
 ## (inclusive), or an empty array if no path exists.
-static func _dijkstra(
+static func _astar(
 		start: int,
 		goal: int,
 		neighbors_fn: Callable,
 		cost_fn: Callable,
+		heuristic_fn: Callable,
 ) -> Array[int]:
 	if start == goal:
 		return [start]
@@ -101,18 +97,16 @@ static func _dijkstra(
 	dist[start] = 0.0
 	var parent: Dictionary = {}
 	parent[start] = -1
-	# Priority queue: array of [cost, element] pairs.
-	# Scanned linearly for the minimum — adequate for typical mesh sizes.
-	var open: Array = [[0.0, start]]
+	# open items: [f_score, element]
+	var open: Array = [[heuristic_fn.call(start), start]]
 	var visited: Dictionary = {}
 	while not open.is_empty():
 		var best_idx: int = 0
-		var best_cost: float = open[0][0]
+		var best_f: float = open[0][0]
 		for i: int in range(1, open.size()):
-			if open[i][0] < best_cost:
-				best_cost = open[i][0]
+			if open[i][0] < best_f:
+				best_f = open[i][0]
 				best_idx = i
-		var cur_cost: float = open[best_idx][0]
 		var cur: int = int(open[best_idx][1])
 		open.pop_at(best_idx)
 		if visited.has(cur):
@@ -120,16 +114,18 @@ static func _dijkstra(
 		visited[cur] = true
 		if cur == goal:
 			break
+		var cur_dist: float = dist[cur]
 		var neighbors: Array[int] = neighbors_fn.call(cur)
 		for nb: int in neighbors:
 			if visited.has(nb):
 				continue
 			var step_cost: float = cost_fn.call(cur, nb)
-			var new_dist: float = cur_cost + step_cost
+			var new_dist: float = cur_dist + step_cost
 			if not dist.has(nb) or new_dist < dist[nb]:
 				dist[nb] = new_dist
 				parent[nb] = cur
-				open.append([new_dist, nb])
+				var f: float = new_dist + heuristic_fn.call(nb)
+				open.append([f, nb])
 	if not parent.has(goal):
 		return []
 	var path: Array[int] = []
@@ -140,18 +136,16 @@ static func _dijkstra(
 	path.reverse()
 	return path
 
-
 # ---------------------------------------------------------------------------
 # Face path (shortest weighted path between two faces)
 # ---------------------------------------------------------------------------
 
 ## Find the shortest weighted path of face indices from [param face_a] to [param face_b].
 ##
-## Two faces are adjacent if they share an edge.  Uses Dijkstra with a cost
-## function that penalises normal deviation between adjacent faces, so paths
-## prefer to stay on coplanar or near-coplanar surfaces rather than taking
-## the fewest-hop route through sharp bends.  The result includes both
-## [param face_a] and [param face_b].
+## Uses A* with face-center distance as heuristic.  The cost function penalises
+## normal deviation between adjacent faces, so paths prefer coplanar surfaces.
+## The heuristic guides the search toward the goal, producing direct paths
+## rather than BFS-style expansion that might explore unrelated faces first.
 ##
 ## Returns an [Array[int]] of face indices in path order, or an empty array
 ## if no path exists (disconnected mesh regions).
@@ -163,11 +157,23 @@ static func face_path(mesh: GoBuildMesh, face_a: int, face_b: int) -> Array[int]
 		return []
 	if face_a == face_b:
 		return [face_a]
+	var goal_center: Vector3 = _face_center(mesh, face_b)
 	var neighbors_fn: Callable = func(fi: int) -> Array[int]:
 		return _adjacent_faces(mesh, fi)
 	var cost_fn: Callable = func(from_fi: int, to_fi: int) -> float:
 		return _face_edge_cost(mesh, from_fi, to_fi)
-	return _dijkstra(face_a, face_b, neighbors_fn, cost_fn)
+	var heuristic_fn: Callable = func(fi: int) -> float:
+		return _face_center(mesh, fi).distance_to(goal_center)
+	return _astar(face_a, face_b, neighbors_fn, cost_fn, heuristic_fn)
+
+
+## Return the center point of face [param fi].
+static func _face_center(mesh: GoBuildMesh, fi: int) -> Vector3:
+	var face: GoBuildFace = mesh.faces[fi]
+	var center := Vector3.ZERO
+	for vi: int in face.vertex_indices:
+		center += mesh.vertices[vi]
+	return center / float(face.vertex_indices.size())
 
 
 ## Cost to traverse from face [param from_fi] to face [param to_fi].
@@ -205,10 +211,11 @@ static func _adjacent_faces(mesh: GoBuildMesh, fi: int) -> Array[int]:
 
 ## Find the shortest weighted path of edge indices from [param edge_a] to [param edge_b].
 ##
-## Two edges are adjacent if they share a vertex.  Uses Dijkstra with a cost
-## function that penalises normal deviation between faces and direction changes,
-## so paths prefer to stay on coplanar surfaces and continue in a straight line.
-## The result includes both [param edge_a] and [param edge_b].
+## Uses A* with Euclidean distance as heuristic.  The cost function penalises
+## normal deviation between adjacent faces (preferring coplanar surfaces) and
+## vertex-only connections (no shared face).  The heuristic guides the search
+## toward the goal, producing direct paths rather than BFS-style breadth-first
+## expansion.
 ##
 ## Returns an [Array[int]] of edge indices in path order, or an empty array
 ## if no path exists.
@@ -220,64 +227,19 @@ static func edge_path(mesh: GoBuildMesh, edge_a: int, edge_b: int) -> Array[int]
 		return []
 	if edge_a == edge_b:
 		return [edge_a]
-	# Use a modified Dijkstra where state = (edge_index, previous_edge_index).
-	# This allows the cost function to penalise direction changes.
-	# State -1 means "no previous edge" (start of path).
-	var start_state: int = edge_a * 1000000 + (-1 + 1000000)
-	var goal_edge: int = edge_b
-	var dist: Dictionary = {}
-	dist[start_state] = 0.0
-	var parent: Dictionary = {}
-	parent[start_state] = -1
-	var open: Array = [[0.0, start_state]]
-	var visited: Dictionary = {}
-	var best_goal_cost: float = INF
-	var best_goal_state: int = -1
-	while not open.is_empty():
-		var best_idx: int = 0
-		var best_cost: float = open[0][0]
-		for i: int in range(1, open.size()):
-			if open[i][0] < best_cost:
-				best_cost = open[i][0]
-				best_idx = i
-		var cur_cost: float = open[best_idx][0]
-		var cur_state: int = int(open[best_idx][1])
-		open.pop_at(best_idx)
-		if cur_cost >= best_goal_cost:
-			continue
-		if visited.has(cur_state):
-			continue
-		visited[cur_state] = true
-		var cur_ei: int = cur_state / 1000000
-		var prev_ei: int = (cur_state % 1000000) - 1000000
-		if cur_ei == goal_edge:
-			if cur_cost < best_goal_cost:
-				best_goal_cost = cur_cost
-				best_goal_state = cur_state
-			continue
-		var neighbors: Array[int] = _adjacent_edges(mesh, cur_ei)
-		for nb: int in neighbors:
-			if visited.has(nb * 1000000 + (cur_ei + 1000000)):
-				continue
-			var step_cost: float = _edge_step_cost_with_direction(mesh, prev_ei, cur_ei, nb)
-			var new_dist: float = cur_cost + step_cost
-			var nb_state: int = nb * 1000000 + (cur_ei + 1000000)
-			if not dist.has(nb_state) or new_dist < dist[nb_state]:
-				dist[nb_state] = new_dist
-				parent[nb_state] = cur_state
-				open.append([new_dist, nb_state])
-	if best_goal_state == -1:
-		return []
-	# Reconstruct path: walk back through parent states, extracting edge indices.
-	var path: Array[int] = []
-	var cur: int = best_goal_state
-	while cur != -1:
-		path.append(cur / 1000000)
-		if not parent.has(cur):
-			break
-		cur = int(parent[cur])
-	path.reverse()
-	return path
+	var goal_ed: GoBuildEdge = mesh.edges[edge_b]
+	var goal_va: Vector3 = mesh.vertices[goal_ed.vertex_a]
+	var goal_vb: Vector3 = mesh.vertices[goal_ed.vertex_b]
+	var goal_center: Vector3 = (goal_va + goal_vb) * 0.5
+	var neighbors_fn: Callable = func(ei: int) -> Array[int]:
+		return _adjacent_edges(mesh, ei)
+	var cost_fn: Callable = func(from_ei: int, to_ei: int) -> float:
+		return _edge_step_cost(mesh, from_ei, to_ei)
+	var heuristic_fn: Callable = func(ei: int) -> float:
+		var ed: GoBuildEdge = mesh.edges[ei]
+		var center: Vector3 = (mesh.vertices[ed.vertex_a] + mesh.vertices[ed.vertex_b]) * 0.5
+		return center.distance_to(goal_center)
+	return _astar(edge_a, edge_b, neighbors_fn, cost_fn, heuristic_fn)
 
 
 ## Return edge indices adjacent to [param ei] (edges sharing a vertex).
@@ -295,38 +257,24 @@ static func _adjacent_edges(mesh: GoBuildMesh, ei: int) -> Array[int]:
 	return result
 
 
-## Cost to step from edge [param prev_ei] through [param cur_ei] to [param next_ei].
+## Cost to step from edge [param from_ei] to adjacent edge [param to_ei].
 ##
-## [param prev_ei] is -1 at the start of the path (no direction history).
-##
-## The cost has three components:
-## 1. A fixed hop cost ([code]_HOP_COST[/code]).
-## 2. A normal deviation penalty between the faces of [param cur_ei] and [param next_ei].
-## 3. A direction change penalty if [param next_ei] turns away from the
-##    direction established by [param prev_ei] → [param cur_ei].
-##
-## Edges that share a face with the previous step get lower deviation cost.
-## Edges that continue in the same direction get lower direction change cost.
-static func _edge_step_cost_with_direction(
-		mesh: GoBuildMesh,
-		prev_ei: int,
-		cur_ei: int,
-		next_ei: int,
-) -> float:
-	var next_ed: GoBuildEdge = mesh.edges[next_ei]
-	var cur_ed: GoBuildEdge = mesh.edges[cur_ei]
+## The cost is a fixed hop cost plus a penalty for normal deviation between
+## the faces of [param from_ei] and [param to_ei].  Edges that share a
+## face have lower deviation cost than edges that only share a vertex.
+static func _edge_step_cost(mesh: GoBuildMesh, from_ei: int, to_ei: int) -> float:
+	var from_ed: GoBuildEdge = mesh.edges[from_ei]
+	var to_ed: GoBuildEdge = mesh.edges[to_ei]
 	var cost: float = _HOP_COST
-
-	# --- Normal deviation between cur and next faces ---
 	var shares_face: bool = false
-	for fi: int in cur_ed.face_indices:
-		if fi in next_ed.face_indices:
+	for fi: int in from_ed.face_indices:
+		if fi in to_ed.face_indices:
 			shares_face = true
 			break
 	if shares_face:
 		var deviation_cost: float = 0.0
-		for fi: int in cur_ed.face_indices:
-			for fj: int in next_ed.face_indices:
+		for fi: int in from_ed.face_indices:
+			for fj: int in to_ed.face_indices:
 				if fi == fj:
 					continue
 				var n_from: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
@@ -336,43 +284,13 @@ static func _edge_step_cost_with_direction(
 		cost += deviation_cost
 	else:
 		var deviation_cost: float = 0.0
-		for fi: int in cur_ed.face_indices:
-			for fj: int in next_ed.face_indices:
+		for fi: int in from_ed.face_indices:
+			for fj: int in to_ed.face_indices:
 				var n_from: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
 				var n_to: Vector3 = mesh.compute_face_normal(mesh.faces[fj])
 				var pair_cost: float = (1.0 - n_from.dot(n_to)) * _NORMAL_DEVIATION_WEIGHT
 				deviation_cost = maxf(deviation_cost, pair_cost)
 		cost += deviation_cost + 1.0
-
-	# --- Direction change penalty ---
-	# Compare the direction of cur→next with the direction of prev→cur.
-	# If they continue in the same direction, the penalty is 0.
-	# If they turn 90°, the penalty is _DIRECTION_CHANGE_WEIGHT.
-	if prev_ei >= 0:
-		var prev_ed: GoBuildEdge = mesh.edges[prev_ei]
-		# Find the shared vertex between prev and cur.
-		var shared_vc: int = -1
-		if prev_ed.vertex_a == cur_ed.vertex_a or prev_ed.vertex_a == cur_ed.vertex_b:
-			shared_vc = prev_ed.vertex_a
-		else:
-			shared_vc = prev_ed.vertex_b
-		# Direction from prev's far end to the shared vertex.
-		var prev_far: int = prev_ed.vertex_b if prev_ed.vertex_a == shared_vc else prev_ed.vertex_a
-		var prev_dir: Vector3 = (mesh.vertices[shared_vc] - mesh.vertices[prev_far]).normalized()
-		# Find the shared vertex between cur and next.
-		var shared_vn: int = -1
-		if cur_ed.vertex_a == next_ed.vertex_a or cur_ed.vertex_a == next_ed.vertex_b:
-			shared_vn = cur_ed.vertex_a
-		else:
-			shared_vn = cur_ed.vertex_b
-		# Direction from shared_vc to the far end of next.
-		var next_far: int = next_ed.vertex_b if next_ed.vertex_a == shared_vn else next_ed.vertex_a
-		var next_dir: Vector3 = (mesh.vertices[next_far] - mesh.vertices[shared_vn]).normalized()
-		var direction_dot: float = prev_dir.dot(next_dir)
-		# direction_dot = 1.0 means straight continuation, 0.0 means 90° turn.
-		var turn_penalty: float = (1.0 - direction_dot) * _DIRECTION_CHANGE_WEIGHT
-		cost += turn_penalty
-
 	return cost
 
 
