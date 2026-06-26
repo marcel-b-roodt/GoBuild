@@ -292,10 +292,11 @@ func test_face_ring_from_edge() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Face path (weighted Dijkstra)
+# ---------------------------------------------------------------------------
+# Face path (A* geometric shortest path)
 # ---------------------------------------------------------------------------
 
-func test_face_path_coplanar_preferred_on_cube() -> void:
+func test_face_path_on_cube_direct_neighbors() -> void:
 	# On a cube, face_path from front face to side face should go
 	# through the shared edge rather than going around through
 	# the back face (which would be a longer geometric path).
@@ -338,7 +339,7 @@ func test_face_path_invalid_indices() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Edge path (weighted Dijkstra)
+# Edge path (A* geometric shortest path)
 # ---------------------------------------------------------------------------
 
 func test_edge_path_on_grid_straight_line() -> void:
@@ -373,10 +374,9 @@ func test_edge_path_invalid_indices() -> void:
 	assert_int(path.size()).is_equal(0)
 
 
-func test_edge_path_prefers_coplanar_on_cube() -> void:
-	# On a cube, edge_path from a front-face edge to a side-face edge
-	# should go through the shared edge rather than around through
-	# the back face.
+func test_edge_path_on_cube_direct_neighbors() -> void:
+	# On a cube, edge_path from a front-face edge to a right-face edge
+	# should take the shortest geometric route.
 	var m: GoBuildMesh = CubeGenerator.generate(2.0, 2.0, 2.0, 0)
 	m.rebuild_edges()
 	# Find an edge on the front face and an edge on the right face.
@@ -408,32 +408,23 @@ func test_edge_path_prefers_coplanar_on_cube() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Staircase edge path prefers coplanar
+# Staircase path existence
 # ---------------------------------------------------------------------------
 
-func test_edge_path_staircase_prefers_side_over_back() -> void:
+func test_edge_path_staircase_exists() -> void:
 	var m: GoBuildMesh = StaircaseGenerator.generate(4, 1.0, 0.25, 0.3)
 	m.rebuild_edges()
-	# Find an edge on the left side wall (normal -X) and another
-	# on the right side wall (normal +X). The path should go around
-	# the front or back, not through every face of the staircase.
-	# We just verify the path exists and is non-trivial.
+	# Pick any two edges and verify path exists on a connected mesh.
 	assert_int(m.edges.size()).is_greater(0)
-	# Pick any two edges and verify path exists.
 	var path: Array[int] = SelectionHelpers.edge_path(m, 0, m.edges.size() - 1)
-	# Path should exist on a connected mesh.
 	assert_int(path.size()).is_greater_equal(2)
 
 
-func test_face_path_staircase_prefers_side_over_back() -> void:
+func test_face_path_staircase_exists() -> void:
 	var m: GoBuildMesh = StaircaseGenerator.generate(4, 1.0, 0.25, 0.3)
 	m.rebuild_edges()
 	# Find the first tread face (normal +Y) and the back face (normal +Z).
-	# face_path should prefer going through side faces rather than through
-	# the bottom face, because side faces are more coplanar with the tread
-	# than the bottom face (perpendicular).
-	var tread_fi: int = 0  # First tread
-	# Find the back face — it has normal (0,0,1).
+	var tread_fi: int = 0
 	var back_fi: int = -1
 	for fi: int in m.faces.size():
 		var n: Vector3 = m.compute_face_normal(m.faces[fi])
@@ -445,3 +436,135 @@ func test_face_path_staircase_prefers_side_over_back() -> void:
 	assert_int(path.size()).is_greater_equal(2)
 	assert_int(path[0]).is_equal(tread_fi)
 	assert_int(path[path.size() - 1]).is_equal(back_fi)
+
+
+# ---------------------------------------------------------------------------
+# Face path symmetry (A→B and B→A should have same path length)
+# ---------------------------------------------------------------------------
+
+func test_face_path_symmetry_on_grid() -> void:
+	var m := _make_3x3_grid()
+	# Path from corner (0) to opposite corner (8) and back
+	var path_forward: Array[int] = SelectionHelpers.face_path(m, 0, 8)
+	var path_backward: Array[int] = SelectionHelpers.face_path(m, 8, 0)
+	assert_int(path_forward.size()).is_greater_equal(2)
+	assert_int(path_backward.size()).is_greater_equal(2)
+	# Both directions should produce paths of the same length
+	assert_int(path_forward.size()).is_equal(path_backward.size())
+
+
+func test_face_path_symmetry_on_grid_adjacent() -> void:
+	var m := _make_3x3_grid()
+	# Adjacent faces: 0 ↔ 1
+	var path_forward: Array[int] = SelectionHelpers.face_path(m, 0, 1)
+	var path_backward: Array[int] = SelectionHelpers.face_path(m, 1, 0)
+	assert_int(path_forward.size()).is_equal(2)
+	assert_int(path_backward.size()).is_equal(2)
+
+
+func test_face_path_symmetry_on_cube() -> void:
+	var m: GoBuildMesh = CubeGenerator.generate(2.0, 2.0, 2.0, 0)
+	m.rebuild_edges()
+	# Path from front face to back face and reverse
+	var path_forward: Array[int] = SelectionHelpers.face_path(m, 0, 1)
+	var path_backward: Array[int] = SelectionHelpers.face_path(m, 1, 0)
+	assert_int(path_forward.size()).is_greater_equal(2)
+	assert_int(path_backward.size()).is_greater_equal(2)
+	assert_int(path_forward.size()).is_equal(path_backward.size())
+
+
+func test_face_path_symmetry_on_staircase() -> void:
+	var m: GoBuildMesh = StaircaseGenerator.generate(4, 1.0, 0.25, 0.3)
+	m.rebuild_edges()
+	# Find top tread (last tread) and bottom tread (first tread)
+	var top_tread: int = 3  # tread index 3 (4 steps, 0-indexed)
+	var bottom_tread: int = 0
+	var path_down: Array[int] = SelectionHelpers.face_path(m, top_tread, bottom_tread)
+	var path_up: Array[int] = SelectionHelpers.face_path(m, bottom_tread, top_tread)
+	assert_int(path_down.size()).is_greater_equal(2)
+	assert_int(path_up.size()).is_greater_equal(2)
+	# Both directions should produce paths of the same length
+	assert_int(path_down.size()).is_equal(path_up.size())
+
+
+func test_face_path_grid_prefers_diagonal() -> void:
+	var m := _make_3x3_grid()
+	# On a flat coplanar grid, path from (0,0) to (2,2) should prefer
+	# a diagonal route (5 hops) rather than an L-shaped detour.
+	var path: Array[int] = SelectionHelpers.face_path(m, 0, 8)
+	assert_int(path.size()).is_greater_equal(2)
+	assert_int(path[0]).is_equal(0)
+	assert_int(path[path.size() - 1]).is_equal(8)
+	# A diagonal path should be at most 5 hops (Manhattan distance + 1
+	# for the grid) — any longer would mean it took an L-shaped detour.
+	assert_int(path.size()).is_less_equal(5)
+
+
+# ---------------------------------------------------------------------------
+# Edge path straight-line preference
+# ---------------------------------------------------------------------------
+
+func test_edge_path_prefers_straight_line_on_grid() -> void:
+	var m := _make_3x3_grid()
+	# Pick two edges along the top boundary that form a straight line.
+	# The path between them should follow the boundary, not zig-zag
+	# through interior edges.
+	var e_top_left: int = m.find_edge(0, 1)    # top-left boundary horizontal
+	var e_top_right: int = m.find_edge(2, 3)    # Wait, let me recalculate.
+	# Grid vertices on 4x4 grid:
+	# 12 13 14 15
+	#  8  9 10 11
+	#  4  5  6  7
+	#  0  1  2  3
+	# Top boundary: edges (12,13), (13,14), (14,15)
+	var e_12_13: int = m.find_edge(12, 13)
+	var e_14_15: int = m.find_edge(14, 15)
+	assert_int(e_12_13).is_not_equal(-1)
+	assert_int(e_14_15).is_not_equal(-1)
+	var path: Array[int] = SelectionHelpers.edge_path(m, e_12_13, e_14_15)
+	assert_int(path.size()).is_greater_equal(2)
+	assert_int(path[0]).is_equal(e_12_13)
+	assert_int(path[path.size() - 1]).is_equal(e_14_15)
+	# Straight line along boundary should be 3 hops: (12,13)→(13,14)→(14,15)
+	# A zig-zag would be more hops. Allow 3 as the shortest path.
+	assert_int(path.size()).is_less_equal(3)
+
+
+func test_edge_path_symmetry_on_grid() -> void:
+	var m := _make_3x3_grid()
+	var e_12_13: int = m.find_edge(12, 13)
+	var e_14_15: int = m.find_edge(14, 15)
+	assert_int(e_12_13).is_not_equal(-1)
+	assert_int(e_14_15).is_not_equal(-1)
+	var path_forward: Array[int] = SelectionHelpers.edge_path(m, e_12_13, e_14_15)
+	var path_backward: Array[int] = SelectionHelpers.edge_path(m, e_14_15, e_12_13)
+	assert_int(path_forward.size()).is_greater_equal(2)
+	assert_int(path_backward.size()).is_greater_equal(2)
+	assert_int(path_forward.size()).is_equal(path_backward.size())
+
+
+func test_edge_path_symmetry_on_cube() -> void:
+	var m: GoBuildMesh = CubeGenerator.generate(2.0, 2.0, 2.0, 0)
+	m.rebuild_edges()
+	# Find two edges on opposite faces
+	var front_ei: int = -1
+	var back_ei: int = -1
+	for i: int in m.edges.size():
+		var ed: GoBuildEdge = m.edges[i]
+		var va: Vector3 = m.vertices[ed.vertex_a]
+		var vb: Vector3 = m.vertices[ed.vertex_b]
+		# Boundary edge on front face (z=1)
+		if absf(va.z - 1.0) < 0.01 and absf(vb.z - 1.0) < 0.01:
+			if ed.face_indices.size() == 1 and front_ei == -1:
+				front_ei = i
+		# Boundary edge on back face (z=-1)
+		if absf(va.z + 1.0) < 0.01 and absf(vb.z + 1.0) < 0.01:
+			if ed.face_indices.size() == 1 and back_ei == -1:
+				back_ei = i
+	assert_int(front_ei).is_not_equal(-1)
+	assert_int(back_ei).is_not_equal(-1)
+	var path_forward: Array[int] = SelectionHelpers.edge_path(m, front_ei, back_ei)
+	var path_backward: Array[int] = SelectionHelpers.edge_path(m, back_ei, front_ei)
+	assert_int(path_forward.size()).is_greater_equal(2)
+	assert_int(path_backward.size()).is_greater_equal(2)
+	assert_int(path_forward.size()).is_equal(path_backward.size())

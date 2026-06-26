@@ -59,18 +59,10 @@ const _COPLANAR_DIST_THRESHOLD: float = 0.01
 # Weighted pathfinding (shared Dijkstra core)
 # ---------------------------------------------------------------------------
 
-## Normal-deviation penalty weight.  When two adjacent faces differ in
-## normal direction, the cost to traverse between them increases.
-## A value of 2.0 means a 90° turn costs the same as 2 hops on a
-## coplanar surface.  Higher values make paths stick more aggressively
-## to coplanar surfaces.
-const _NORMAL_DEVIATION_WEIGHT: float = 2.0
-
-## Fixed cost per hop (traversing from one element to an adjacent one).
-## This normalises the cost so that each step contributes a baseline
-## regardless of edge length, preventing the pathfinder from
-## preferring long edges over short ones.
-const _HOP_COST: float = 1.0
+## Penalty for stepping between two edges that only share a vertex
+## (no shared face).  This discourages corner-cutting through vertices
+## and favours paths that follow face boundaries.
+const _VERTEX_ONLY_PENALTY: float = 1.0
 
 
 ## A* shortest-path over an element graph.
@@ -97,17 +89,23 @@ static func _astar(
 	dist[start] = 0.0
 	var parent: Dictionary = {}
 	parent[start] = -1
-	# open items: [f_score, element]
-	var open: Array = [[heuristic_fn.call(start), start]]
+	# open items: [f_score, h_score, element]
+	# h_score is stored for tie-breaking: when two nodes have equal f,
+	# prefer the one with lower h (closer to the goal), which produces
+	# more consistent path choices regardless of direction.
+	var start_h: float = heuristic_fn.call(start)
+	var open: Array = [[start_h, start_h, start]]
 	var visited: Dictionary = {}
 	while not open.is_empty():
 		var best_idx: int = 0
 		var best_f: float = open[0][0]
+		var best_h: float = open[0][1]
 		for i: int in range(1, open.size()):
-			if open[i][0] < best_f:
+			if open[i][0] < best_f or (open[i][0] == best_f and open[i][1] < best_h):
 				best_f = open[i][0]
+				best_h = open[i][1]
 				best_idx = i
-		var cur: int = int(open[best_idx][1])
+		var cur: int = int(open[best_idx][2])
 		open.pop_at(best_idx)
 		if visited.has(cur):
 			continue
@@ -124,8 +122,9 @@ static func _astar(
 			if not dist.has(nb) or new_dist < dist[nb]:
 				dist[nb] = new_dist
 				parent[nb] = cur
-				var f: float = new_dist + heuristic_fn.call(nb)
-				open.append([f, nb])
+				var nb_h: float = heuristic_fn.call(nb)
+				var f: float = new_dist + nb_h
+				open.append([f, nb_h, nb])
 	if not parent.has(goal):
 		return []
 	var path: Array[int] = []
@@ -178,16 +177,11 @@ static func _face_center(mesh: GoBuildMesh, fi: int) -> Vector3:
 
 ## Cost to traverse from face [param from_fi] to face [param to_fi].
 ##
-## The cost is a fixed hop cost plus a penalty proportional to the normal
-## deviation between the two faces.  This makes paths prefer coplanar
-## surfaces and avoid shortcuts through perpendicular faces (e.g. going
-## through the back face of a staircase instead of following the side).
+## Pure geometric distance between face centres.  No normal-deviation penalty:
+## on a curved surface like a sphere, the user expects "shortest path" to mean
+## the geodesic shortest route, not a detour through coplanar faces.
 static func _face_edge_cost(mesh: GoBuildMesh, from_fi: int, to_fi: int) -> float:
-	var from_n: Vector3 = mesh.compute_face_normal(mesh.faces[from_fi])
-	var to_n: Vector3 = mesh.compute_face_normal(mesh.faces[to_fi])
-	var normal_dot: float = from_n.dot(to_n)
-	var deviation_cost: float = (1.0 - normal_dot) * _NORMAL_DEVIATION_WEIGHT
-	return _HOP_COST + deviation_cost
+	return _face_center(mesh, from_fi).distance_to(_face_center(mesh, to_fi))
 
 
 ## Return face indices adjacent to [param fi] (faces sharing an edge).
@@ -259,38 +253,26 @@ static func _adjacent_edges(mesh: GoBuildMesh, ei: int) -> Array[int]:
 
 ## Cost to step from edge [param from_ei] to adjacent edge [param to_ei].
 ##
-## The cost is a fixed hop cost plus a penalty for normal deviation between
-## the faces of [param from_ei] and [param to_ei].  Edges that share a
-## face have lower deviation cost than edges that only share a vertex.
+## Base cost is Euclidean distance between edge midpoints.  Edges that share
+## only a vertex (no shared face) receive an additional penalty to discourage
+## corner-cutting through vertices.
 static func _edge_step_cost(mesh: GoBuildMesh, from_ei: int, to_ei: int) -> float:
 	var from_ed: GoBuildEdge = mesh.edges[from_ei]
 	var to_ed: GoBuildEdge = mesh.edges[to_ei]
-	var cost: float = _HOP_COST
+	var from_va: Vector3 = mesh.vertices[from_ed.vertex_a]
+	var from_vb: Vector3 = mesh.vertices[from_ed.vertex_b]
+	var to_va: Vector3 = mesh.vertices[to_ed.vertex_a]
+	var to_vb: Vector3 = mesh.vertices[to_ed.vertex_b]
+	var from_center: Vector3 = (from_va + from_vb) * 0.5
+	var to_center: Vector3 = (to_va + to_vb) * 0.5
+	var cost: float = from_center.distance_to(to_center)
 	var shares_face: bool = false
 	for fi: int in from_ed.face_indices:
 		if fi in to_ed.face_indices:
 			shares_face = true
 			break
-	if shares_face:
-		var deviation_cost: float = 0.0
-		for fi: int in from_ed.face_indices:
-			for fj: int in to_ed.face_indices:
-				if fi == fj:
-					continue
-				var n_from: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
-				var n_to: Vector3 = mesh.compute_face_normal(mesh.faces[fj])
-				var pair_cost: float = (1.0 - n_from.dot(n_to)) * _NORMAL_DEVIATION_WEIGHT
-				deviation_cost = maxf(deviation_cost, pair_cost)
-		cost += deviation_cost
-	else:
-		var deviation_cost: float = 0.0
-		for fi: int in from_ed.face_indices:
-			for fj: int in to_ed.face_indices:
-				var n_from: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
-				var n_to: Vector3 = mesh.compute_face_normal(mesh.faces[fj])
-				var pair_cost: float = (1.0 - n_from.dot(n_to)) * _NORMAL_DEVIATION_WEIGHT
-				deviation_cost = maxf(deviation_cost, pair_cost)
-		cost += deviation_cost + 1.0
+	if not shares_face:
+		cost += _VERTEX_ONLY_PENALTY
 	return cost
 
 
