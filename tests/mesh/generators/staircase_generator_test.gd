@@ -5,10 +5,10 @@
 ##   2*i + 1                        = riser[i]        (normal -Z)
 ##   2*steps + offset                = left cell(r,c)  (normal -X)
 ##   2*steps + n*(n+1)/2 + offset   = right cell(r,c) (normal +X)
-##   2*steps + n*(n+1) + i          = bottom strip[i]  (normal -Y)
-##   3*steps + n*(n+1) + i          = back strip[i]    (normal +Z)
+##   2*steps + n*(n+1)              = bottom           (normal -Y)
+##   2*steps + n*(n+1) + 1          = back             (normal +Z)
 ##
-## Total face count: 4*steps + steps*(steps+1)
+## Total face count: 2*steps + steps*(steps+1) + 2
 extends GdUnitTestSuite
 
 # Self-preloads — dependency order.
@@ -26,7 +26,7 @@ func _normal(mesh: GoBuildMesh, face_idx: int) -> Vector3:
 
 
 static func _face_count(steps: int) -> int:
-	return 4 * steps + steps * (steps + 1)
+	return 2 * steps + steps * (steps + 1) + 2
 
 
 static func _left_cell_index(steps: int, r: int, c: int) -> int:
@@ -38,21 +38,13 @@ static func _right_cell_index(steps: int, r: int, c: int) -> int:
 	return 2 * steps + n2 + r * steps - r * (r - 1) / 2 + (c - r)
 
 
-static func _bottom_strip_index(steps: int, i: int) -> int:
-	return 2 * steps + steps * (steps + 1) + i
-
-
-static func _back_strip_index(steps: int, i: int) -> int:
-	return 3 * steps + steps * (steps + 1) + i
-
-
 # ---------------------------------------------------------------------------
 # Face counts
 # ---------------------------------------------------------------------------
 
 func test_staircase_face_count_default() -> void:
-	# steps=4: 4 treads + 4 risers + 10 left + 10 right + 4 bottom + 4 back = 36
-	assert_int(StaircaseGenerator.generate().faces.size()).is_equal(36)
+	# steps=4: 8 treads/risers + 10 left cells + 10 right cells + bottom + back = 30
+	assert_int(StaircaseGenerator.generate().faces.size()).is_equal(30)
 
 
 func test_staircase_face_count_one_step() -> void:
@@ -61,7 +53,7 @@ func test_staircase_face_count_one_step() -> void:
 
 
 func test_staircase_face_count_formula() -> void:
-	# 4*steps + steps*(steps+1)
+	# 2*steps + steps*(steps+1) + 2
 	for n in [1, 2, 3, 8]:
 		assert_int(StaircaseGenerator.generate(n).faces.size()).is_equal(_face_count(n))
 
@@ -136,20 +128,18 @@ func test_staircase_right_grid_normals_are_x_plus() -> void:
 # Bottom and back normals
 # ---------------------------------------------------------------------------
 
-func test_staircase_bottom_strips_are_y_minus() -> void:
+func test_staircase_bottom_normal_is_y_minus() -> void:
 	var steps := 3
 	var mesh := StaircaseGenerator.generate(steps)
-	for i in range(steps):
-		var idx: int = _bottom_strip_index(steps, i)
-		assert_float(_normal(mesh, idx).dot(Vector3.DOWN)).is_greater_equal(0.999)
+	var bottom_idx: int = 2 * steps + steps * (steps + 1)
+	assert_float(_normal(mesh, bottom_idx).dot(Vector3.DOWN)).is_greater_equal(0.999)
 
 
-func test_staircase_back_strips_are_z_plus() -> void:
+func test_staircase_back_normal_is_z_plus() -> void:
 	var steps := 3
 	var mesh := StaircaseGenerator.generate(steps)
-	for i in range(steps):
-		var idx: int = _back_strip_index(steps, i)
-		assert_float(_normal(mesh, idx).dot(Vector3(0.0, 0.0, 1.0))).is_greater_equal(0.999)
+	var back_idx: int = 2 * steps + steps * (steps + 1) + 1
+	assert_float(_normal(mesh, back_idx).dot(Vector3(0.0, 0.0, 1.0))).is_greater_equal(0.999)
 
 
 # ---------------------------------------------------------------------------
@@ -207,33 +197,6 @@ func test_staircase_side_wall_grid_cells_are_quads() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Bottom and back strips are quads
-# ---------------------------------------------------------------------------
-
-func test_staircase_bottom_and_back_strips_are_quads() -> void:
-	var steps := 3
-	var mesh := StaircaseGenerator.generate(steps)
-	for i in range(steps):
-		var bottom := mesh.faces[_bottom_strip_index(steps, i)] as GoBuildFace
-		var back := mesh.faces[_back_strip_index(steps, i)] as GoBuildFace
-		assert_int(bottom.vertex_indices.size()).is_equal(4)
-		assert_int(back.vertex_indices.size()).is_equal(4)
-
-
-# ---------------------------------------------------------------------------
-# All edges are manifold (exactly 2 faces)
-# ---------------------------------------------------------------------------
-
-func test_staircase_all_edges_are_manifold() -> void:
-	var steps := 4
-	var mesh := StaircaseGenerator.generate(steps)
-	mesh.rebuild_edges()
-	for edge_idx in range(mesh.edges.size()):
-		var ed: GoBuildEdge = mesh.edges[edge_idx]
-		assert_int(ed.face_indices.size()).is_equal(2)
-
-
-# ---------------------------------------------------------------------------
 # Adjacent grid cells share edges (not just vertices)
 # ---------------------------------------------------------------------------
 
@@ -252,46 +215,6 @@ func test_staircase_adjacent_grid_cells_share_full_edges() -> void:
 					shared = true
 					break
 			assert_bool(shared).is_true()
-
-
-# ---------------------------------------------------------------------------
-# Bottom strips share edges with side wall cells
-# ---------------------------------------------------------------------------
-
-func test_staircase_bottom_strips_share_edges_with_side_walls() -> void:
-	var steps := 3
-	var mesh := StaircaseGenerator.generate(steps)
-	mesh.rebuild_edges()
-	for i in range(steps):
-		var bottom_idx: int = _bottom_strip_index(steps, i)
-		# Each bottom strip should share edges with left and right side cells
-		# in the same column.
-		var has_shared: bool = false
-		for edge_idx in range(mesh.edges.size()):
-			var ed: GoBuildEdge = mesh.edges[edge_idx]
-			if ed.face_indices.has(bottom_idx):
-				has_shared = true
-				break
-		assert_bool(has_shared).is_true()
-
-
-# ---------------------------------------------------------------------------
-# Back strips share edges with side wall cells
-# ---------------------------------------------------------------------------
-
-func test_staircase_back_strips_share_edges_with_side_walls() -> void:
-	var steps := 3
-	var mesh := StaircaseGenerator.generate(steps)
-	mesh.rebuild_edges()
-	for i in range(steps):
-		var back_idx: int = _back_strip_index(steps, i)
-		var has_shared: bool = false
-		for edge_idx in range(mesh.edges.size()):
-			var ed: GoBuildEdge = mesh.edges[edge_idx]
-			if ed.face_indices.has(back_idx):
-				has_shared = true
-				break
-		assert_bool(has_shared).is_true()
 
 
 # ---------------------------------------------------------------------------

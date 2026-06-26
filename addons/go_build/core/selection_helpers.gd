@@ -61,9 +61,16 @@ const _COPLANAR_DIST_THRESHOLD: float = 0.01
 
 ## Normal-deviation penalty weight.  When two adjacent faces differ in
 ## normal direction, the cost to traverse between them increases.
-## A value of 1.0 means a 90° normal deviation adds the same cost as
-## a 1-unit-long edge.  Higher values make paths stick to coplanar surfaces.
+## A value of 2.0 means a 90° turn costs the same as 2 hops on a
+## coplanar surface.  Higher values make paths stick more aggressively
+## to coplanar surfaces.
 const _NORMAL_DEVIATION_WEIGHT: float = 2.0
+
+## Fixed cost per hop (traversing from one element to an adjacent one).
+## This normalises the cost so that each step contributes a baseline
+## regardless of edge length, preventing the pathfinder from
+## preferring long edges over short ones.
+const _HOP_COST: float = 1.0
 
 ## Generic Dijkstra shortest-path over an element graph.
 ##
@@ -159,33 +166,16 @@ static func face_path(mesh: GoBuildMesh, face_a: int, face_b: int) -> Array[int]
 
 ## Cost to traverse from face [param from_fi] to face [param to_fi].
 ##
-## The cost is the length of the shared edge plus a penalty proportional
-## to the normal deviation between the two faces.  This makes paths
-## prefer to stay on coplanar surfaces and avoid shortcuts through
-## perpendicular faces (e.g. going through the back face of a staircase
-## instead of following the side).
+## The cost is a fixed hop cost plus a penalty proportional to the normal
+## deviation between the two faces.  This makes paths prefer coplanar
+## surfaces and avoid shortcuts through perpendicular faces (e.g. going
+## through the back face of a staircase instead of following the side).
 static func _face_edge_cost(mesh: GoBuildMesh, from_fi: int, to_fi: int) -> float:
-	var shared_length: float = _shared_edge_length(mesh, from_fi, to_fi)
 	var from_n: Vector3 = mesh.compute_face_normal(mesh.faces[from_fi])
 	var to_n: Vector3 = mesh.compute_face_normal(mesh.faces[to_fi])
 	var normal_dot: float = from_n.dot(to_n)
-	# normal_dot ranges from -1 (opposite) to 1 (same).
-	# Deviation cost: 0 when coplanar (dot=1), maximum when perpendicular (dot=0).
 	var deviation_cost: float = (1.0 - normal_dot) * _NORMAL_DEVIATION_WEIGHT
-	return shared_length + deviation_cost
-
-
-## Return the total length of edges shared between two faces.
-static func _shared_edge_length(mesh: GoBuildMesh, fi_a: int, fi_b: int) -> float:
-	var total: float = 0.0
-	var edges_a: Array = mesh.edges_of_face(fi_a)
-	for ei: int in edges_a:
-		var ed: GoBuildEdge = mesh.edges[ei]
-		if fi_b in ed.face_indices:
-			var va: Vector3 = mesh.vertices[ed.vertex_a]
-			var vb: Vector3 = mesh.vertices[ed.vertex_b]
-			total += (vb - va).length()
-	return total
+	return _HOP_COST + deviation_cost
 
 
 ## Return face indices adjacent to [param fi] (faces sharing an edge).
@@ -248,27 +238,22 @@ static func _adjacent_edges(mesh: GoBuildMesh, ei: int) -> Array[int]:
 
 ## Cost to step from edge [param from_ei] to adjacent edge [param to_ei].
 ##
-## The cost is the length of [param to_ei] plus a penalty for normal
-## deviation between the faces of [param from_ei] and [param to_ei].
-## Edges that share a face have lower deviation cost than edges that
-## only share a vertex.
+## The cost is a fixed hop cost plus a penalty for normal deviation between
+## the faces of [param from_ei] and [param to_ei].  Edges that share a
+## face have lower deviation cost than edges that only share a vertex.
 static func _edge_step_cost(mesh: GoBuildMesh, from_ei: int, to_ei: int) -> float:
-	var to_ed: GoBuildEdge = mesh.edges[to_ei]
-	var step_length: float = (mesh.vertices[to_ed.vertex_b] - mesh.vertices[to_ed.vertex_a]).length()
 	var from_ed: GoBuildEdge = mesh.edges[from_ei]
-	# Check whether the two edges share a face. If they do, the deviation
-	# is between the two distinct faces (the shared face is "free").
-	# If they don't share a face, compute max deviation across all
-	# face pairs and add a fixed connectivity penalty.
-	var deviation_cost: float = 0.0
+	var to_ed: GoBuildEdge = mesh.edges[to_ei]
+	# Check whether the two edges share a face.
 	var shares_face: bool = false
 	for fi: int in from_ed.face_indices:
 		if fi in to_ed.face_indices:
 			shares_face = true
 			break
 	if shares_face:
-		# The edges share at least one face. Compute deviation between
-		# the non-shared faces of each edge.
+		# Edges share at least one face. Compute deviation between the
+		# non-shared faces (the "turn" across the shared face).
+		var deviation_cost: float = 0.0
 		for fi: int in from_ed.face_indices:
 			for fj: int in to_ed.face_indices:
 				if fi == fj:
@@ -277,19 +262,19 @@ static func _edge_step_cost(mesh: GoBuildMesh, from_ei: int, to_ei: int) -> floa
 				var n_to: Vector3 = mesh.compute_face_normal(mesh.faces[fj])
 				var pair_cost: float = (1.0 - n_from.dot(n_to)) * _NORMAL_DEVIATION_WEIGHT
 				deviation_cost = maxf(deviation_cost, pair_cost)
-	else:
-		# Edges share a vertex but no face. Compute max deviation across
-		# all face pairs and add a fixed penalty.
-		for fi: int in from_ed.face_indices:
-			for fj: int in to_ed.face_indices:
-				var n_from: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
-				var n_to: Vector3 = mesh.compute_face_normal(mesh.faces[fj])
-				var pair_cost: float = (1.0 - n_from.dot(n_to)) * _NORMAL_DEVIATION_WEIGHT
-				deviation_cost = maxf(deviation_cost, pair_cost)
-		# Fixed connectivity penalty: paths through shared vertices (not
-		# shared faces) are less preferred but still traversable.
-		deviation_cost += 1.0
-	return step_length + deviation_cost
+		return _HOP_COST + deviation_cost
+	# Edges share a vertex but no face. Compute max deviation across
+	# all face pairs and add a connectivity penalty.
+	var deviation_cost: float = 0.0
+	for fi: int in from_ed.face_indices:
+		for fj: int in to_ed.face_indices:
+			var n_from: Vector3 = mesh.compute_face_normal(mesh.faces[fi])
+			var n_to: Vector3 = mesh.compute_face_normal(mesh.faces[fj])
+			var pair_cost: float = (1.0 - n_from.dot(n_to)) * _NORMAL_DEVIATION_WEIGHT
+			deviation_cost = maxf(deviation_cost, pair_cost)
+	# Connectivity penalty: paths through shared vertices (not shared
+	# faces) are less preferred but still traversable.
+	return _HOP_COST + deviation_cost + 1.0
 
 
 
