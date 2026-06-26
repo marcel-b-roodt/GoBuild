@@ -391,12 +391,12 @@ func test_build_shape_mesh_sphere_respects_rings_and_segments() -> void:
 
 
 func test_build_shape_mesh_staircase_respects_step_count() -> void:
-	# Staircase face count = 2*steps + 4.
+	# Staircase face count = 4*steps + 2.
 	var panel := _make_panel()
 	var p: Dictionary = panel._default_shape_params("Staircase")
 	p["steps"] = 7
 	var mesh: GoBuildMesh = panel._build_shape_mesh("Staircase", p)
-	assert_int(mesh.faces.size()).is_equal(18)
+	assert_int(mesh.faces.size()).is_equal(30)
 
 
 func test_build_shape_mesh_torus_respects_ring_and_tube_counts() -> void:

@@ -2,15 +2,15 @@
 ##
 ## Steps are built along the +Z axis and rise along +Y. The staircase starts
 ## at the origin (bottom-front corner) and extends in +Z / +Y.
-## Produces a closed solid: treads, risers, left/right side walls, bottom, and back.
+## Produces a closed solid: treads, risers, left/right side wall strips, bottom, and back.
 ##
 ## Face order:
-##   [code]0 .. steps-1[/code]       tread[i]   (normal +Y)
-##   [code]steps .. 2*steps-1[/code]  riser[i]   (normal -Z)
-##   [code]2*steps[/code]             left wall  (normal -X)
-##   [code]2*steps + 1[/code]         right wall (normal +X)
-##   [code]2*steps + 2[/code]         bottom     (normal -Y)
-##   [code]2*steps + 3[/code]         back       (normal +Z)
+##   [code]0 .. steps-1[/code]             tread[i]       (normal +Y)
+##   [code]steps .. 2*steps-1[/code]        riser[i]       (normal -Z)
+##   [code]2*steps .. 3*steps-1[/code]      left strip[i]  (normal -X)
+##   [code]3*steps .. 4*steps-1[/code]     right strip[i]  (normal +X)
+##   [code]4*steps[/code]                  bottom          (normal -Y)
+##   [code]4*steps + 1[/code]              back            (normal +Z)
 class_name StaircaseGenerator
 extends RefCounted
 
@@ -62,40 +62,30 @@ static func generate(
 			Vector3(-hw, y1, z0), Vector3( hw, y1, z0),
 			1, 1, material_index)
 
-	# ── Left side wall (normal -X) ────────────────────────────────────────
-	# Polygon CCW from -X: bottom-front → bottom-back → top-back,
-	# then staircase profile descending (back to front) back to bottom-front.
-	var left_face := GoBuildFace.new()
-	var left_base: int = mesh.vertices.size()
-	mesh.vertices.append(Vector3(-hw, 0.0, 0.0))
-	mesh.vertices.append(Vector3(-hw, 0.0, total_depth))
-	mesh.vertices.append(Vector3(-hw, total_height, total_depth))
-	for i in range(steps - 1, -1, -1):
-		mesh.vertices.append(Vector3(-hw, float(i + 1) * step_height, float(i) * step_depth))
-		if i > 0:
-			mesh.vertices.append(Vector3(-hw, float(i) * step_height, float(i) * step_depth))
-	left_face.material_index = material_index
-	for k in range(mesh.vertices.size() - left_base):
-		var v: Vector3 = mesh.vertices[left_base + k]
-		left_face.vertex_indices.append(left_base + k)
-		left_face.uvs.append(Vector2(v.z / total_depth, v.y / total_height))
-	mesh.faces.append(left_face)
-
-	# ── Right side wall (normal +X) ───────────────────────────────────────
-	# Polygon CCW from +X: staircase profile ascending, then bottom-back → bottom-front.
-	var right_face := GoBuildFace.new()
-	var right_base: int = mesh.vertices.size()
+	# ── Left side wall strips (normal -X) ──────────────────────────────────
+	# Each step i gets one quad on the left wall covering the step profile.
+	# The quad spans from z=i*sd (riser front) to z=total_depth (back wall)
+	# and from y=i*sh (tread bottom) to y=(i+1)*sh (tread top).
+	# CCW from -X side: front-bottom → back-bottom → back-top → front-top.
 	for i in range(steps):
-		mesh.vertices.append(Vector3(hw, float(i + 1) * step_height, float(i) * step_depth))
-		mesh.vertices.append(Vector3(hw, float(i + 1) * step_height, float(i + 1) * step_depth))
-	mesh.vertices.append(Vector3(hw, 0.0, total_depth))
-	mesh.vertices.append(Vector3(hw, 0.0, 0.0))
-	right_face.material_index = material_index
-	for k in range(mesh.vertices.size() - right_base):
-		var v: Vector3 = mesh.vertices[right_base + k]
-		right_face.vertex_indices.append(right_base + k)
-		right_face.uvs.append(Vector2(v.z / total_depth, v.y / total_height))
-	mesh.faces.append(right_face)
+		var y_bot: float = float(i)     * step_height
+		var y_top: float = float(i + 1) * step_height
+		var z_front: float = float(i) * step_depth
+		MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3(-hw, y_bot, z_front), Vector3(-hw, y_bot, total_depth),
+			Vector3(-hw, y_top, total_depth), Vector3(-hw, y_top, z_front),
+			1, 1, material_index)
+
+	# ── Right side wall strips (normal +X) ─────────────────────────────────
+	# Same as left but mirrored: CCW from +X.
+	for i in range(steps):
+		var y_bot: float = float(i)     * step_height
+		var y_top: float = float(i + 1) * step_height
+		var z_front: float = float(i) * step_depth
+		MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3(hw, y_bot, total_depth), Vector3(hw, y_bot, z_front),
+			Vector3(hw, y_top, z_front), Vector3(hw, y_top, total_depth),
+			1, 1, material_index)
 
 	# ── Bottom face (normal -Y) ───────────────────────────────────────────
 	MeshGeneratorUtils.add_quad_grid(mesh,

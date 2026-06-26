@@ -1,12 +1,12 @@
 ## StaircaseGenerator unit tests.
 ##
 ## Face order reference (from StaircaseGenerator):
-##   2*i       = tread[i]   (normal +Y)
-##   2*i + 1   = riser[i]   (normal -Z)
-##   2*steps   = left wall  (normal -X)
-##   2*steps+1 = right wall (normal +X)
-##   2*steps+2 = bottom     (normal -Y)
-##   2*steps+3 = back       (normal +Z)
+##   2*i           = tread[i]       (normal +Y)
+##   2*i + 1       = riser[i]       (normal -Z)
+##   2*steps + i   = left strip[i]  (normal -X)
+##   3*steps + i   = right strip[i] (normal +X)
+##   4*steps       = bottom          (normal -Y)
+##   4*steps + 1   = back            (normal +Z)
 extends GdUnitTestSuite
 
 # Self-preloads — dependency order.
@@ -28,19 +28,19 @@ func _normal(mesh: GoBuildMesh, face_idx: int) -> Vector3:
 # ---------------------------------------------------------------------------
 
 func test_staircase_face_count_default() -> void:
-	# steps=4: 4 treads + 4 risers + left + right + bottom + back = 12
-	assert_int(StaircaseGenerator.generate().faces.size()).is_equal(12)
+	# steps=4: 4 treads + 4 risers + 4 left strips + 4 right strips + bottom + back = 18
+	assert_int(StaircaseGenerator.generate().faces.size()).is_equal(18)
 
 
 func test_staircase_face_count_one_step() -> void:
-	# steps=1: 1 tread + 1 riser + 4 enclosing faces = 6
+	# steps=1: 1 tread + 1 riser + 1 left strip + 1 right strip + bottom + back = 6
 	assert_int(StaircaseGenerator.generate(1).faces.size()).is_equal(6)
 
 
 func test_staircase_face_count_formula() -> void:
-	# 2*steps + 4
+	# 4*steps + 2
 	for n in [1, 2, 3, 8]:
-		assert_int(StaircaseGenerator.generate(n).faces.size()).is_equal(2 * n + 4)
+		assert_int(StaircaseGenerator.generate(n).faces.size()).is_equal(4 * n + 2)
 
 
 # ---------------------------------------------------------------------------
@@ -94,16 +94,18 @@ func test_staircase_all_riser_normals_are_z_minus() -> void:
 # Side wall normals
 # ---------------------------------------------------------------------------
 
-func test_staircase_left_wall_normal_is_x_minus() -> void:
+func test_staircase_left_strip_normals_are_x_minus() -> void:
 	var steps := 3
 	var mesh := StaircaseGenerator.generate(steps)
-	assert_float(_normal(mesh, 2 * steps).dot(Vector3.LEFT)).is_greater_equal(0.999)
+	for i in range(steps):
+		assert_float(_normal(mesh, 2 * steps + i).dot(Vector3.LEFT)).is_greater_equal(0.999)
 
 
-func test_staircase_right_wall_normal_is_x_plus() -> void:
+func test_staircase_right_strip_normals_are_x_plus() -> void:
 	var steps := 3
 	var mesh := StaircaseGenerator.generate(steps)
-	assert_float(_normal(mesh, 2 * steps + 1).dot(Vector3.RIGHT)).is_greater_equal(0.999)
+	for i in range(steps):
+		assert_float(_normal(mesh, 3 * steps + i).dot(Vector3.RIGHT)).is_greater_equal(0.999)
 
 
 # ---------------------------------------------------------------------------
@@ -113,13 +115,13 @@ func test_staircase_right_wall_normal_is_x_plus() -> void:
 func test_staircase_bottom_normal_is_y_minus() -> void:
 	var steps := 3
 	var mesh := StaircaseGenerator.generate(steps)
-	assert_float(_normal(mesh, 2 * steps + 2).dot(Vector3.DOWN)).is_greater_equal(0.999)
+	assert_float(_normal(mesh, 4 * steps).dot(Vector3.DOWN)).is_greater_equal(0.999)
 
 
 func test_staircase_back_normal_is_z_plus() -> void:
 	var steps := 3
 	var mesh := StaircaseGenerator.generate(steps)
-	assert_float(_normal(mesh, 2 * steps + 3).dot(Vector3(0.0, 0.0, 1.0))).is_greater_equal(0.999)
+	assert_float(_normal(mesh, 4 * steps + 1).dot(Vector3(0.0, 0.0, 1.0))).is_greater_equal(0.999)
 
 
 # ---------------------------------------------------------------------------
@@ -163,17 +165,41 @@ func test_staircase_respects_total_depth() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Side wall polygon vertex counts
+# Side wall strip vertex counts (each strip is a quad = 4 vertices)
 # ---------------------------------------------------------------------------
 
-func test_staircase_side_wall_vertex_count() -> void:
-	# Each side wall has 2*steps + 2 vertices
+func test_staircase_side_wall_strips_are_quads() -> void:
 	var steps := 3
 	var mesh := StaircaseGenerator.generate(steps)
-	var left  := mesh.faces[2 * steps]     as GoBuildFace
-	var right := mesh.faces[2 * steps + 1] as GoBuildFace
-	assert_int(left.vertex_indices.size()).is_equal(2 * steps + 2)
-	assert_int(right.vertex_indices.size()).is_equal(2 * steps + 2)
+	for i in range(steps):
+		var left := mesh.faces[2 * steps + i] as GoBuildFace
+		var right := mesh.faces[3 * steps + i] as GoBuildFace
+		assert_int(left.vertex_indices.size()).is_equal(4)
+		assert_int(right.vertex_indices.size()).is_equal(4)
+
+
+func test_staircase_side_wall_edges_are_manifold() -> void:
+	# After rebuild_edges, every edge on a side wall strip should have exactly
+	# 2 incident faces (one strip + one tread/riser/bottom/back), enabling
+	# loop selection to traverse the staircase.
+	var steps := 4
+	var mesh := StaircaseGenerator.generate(steps)
+	mesh.rebuild_edges()
+	# Collect all edges that belong to at least one left or right strip face.
+	var side_face_indices: Dictionary = {}
+	for i in range(steps):
+		side_face_indices[2 * steps + i] = true
+		side_face_indices[3 * steps + i] = true
+	for edge_idx in range(mesh.edges.size()):
+		var ed: GoBuildEdge = mesh.edges[edge_idx]
+		var touches_side: bool = false
+		for fi in ed.face_indices:
+			if side_face_indices.has(fi):
+				touches_side = true
+				break
+		if touches_side:
+			# Manifold edges must have exactly 2 faces.
+			assert_int(ed.face_indices.size()).is_equal(2)
 
 
 # ---------------------------------------------------------------------------
