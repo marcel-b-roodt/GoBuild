@@ -20,6 +20,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Prepare for Texturing — one-click "Prep Tex" button in the UV panel Operations
   drawer: applies Box UV projection to all faces, then packs islands into the 0-1
   tile; full undo/redo as a single action
+- UV wireframe export (PNG) — "Export UV" button in the UV panel Operations drawer;
+  renders UV wireframe to PNG at configurable resolution; white lines on transparent
+  background by default; uses Bresenham line drawing with configurable width and colours
 
 ## [0.8.0] — 2026-06-29
 

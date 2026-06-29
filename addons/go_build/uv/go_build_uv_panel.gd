@@ -20,6 +20,7 @@ const _SEL_MGR_SCRIPT         := preload("res://addons/go_build/core/selection_m
 const _PACK_SCRIPT            := preload("res://addons/go_build/uv/uv_pack_islands.gd")
 const _STITCH_SCRIPT          := preload("res://addons/go_build/uv/uv_stitch_islands.gd")
 const _PREP_TEX_SCRIPT        := preload("res://addons/go_build/uv/uv_prepare_for_texturing.gd")
+const _EXPORT_UV_SCRIPT       := preload("res://addons/go_build/uv/uv_wireframe_export.gd")
 const _FACE_SCRIPT            := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _MATERIAL_ASSIGN_SCRIPT := \
 	preload("res://addons/go_build/mesh/operations/material_assign_operation.gd")
@@ -42,6 +43,7 @@ var _pack_btn: Button         = null
 var _stitch_btn: Button       = null
 var _add_tex_btn: Button      = null
 var _prep_tex_btn: Button     = null
+var _export_uv_btn: Button    = null
 var _select_mode_btn: Button  = null
 var _repeat_spin: SpinBox     = null
 var _snap_spin: SpinBox        = null
@@ -326,6 +328,12 @@ func _add_operations_controls(parent: VBoxContainer) -> void:
 	_prep_tex_btn.pressed.connect(_on_prep_tex_pressed)
 	row2.add_child(_prep_tex_btn)
 
+	_export_uv_btn = Button.new()
+	_export_uv_btn.text = "Export UV"
+	_export_uv_btn.tooltip_text = "Export UV wireframe as a PNG image for painting."
+	_export_uv_btn.pressed.connect(_on_export_uv_pressed)
+	row2.add_child(_export_uv_btn)
+
 
 # ---------------------------------------------------------------------------
 # Handlers
@@ -568,6 +576,27 @@ func _on_prep_tex_pressed() -> void:
 		ur.add_undo_method(_canvas._target, "restore_and_bake", snapshot)
 		ur.commit_action()
 	_canvas.queue_redraw()
+
+
+func _on_export_uv_pressed() -> void:
+	if _canvas == null or _canvas._target == null or _canvas._target.go_build_mesh == null:
+		return
+	var gbm: GoBuildMesh = _canvas._target.go_build_mesh
+	var dialog := EditorFileDialog.new()
+	dialog.access = EditorFileDialog.ACCESS_FILESYSTEM
+	dialog.file_mode = EditorFileDialog.FILE_MODE_SAVE_FILE
+	dialog.filters = PackedStringArray(["*.png ; PNG Image"])
+	dialog.title = "Export UV Wireframe"
+	dialog.current_file = "uv_wireframe.png"
+	add_child(dialog)
+	dialog.file_selected.connect(_on_export_uv_file_selected.bind(gbm))
+	dialog.popup_centered(Vector2i(800, 600))
+
+
+func _on_export_uv_file_selected(path: String, gbm: GoBuildMesh) -> void:
+	var ok := UvWireframeExport.save_png(path, gbm)
+	if not ok:
+		push_warning("GoBuild: Failed to save UV wireframe to %s" % path)
 
 
 func _on_canvas_bg_mode_changed() -> void:
