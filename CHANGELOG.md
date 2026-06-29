@@ -10,6 +10,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.8.1] — 2026-06-29
+
+---
+
 ### Fixed
 - Edge loop cycling now works when clicking any edge in the current loop selection,
   not just the last-selected edge; previously clicking a different edge in the loop
