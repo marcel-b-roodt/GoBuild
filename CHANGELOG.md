@@ -10,6 +10,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+### Fixed
+- Edge loop cycling now works when clicking any edge in the current loop selection,
+  not just the last-selected edge; previously clicking a different edge in the loop
+  would compute an unwanted edge_path instead of cycling to the next loop type
+- Shape draw preview caps segment counts for Torus, Sphere, Cylinder, and Cone
+  during live drag, keeping the viewport responsive on high-poly shapes; full
+  resolution is used on commit
+
+---
+
 ## [0.8.0] — 2026-06-29
 
 ---
