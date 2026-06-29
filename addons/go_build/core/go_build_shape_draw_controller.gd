@@ -45,6 +45,14 @@ const _PREVIEW_RINGS_CAP: int = 12
 const _PREVIEW_SEGMENTS_CAP: int = 8
 const _PREVIEW_SIDES_CAP: int = 12
 
+## Maximum segment/ring counts for the live-draw preview ghost.  Higher
+## values cause noticeable lag during drag on shapes like Torus and Sphere.
+## The ghost uses capped segments during BASE and HEIGHT drag; the commit
+## uses the user's full-resolution extra params.
+const _PREVIEW_RINGS_CAP: int = 12
+const _PREVIEW_SEGMENTS_CAP: int = 8
+const _PREVIEW_SIDES_CAP: int = 12
+
 var _state: int = DrawState.IDLE
 var _shape_name: String = ""
 var _extra_params: Dictionary = {}
@@ -608,10 +616,9 @@ func _refresh_ghost() -> void:
 	if _MAPPING_SCRIPT.needs_ellipsoid_scale(_shape_name):
 		ellipsoid_scale = _MAPPING_SCRIPT.ellipsoid_scale(params)
 		params = _MAPPING_SCRIPT.clean_drawn_params(params)
-	# Reduce segment counts during live drag for smoother preview on
-	# high-poly shapes (torus, sphere, cylinder, cone).  Full resolution
-	# is used on commit.
-	params = _cap_segments_for_preview(params)
+	# Use reduced segment counts for the drag preview to keep the viewport
+	# responsive on high-poly shapes.  The commit uses full resolution.
+	var preview_params: Dictionary = _cap_segments_for_preview(params)
 	var full_key: String = _shape_name + "|" + str(_extra_params.hash()) + "|" \
 			+ str(snappedf(_drawn_width, _DIM_SNAP)) + "|" \
 			+ str(snappedf(_drawn_depth, _DIM_SNAP)) + "|" \
@@ -630,7 +637,7 @@ func _refresh_ghost() -> void:
 			_position_ghost(ellipsoid_scale)
 		return
 	_last_drawn_key = full_key
-	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh(_shape_name, params)
+	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh(_shape_name, preview_params)
 	if mesh == null:
 		return
 	_ghost_base_mesh = mesh
