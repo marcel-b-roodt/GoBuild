@@ -35,6 +35,7 @@ enum VertexSimilarCriterion {
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
+const _DEBUG_SCRIPT := preload("res://addons/go_build/core/go_build_debug.gd")
 
 # Select Similar — tolerance thresholds.
 # Area and length use relative tolerance: two values match if their
@@ -90,12 +91,14 @@ static func _astar(
 	var parent: Dictionary = {}
 	parent[start] = -1
 	# open items: [f_score, h_score, element]
-	# h_score is stored for tie-breaking: when two nodes have equal f,
-	# prefer the one with lower h (closer to the goal), which produces
-	# more consistent path choices regardless of direction.
+	# h-score tie-breaking: when two nodes have equal f, prefer lower h
+	# (closer to goal) for more consistent path choices regardless of direction.
 	var start_h: float = heuristic_fn.call(start)
 	var open: Array = [[start_h, start_h, start]]
 	var visited: Dictionary = {}
+	var dodo_log: bool = _DEBUG_SCRIPT.enabled
+	if dodo_log:
+		print("[GoBuild] A* start=%d goal=%d h_start=%.4f" % [start, goal, start_h])
 	while not open.is_empty():
 		var best_idx: int = 0
 		var best_f: float = open[0][0]
@@ -125,14 +128,21 @@ static func _astar(
 				var nb_h: float = heuristic_fn.call(nb)
 				var f: float = new_dist + nb_h
 				open.append([f, nb_h, nb])
+				if do_log:
+					print("  %d → %d  step=%.4f new_dist=%.4f h=%.4f f=%.4f" % [
+						cur, nb, step_cost, new_dist, nb_h, f])
 	if not parent.has(goal):
+		if do_log:
+			print("[GoBuild] A* NO PATH from %d to %d" % [start, goal])
 		return []
 	var path: Array[int] = []
-	var cur: int = goal
-	while cur != -1:
-		path.append(cur)
-		cur = int(parent[cur])
+	var cur_p: int = goal
+	while cur_p != -1:
+		path.append(cur_p)
+		cur_p = int(parent[cur_p])
 	path.reverse()
+	if do_log:
+		print("[GoBuild] A* path length=%d total_dist=%.4f" % [path.size(), dist[goal]])
 	return path
 
 # ---------------------------------------------------------------------------
@@ -233,7 +243,36 @@ static func edge_path(mesh: GoBuildMesh, edge_a: int, edge_b: int) -> Array[int]
 		var ed: GoBuildEdge = mesh.edges[ei]
 		var center: Vector3 = (mesh.vertices[ed.vertex_a] + mesh.vertices[ed.vertex_b]) * 0.5
 		return center.distance_to(goal_center)
-	return _astar(edge_a, edge_b, neighbors_fn, cost_fn, heuristic_fn)
+	var path: Array[int] = _astar(edge_a, edge_b, neighbors_fn, cost_fn, heuristic_fn)
+	if _DEBUG_SCRIPT.enabled:
+		var log_parts: PackedStringArray = []
+		log_parts.append("[GoBuild] edge_path %d → %d: [%d edges]" % [edge_a, edge_b, path.size()])
+		for i: int in path.size():
+			var ei: int = path[i]
+			var ed: GoBuildEdge = mesh.edges[ei]
+			var va: Vector3 = mesh.vertices[ed.vertex_a]
+			var vb: Vector3 = mesh.vertices[ed.vertex_b]
+			var mid: Vector3 = (va + vb) * 0.5
+			log_parts.append("  %d: ei=%d  va=%d vb=%d  mid=(%.2f,%.2f,%.2f)  faces=%s" % [
+				i, ei, ed.vertex_a, ed.vertex_b,
+				mid.x, mid.y, mid.z,
+				str(ed.face_indices)])
+			if i > 0:
+				var prev_ei: int = path[i - 1]
+				var prev_ed: GoBuildEdge = mesh.edges[prev_ei]
+				var shares_face: bool = false
+				for fi: int in prev_ed.face_indices:
+					if fi in ed.face_indices:
+						shares_face = true
+						break
+				var from_center: Vector3 = \
+					(mesh.vertices[prev_ed.vertex_a] + mesh.vertices[prev_ed.vertex_b]) * 0.5
+				var cost: float = from_center.distance_to(mid)
+				if not shares_face:
+					cost += _VERTEX_ONLY_PENALTY
+				log_parts.append("    cost=%.4f  shares_face=%s" % [cost, str(shares_face)])
+		print("\n".join(log_parts))
+	return path
 
 
 ## Return edge indices adjacent to [param ei] (edges sharing a vertex).
