@@ -57,13 +57,8 @@ const _COPLANAR_DIST_THRESHOLD: float = 0.01
 
 
 # ---------------------------------------------------------------------------
-# Weighted pathfinding (shared Dijkstra core)
+# Weighted pathfinding (shared A* core)
 # ---------------------------------------------------------------------------
-
-## Penalty for stepping between two edges that only share a vertex
-## (no shared face).  This discourages corner-cutting through vertices
-## and favours paths that follow face boundaries.
-const _VERTEX_ONLY_PENALTY: float = 1.0
 
 
 ## A* shortest-path over an element graph.
@@ -96,8 +91,8 @@ static func _astar(
 	var start_h: float = heuristic_fn.call(start)
 	var open: Array = [[start_h, start_h, start]]
 	var visited: Dictionary = {}
-	var dodo_log: bool = _DEBUG_SCRIPT.enabled
-	if dodo_log:
+	var do_log: bool = _DEBUG_SCRIPT.enabled
+	if do_log:
 		print("[GoBuild] A* start=%d goal=%d h_start=%.4f" % [start, goal, start_h])
 	while not open.is_empty():
 		var best_idx: int = 0
@@ -267,10 +262,8 @@ static func edge_path(mesh: GoBuildMesh, edge_a: int, edge_b: int) -> Array[int]
 						break
 				var from_center: Vector3 = \
 					(mesh.vertices[prev_ed.vertex_a] + mesh.vertices[prev_ed.vertex_b]) * 0.5
-				var cost: float = from_center.distance_to(mid)
-				if not shares_face:
-					cost += _VERTEX_ONLY_PENALTY
-				log_parts.append("    cost=%.4f  shares_face=%s" % [cost, str(shares_face)])
+				var dist: float = from_center.distance_to(mid)
+				log_parts.append("    dist=%.4f  shares_face=%s" % [dist, str(shares_face)])
 		print("\n".join(log_parts))
 	return path
 
@@ -292,27 +285,19 @@ static func _adjacent_edges(mesh: GoBuildMesh, ei: int) -> Array[int]:
 
 ## Cost to step from edge [param from_ei] to adjacent edge [param to_ei].
 ##
-## Base cost is Euclidean distance between edge midpoints.  Edges that share
-## only a vertex (no shared face) receive an additional penalty to discourage
-## corner-cutting through vertices.
+## Pure Euclidean distance between edge midpoints.  Previous versions added a
+## vertex-only penalty for edges sharing no face, but this caused paths to take
+## detours through face-sharing edges that were geometrically longer than the
+## direct route.  Pure geometric distance matches Blender's "shortest path"
+## behaviour.
 static func _edge_step_cost(mesh: GoBuildMesh, from_ei: int, to_ei: int) -> float:
 	var from_ed: GoBuildEdge = mesh.edges[from_ei]
 	var to_ed: GoBuildEdge = mesh.edges[to_ei]
-	var from_va: Vector3 = mesh.vertices[from_ed.vertex_a]
-	var from_vb: Vector3 = mesh.vertices[from_ed.vertex_b]
-	var to_va: Vector3 = mesh.vertices[to_ed.vertex_a]
-	var to_vb: Vector3 = mesh.vertices[to_ed.vertex_b]
-	var from_center: Vector3 = (from_va + from_vb) * 0.5
-	var to_center: Vector3 = (to_va + to_vb) * 0.5
-	var cost: float = from_center.distance_to(to_center)
-	var shares_face: bool = false
-	for fi: int in from_ed.face_indices:
-		if fi in to_ed.face_indices:
-			shares_face = true
-			break
-	if not shares_face:
-		cost += _VERTEX_ONLY_PENALTY
-	return cost
+	var from_center: Vector3 = \
+			(mesh.vertices[from_ed.vertex_a] + mesh.vertices[from_ed.vertex_b]) * 0.5
+	var to_center: Vector3 = \
+			(mesh.vertices[to_ed.vertex_a] + mesh.vertices[to_ed.vertex_b]) * 0.5
+	return from_center.distance_to(to_center)
 
 
 

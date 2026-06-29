@@ -25,7 +25,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   rotate, scale) no longer leave coincident groups in a stale state, which caused
   subsequent scale drags to include vertices that should have been separated
   (e.g. after extrude+translate, scaling the top face would also move the base)
-- Removed unused GoBuildShapePreview class (replaced by interactive shape draw system)
+- Edge path no longer takes detours through face-sharing edges; removed the
+  vertex-only penalty that made direct geometric paths appear more expensive
+  than indirect face-sharing paths (e.g. on a sphere, going through 2 shorter
+  face-sharing edges was cheaper than 1 direct vertex-only edge)
+- Removed unused GoBuildShapePreview class (replaced by interactive shape draw)
 - Shape draw ghost now uses full-resolution mesh with preview-optimized bake instead
   of capping segment counts; wireframe shows the true final shape during drag
 
