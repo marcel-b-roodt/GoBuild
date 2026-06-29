@@ -463,6 +463,8 @@ func _is_event_in_viewport(event: InputEvent, vp: SubViewport) -> bool:
 func _handle_mode_switch_in_global(key: InputEventKey) -> bool:
 	if _edited_node == null:
 		return false
+	if _text_input_has_focus():
+		return false
 	# Grow/Shrink: Ctrl+= / Ctrl+- (only in sub-element modes).
 	if key.ctrl_pressed and _panel != null \
 			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
@@ -513,6 +515,26 @@ func _on_editor_focus_regained() -> void:
 		add_node_3d_gizmo_plugin(_gizmo_plugin)
 
 	_force_gizmo_redraw_deferred(_edited_node)
+
+
+## Returns [code]true[/code] if a text-input control (LineEdit, SpinBox, TextEdit,
+## or CodeEdit) currently holds keyboard focus, indicating that shortcut keys
+## should not be processed.  This prevents mode switches (1-4), transform
+## shortcuts (W/E/R), and action keys (Delete/X/M/F) from firing while the
+## user is typing in a GoBuild spinbox, the Inspector, or any other text field.
+func _text_input_has_focus() -> bool:
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus == null:
+		return false
+	if focus is LineEdit:
+		return true
+	if focus is SpinBox:
+		return true
+	if focus is TextEdit:
+		return true
+	if focus is CodeEdit:
+		return true
+	return false
 
 
 # ---------------------------------------------------------------------------
@@ -718,6 +740,8 @@ func _handle_keyboard_shortcut(key: InputEventKey) -> int:
 	# Mode-switch (1-4) and grow/shrink (Ctrl+=/Ctrl+-) are handled in
 	# _handle_mode_switch_in_global via _input so they take priority over
 	# Godot's built-in viewport orthographic shortcuts (1-6).
+	if _text_input_has_focus():
+		return 0
 	var handled: int = _handle_action_key(key.keycode)
 	if handled != -1:
 		return handled
