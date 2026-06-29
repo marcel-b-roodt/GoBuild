@@ -58,6 +58,7 @@ var _ghost_aabb_material: StandardMaterial3D = null
 var _ghost_dirty: bool = false
 var _last_drawn_key: String = ""
 var _last_topology_key: String = ""
+var _last_edge_count: int = -1
 var _ghost_base_mesh: GoBuildMesh = null
 
 var _anchor_world: Vector3 = Vector3.ZERO
@@ -161,6 +162,7 @@ func start(
 	_state = DrawState.POSITION
 	_last_drawn_key = ""
 	_last_topology_key = ""
+	_last_edge_count = -1
 	_ghost_base_mesh = null
 	_ensure_ghost_material()
 
@@ -189,6 +191,7 @@ func start_at_position(
 	_state = DrawState.POSITION
 	_last_drawn_key = ""
 	_last_topology_key = ""
+	_last_edge_count = -1
 	_ghost_base_mesh = null
 	_ensure_ghost_material()
 	_last_camera = camera
@@ -217,6 +220,7 @@ func cancel() -> void:
 	_last_screen_pos = Vector2.ZERO
 	_last_drawn_key = ""
 	_last_topology_key = ""
+	_last_edge_count = -1
 	_ghost_base_mesh = null
 
 
@@ -311,6 +315,7 @@ func _handle_mouse_button(camera: Camera3D, event: InputEventMouseButton) -> boo
 				_drawn_height = 0.0
 				_last_drawn_key = ""
 				_last_topology_key = ""
+				_last_edge_count = -1
 				return true
 		DrawState.HEIGHT:
 			if event.pressed:
@@ -628,13 +633,13 @@ func _refresh_ghost() -> void:
 	_ghost_base_mesh = mesh
 	_ensure_ghost()
 	_ghost.go_build_mesh = mesh
+	_ghost.bake_in_place()
 	var topology_changed: bool = (topology_key != _last_topology_key)
 	if topology_changed:
-		_ghost.bake()
 		_refresh_ghost_edges(mesh)
 		_last_topology_key = topology_key
 	else:
-		_ghost.bake_vertex_positions()
+		_refresh_ghost_edge_positions(mesh)
 	_position_ghost(ellipsoid_scale)
 
 
@@ -743,6 +748,28 @@ func _refresh_ghost_edges(mesh: GoBuildMesh) -> void:
 	var edge_mesh := ArrayMesh.new()
 	edge_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
 	_ghost_edges.mesh = edge_mesh
+	_last_edge_count = count
+
+
+func _refresh_ghost_edge_positions(mesh: GoBuildMesh) -> void:
+	if _ghost_edges == null or not is_instance_valid(_ghost_edges):
+		return
+	var am := _ghost_edges.mesh as ArrayMesh
+	if am == null or am.get_surface_count() == 0:
+		_refresh_ghost_edges(mesh)
+		return
+	var count: int = mesh.edges.size()
+	if count != _last_edge_count:
+		_refresh_ghost_edges(mesh)
+		return
+	var positions: PackedVector3Array = []
+	positions.resize(count * 2)
+	var i: int = 0
+	for edge: GoBuildEdge in mesh.edges:
+		positions[i] = mesh.vertices[edge.vertex_a]
+		positions[i + 1] = mesh.vertices[edge.vertex_b]
+		i += 2
+	am.surface_update_vertex_region(0, 0, positions.to_byte_array())
 
 
 func _position_ghost(ellipsoid_scale: Vector3) -> void:
@@ -808,6 +835,7 @@ func _remove_ghost() -> void:
 			parent.remove_child(_ghost_edges)
 		_ghost_edges.queue_free()
 	_ghost_edges = null
+	_last_edge_count = -1
 	if _ghost_aabb != null and is_instance_valid(_ghost_aabb):
 		var parent := _ghost_aabb.get_parent()
 		if parent != null:
