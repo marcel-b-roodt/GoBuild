@@ -18,10 +18,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Edge loop cycling now works when clicking any edge in the current loop selection,
   not just the last-selected edge; previously clicking a different edge in the loop
   would compute an unwanted edge_path instead of cycling to the next loop type
-- Shape draw preview caps segment counts for Torus, Sphere, Cylinder, and Cone
-  during live drag, keeping the viewport responsive on high-poly shapes; full
-  resolution is used on commit
-- Stale coincident groups after gizmo drags: vertex-move operations (translate,
+- Shape draw ghost uses full-resolution mesh; segment count capping removed.
+  Topology changes trigger full bake + edge wireframe rebuild. Dimension-only
+  changes use bake_in_place() and surface_update_vertex_region() for fast
+  in-place updates without allocating new ArrayMesh objects each frame groups after gizmo drags: vertex-move operations (translate,
   rotate, scale) no longer leave coincident groups in a stale state, which caused
   subsequent scale drags to include vertices that should have been separated
   (e.g. after extrude+translate, scaling the top face would also move the base)
