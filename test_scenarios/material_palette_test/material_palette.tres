@@ -14,11 +14,11 @@ albedo_color = Color(0.12830663, 0.78489226, 0, 1)
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ip7l5"]
 albedo_color = Color(1, 0.5568628, 0.45882353, 1)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_he7vn"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_vls2d"]
 albedo_color = Color(0.43997404, 0.56822485, 0.9365281, 1)
 
 [resource]
 script = ExtResource("1_xasov")
 palette_name = "TestPalette"
-materials = Array[Material]([SubResource("PlaceholderMaterial_wbdyi"), SubResource("StandardMaterial3D_2w8hp"), SubResource("StandardMaterial3D_ip7l5"), SubResource("StandardMaterial3D_he7vn"), ExtResource("1_1dhnw"), ExtResource("2_e43r6"), ExtResource("3_0xije"), ExtResource("4_otk1s")])
+materials = Array[Material]([SubResource("PlaceholderMaterial_wbdyi"), SubResource("StandardMaterial3D_2w8hp"), SubResource("StandardMaterial3D_ip7l5"), SubResource("StandardMaterial3D_vls2d"), ExtResource("1_1dhnw"), ExtResource("2_e43r6"), ExtResource("3_0xije"), ExtResource("4_otk1s")])
 metadata/_custom_type_script = "uid://djcpef37rrnlt"

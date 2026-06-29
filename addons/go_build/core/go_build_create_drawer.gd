@@ -1,13 +1,11 @@
 ## Shape-creation drawer for the GoBuild editor panel.
 ##
 ## Renders a button for every registered shape in [ShapeCreationCatalog].
-## Shapes without parameters (e.g. Cube, Plane) insert immediately into the
-## currently open scene with full undo/redo.  Shapes that support a parameter
-## preview (e.g. Cylinder, Sphere) open [GoBuildShapePreview] first.
+## All shapes now launch the interactive 3-click draw controller which lets
+## the user draw the shape's bounding box directly in the viewport.
 ##
-## [method insert_shape] is the single canonical path for inserting a new
-## [GoBuildMeshInstance] — all callers (panel buttons, context menu, preview
-## acceptance) go through it.
+## [method insert_shape] remains the single canonical path for inserting a
+## new [GoBuildMeshInstance] — the draw controller commits through it.
 @tool
 class_name GoBuildCreateDrawer
 extends GoBuildDrawer
@@ -18,13 +16,15 @@ const _MESH_INST_SCRIPT_CR := preload("res://addons/go_build/core/go_build_mesh_
 const _DRAWER_SCRIPT_CR    := preload("res://addons/go_build/core/go_build_drawer.gd")
 const _SHAPE_CATALOG_SCRIPT_CR := \
 		preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
-const _SHAPE_PREVIEW_SCRIPT_CR := \
-		preload("res://addons/go_build/core/go_build_shape_preview.gd")
 const _SHAPE_PLACEMENT_SCRIPT_CR := \
 		preload("res://addons/go_build/core/shape_placement.gd")
+const _DRAW_CTRL_SCRIPT_CR := \
+		preload("res://addons/go_build/core/go_build_shape_draw_controller.gd")
 
-var _shape_preview: GoBuildShapePreview = null
 var _align_to_surface_cb: CheckBox = null
+var _parent_mode_option: OptionButton = null
+var _param_strip: VBoxContainer = null
+var _param_controls: Dictionary = {}
 
 
 func _ready() -> void:
@@ -36,8 +36,24 @@ func _ready() -> void:
 	_align_to_surface_cb.button_pressed = true
 	_align_to_surface_cb.tooltip_text = \
 			"Rotate new shapes so Y aligns with the surface normal"
+	_align_to_surface_cb.toggled.connect(_on_align_to_surface_toggled)
 	align_hb.add_child(_align_to_surface_cb)
 	_content.add_child(align_hb)
+
+	var parent_hb := HBoxContainer.new()
+	var parent_lbl := Label.new()
+	parent_lbl.text = "Insert as:"
+	parent_lbl.add_theme_font_size_override("font_size", 11)
+	parent_hb.add_child(parent_lbl)
+	_parent_mode_option = OptionButton.new()
+	_parent_mode_option.add_item("Child", GoBuildShapeDrawController.ParentMode.CHILD)
+	_parent_mode_option.add_item("Sibling", GoBuildShapeDrawController.ParentMode.SIBLING)
+	_parent_mode_option.add_item("Root", GoBuildShapeDrawController.ParentMode.ROOT)
+	_parent_mode_option.tooltip_text = \
+			"Child: under hit surface | Sibling: same parent | Root: scene root"
+	_parent_mode_option.item_selected.connect(_on_parent_mode_selected)
+	parent_hb.add_child(_parent_mode_option)
+	_content.add_child(parent_hb)
 
 	var grid := GridContainer.new()
 	grid.columns = 2
@@ -50,70 +66,144 @@ func _ready() -> void:
 		btn.pressed.connect(_on_shape_button_pressed.bind(shape_name))
 		grid.add_child(btn)
 
-	_shape_preview = GoBuildShapePreview.new()
-	_shape_preview.accepted.connect(_on_shape_preview_accepted)
-	_shape_preview.cancelled.connect(_on_shape_preview_cancelled)
-	_content.add_child(_shape_preview)
+	_param_strip = VBoxContainer.new()
+	_param_strip.visible = false
+	_content.add_child(_param_strip)
 
 
 # ---------------------------------------------------------------------------
-# Internal handlers
+# Shape button handler
 # ---------------------------------------------------------------------------
 
 func _on_shape_button_pressed(shape_name: String) -> void:
-	if _shape_preview != null and _shape_preview.is_active():
-		_shape_preview.cancel()
-	var align_to_surface: bool = \
-			_align_to_surface_cb.button_pressed if _align_to_surface_cb != null else true
-	var placement := _viewport_center_placement()
-	if placement != null:
-		ShapePlacement.apply_bottom_offset(placement, shape_name, align_to_surface)
-	var edited: GoBuildMeshInstance = _get_edited_instance()
-	var scene_root: Node = EditorInterface.get_edited_scene_root()
-	if scene_root == null:
-		return
-
-	if not ShapeCreationCatalog.supports_preview(shape_name):
-		var resolved: Dictionary = ShapePlacement.resolve_parent_and_position(
-				placement, edited, scene_root)
-		insert_shape(
-			func() -> GoBuildMesh: return ShapeCreationCatalog.build_mesh(
-					shape_name, ShapeCreationCatalog.default_params(shape_name)),
-			ShapeCreationCatalog.node_name(shape_name),
-			resolved["parent"],
-			resolved["local_pos"],
-			resolved["local_basis"])
-		return
-
 	if not Engine.is_editor_hint():
 		return
-	_shape_preview.start_with_placement(shape_name, scene_root, placement, edited)
+	if _plugin == null:
+		return
+	var align_to_surface: bool = \
+			_align_to_surface_cb.button_pressed if _align_to_surface_cb != null else true
+	var parent_mode: int = \
+			_parent_mode_option.get_selected_id() if _parent_mode_option != null \
+			else GoBuildShapeDrawController.ParentMode.CHILD
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var camera: Camera3D = null
+	var screen_pos: Vector2 = Vector2.ZERO
+	if sv != null:
+		camera = sv.get_camera_3d()
+		screen_pos = Vector2(sv.size.x * 0.5, sv.size.y * 0.5)
+	var edited: GoBuildMeshInstance = _get_edited_instance()
+	var draw_ctrl: GoBuildShapeDrawController = _plugin.get("_shape_draw_controller")
+	if draw_ctrl == null:
+		return
+	draw_ctrl.start(shape_name, _plugin, align_to_surface, camera, screen_pos, edited)
+	draw_ctrl.set_parent_mode(parent_mode)
+	_show_param_strip(shape_name, draw_ctrl)
 
 
-func _on_shape_preview_accepted(
-		shape_key: String,
-		params: Dictionary,
-		parent: Node,
-		local_pos: Vector3,
-		local_basis: Basis,
+func _on_align_to_surface_toggled(pressed: bool) -> void:
+	if _plugin == null:
+		return
+	var draw_ctrl: GoBuildShapeDrawController = _plugin.get("_shape_draw_controller")
+	if draw_ctrl == null or not draw_ctrl.is_active():
+		return
+	draw_ctrl.set_align_to_surface(pressed)
+
+
+func _on_parent_mode_selected(_index: int) -> void:
+	if _plugin == null:
+		return
+	var draw_ctrl: GoBuildShapeDrawController = _plugin.get("_shape_draw_controller")
+	if draw_ctrl == null or not draw_ctrl.is_active():
+		return
+	draw_ctrl.set_parent_mode(_parent_mode_option.get_selected_id())
+
+
+# ---------------------------------------------------------------------------
+# Parameter strip for non-drawable structural params
+# ---------------------------------------------------------------------------
+
+func _show_param_strip(shape_name: String, draw_ctrl: GoBuildShapeDrawController) -> void:
+	_clear_param_strip()
+	var specs: Array[Dictionary] = ShapeCreationCatalog.non_drawable_param_specs(shape_name)
+	if specs.is_empty():
+		_param_strip.visible = false
+		return
+	var bool_row := HBoxContainer.new()
+	for spec: Dictionary in specs:
+		var t: String = str(spec.get("type", ""))
+		var key: String = str(spec.get("key", ""))
+		var label_text: String = str(spec.get("label", key))
+		if t == "bool":
+			var chk := CheckBox.new()
+			chk.text = label_text
+			var default_val = draw_ctrl.get_extra_params().get(key, spec.get("default", false))
+			chk.button_pressed = bool(default_val)
+			chk.toggled.connect(_on_param_changed.bind(key, draw_ctrl, true))
+			bool_row.add_child(chk)
+			_param_controls[key] = chk
+		else:
+			var row := HBoxContainer.new()
+			var lbl := Label.new()
+			lbl.text = label_text
+			lbl.add_theme_font_size_override("font_size", 11)
+			row.add_child(lbl)
+			var spin := SpinBox.new()
+			spin.min_value = float(spec.get("min", 0.0))
+			spin.max_value = float(spec.get("max", 100.0))
+			spin.step = float(spec.get("step", 1.0))
+			spin.allow_greater = false
+			spin.allow_lesser = false
+			spin.rounded = t == "int"
+			var default_val = draw_ctrl.get_extra_params().get(key, spec.get("default", 0))
+			spin.value = float(default_val)
+			spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			spin.value_changed.connect(_on_param_spin_changed.bind(key, draw_ctrl, t == "int"))
+			row.add_child(spin)
+			_param_strip.add_child(row)
+			_param_controls[key] = spin
+	if bool_row.get_child_count() > 0:
+		_param_strip.add_child(bool_row)
+	_param_strip.visible = true
+
+
+func _clear_param_strip() -> void:
+	for child: Node in _param_strip.get_children():
+		child.queue_free()
+	_param_controls.clear()
+	_param_strip.visible = false
+
+
+func _on_param_changed(
+		value: Variant,
+		key: String,
+		draw_ctrl: GoBuildShapeDrawController,
+		_is_bool: bool,
 ) -> void:
-	insert_shape(
-		func() -> GoBuildMesh: return ShapeCreationCatalog.build_mesh(shape_key, params),
-		ShapeCreationCatalog.node_name(shape_key),
-		parent,
-		local_pos,
-		local_basis)
+	draw_ctrl.set_extra_param(key, value)
 
 
-func _on_shape_preview_cancelled() -> void:
-	pass
+func _on_param_spin_changed(
+		value: float,
+		key: String,
+		draw_ctrl: GoBuildShapeDrawController,
+		is_int: bool,
+) -> void:
+	draw_ctrl.set_extra_param(key, int(round(value)) if is_int else value)
 
+
+func hide_param_strip() -> void:
+	_clear_param_strip()
+
+
+# ---------------------------------------------------------------------------
+# Canonical insertion path
+# ---------------------------------------------------------------------------
 
 ## Create a [GoBuildMeshInstance] populated by [param mesh_callable] and
 ## insert it into the scene with full undo/redo and auto-selection.
 ##
 ## This is the single canonical insertion path used by all callers:
-## panel buttons, context menu instant shapes, and preview acceptance.
+## the draw controller, and any future programmatic callers.
 ##
 ## [param parent] is the parent [Node]; if null, scene root is used.
 ## [param local_pos] is the position.  If [param parent] is the scene root,
@@ -161,12 +251,14 @@ func insert_shape(
 	ur.add_undo_reference(node)
 	ur.commit_action()
 
-	# Auto-select the new node so the user can immediately switch to an
-	# edit mode without having to click in the scene tree.
 	var es: EditorSelection = EditorInterface.get_selection()
 	es.clear()
 	es.add_node(node)
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 ## Return the currently edited [GoBuildMeshInstance] from the editor selection,
 ## or null if none is selected.
@@ -183,40 +275,32 @@ func _get_edited_instance() -> GoBuildMeshInstance:
 
 
 ## Return whether the "Align to Surface" toggle is checked.
-## Defaults to true if the checkbox has not been created yet.
 func is_align_to_surface() -> bool:
 	if _align_to_surface_cb == null:
 		return true
 	return _align_to_surface_cb.button_pressed
 
 
-## Compute a placement result at the centre of the editor 3D viewport.
-## Returns null if there is no camera or scene.
-func _viewport_center_placement() -> RefCounted:
-	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
-	if sv == null:
-		return null
-	var camera: Camera3D = sv.get_camera_3d()
-	if camera == null:
-		return null
-	var center: Vector2 = Vector2(sv.size.x * 0.5, sv.size.y * 0.5)
-	var edited: GoBuildMeshInstance = _get_edited_instance()
-	return ShapePlacement.find_placement(camera, center, edited)
-
-
-## Start a shape preview positioned at the placement result's world position.
-## Called from the context menu when a preview-supporting shape is chosen.
-func start_shape_preview_at(
+## Start the interactive shape draw positioned at the viewport center.
+## Called from the context menu "Add Shape" path.
+func start_shape_draw_at(
 		shape_name: String,
-		placement: RefCounted,
+		camera: Camera3D,
+		screen_pos: Vector2,
 		edited_node: GoBuildMeshInstance,
 ) -> void:
 	if not Engine.is_editor_hint():
 		return
-	var scene_root: Node = EditorInterface.get_edited_scene_root()
-	if scene_root == null:
-		push_warning("GoBuild: no open scene — create or open a scene first")
+	if _plugin == null:
 		return
-	if _shape_preview != null and _shape_preview.is_active():
-		_shape_preview.cancel()
-	_shape_preview.start_with_placement(shape_name, scene_root, placement, edited_node)
+	var align_to_surface: bool = is_align_to_surface()
+	var parent_mode: int = \
+			_parent_mode_option.get_selected_id() if _parent_mode_option != null \
+			else GoBuildShapeDrawController.ParentMode.CHILD
+	var draw_ctrl: GoBuildShapeDrawController = _plugin.get("_shape_draw_controller")
+	if draw_ctrl == null:
+		return
+	draw_ctrl.start_at_position(shape_name, _plugin, align_to_surface, camera,
+			screen_pos, edited_node)
+	draw_ctrl.set_parent_mode(parent_mode)
+	_show_param_strip(shape_name, draw_ctrl)

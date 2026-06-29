@@ -36,6 +36,10 @@ const _DRAG_CTRL_SCRIPT    := preload(
 		"res://addons/go_build/core/go_build_drag_controller.gd")
 const _DRAG_OP_SCRIPT       := preload(
 		"res://addons/go_build/core/go_build_drag_operation.gd")
+const _SHAPE_DRAW_CTRL_SCRIPT := preload(
+		"res://addons/go_build/core/go_build_shape_draw_controller.gd")
+const _SHAPE_DRAW_OVERLAY_SCRIPT := preload(
+		"res://addons/go_build/core/go_build_shape_draw_overlay.gd")
 const _ICON                 := preload("res://addons/go_build/go_build.svg")
 
 
@@ -77,6 +81,8 @@ var _edited_node: GoBuildMeshInstance            = null
 var _gizmo_plugin: GoBuildGizmoPlugin            = null
 var _input_controller: SelectionInputController  = null
 var _drag_controller: GoBuildDragController       = null
+var _shape_draw_controller: GoBuildShapeDrawController = null
+var _draw_overlay: Control = null
 var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
@@ -154,9 +160,11 @@ func _enter_tree() -> void:
 	_input_controller = _CONTROLLER_SCRIPT.new()
 	_drag_controller = _DRAG_CTRL_SCRIPT.new()
 	_drag_controller.setup(self)
+	_shape_draw_controller = _SHAPE_DRAW_CTRL_SCRIPT.new()
 	_input_controller.setup(_gizmo_plugin, _panel, self, _drag_controller)
 
 	_build_toolbar()
+	_build_draw_overlay()
 	_tool_pinner = Node3DEditorToolPinner.new()
 	set_process(true)
 
@@ -236,6 +244,42 @@ func _build_toolbar() -> void:
 	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar)
 
 
+func _build_draw_overlay() -> void:
+	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if vp == null:
+		return
+	var container: Control = vp.get_parent() as Control
+	if container == null:
+		return
+	_draw_overlay = Control.new()
+	_draw_overlay.name = "GoBuildDrawOverlay"
+	_draw_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_draw_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_draw_overlay.visible = false
+	_draw_overlay.draw.connect(_on_draw_overlay)
+	container.add_child(_draw_overlay)
+
+
+func _update_draw_overlay() -> void:
+	if _draw_overlay == null or not is_instance_valid(_draw_overlay):
+		return
+	if _shape_draw_controller == null or not _shape_draw_controller.is_active() \
+			or _edited_node != null:
+		_draw_overlay.visible = false
+		_draw_overlay.queue_redraw()
+		return
+	if not _draw_overlay.is_inside_tree():
+		return
+	_draw_overlay.visible = true
+	_draw_overlay.queue_redraw()
+
+
+func _on_draw_overlay() -> void:
+	if _shape_draw_controller == null or not _shape_draw_controller.is_active():
+		return
+	_draw_shape_draw_overlay(_draw_overlay)
+
+
 func _exit_tree() -> void:
 	remove_custom_type("GoBuildMeshInstance")
 
@@ -263,6 +307,10 @@ func _exit_tree() -> void:
 	_project_settings = null
 	_disconnect_node_signals()
 	_edited_node = null
+
+	if _draw_overlay != null and is_instance_valid(_draw_overlay):
+		_draw_overlay.queue_free()
+		_draw_overlay = null
 
 	if _gizmo_plugin:
 		remove_node_3d_gizmo_plugin(_gizmo_plugin)
@@ -294,6 +342,9 @@ func _process(_delta: float) -> void:
 			_prev_object_transform = t
 			if _edited_node.needs_world_space_uv_refresh():
 				_schedule_object_uv_bake(_edited_node)
+	if _shape_draw_controller != null and _shape_draw_controller.is_active():
+		_shape_draw_controller.tick()
+	_update_draw_overlay()
 
 
 ## Queue a single deferred UV re-apply + bake for the active node in Object mode.
@@ -335,6 +386,49 @@ func _notification(what: int) -> void:
 ## consume these keys before [method _forward_3d_gui_input] is called.  The global
 ## _input callback runs first, letting us intercept and mark them handled.
 func _input(event: InputEvent) -> void:
+	if _shape_draw_controller != null and _shape_draw_controller.is_active():
+		if event is InputEventKey:
+			var key := event as InputEventKey
+			if key.keycode == KEY_ESCAPE and key.pressed and not key.echo:
+				_shape_draw_controller.cancel()
+				_hide_draw_param_strip()
+				get_viewport().set_input_as_handled()
+				return
+		if _shape_draw_controller.is_mouse_captured() \
+				and (event is InputEventMouseMotion or event is InputEventMouseButton):
+			var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+			var camera: Camera3D = vp.get_camera_3d() if vp != null else null
+			if camera != null:
+				var result: int = _shape_draw_controller.handle_input(camera, event)
+				if result != 0:
+					if not _shape_draw_controller.is_active():
+						_hide_draw_param_strip()
+					update_overlays()
+					get_viewport().set_input_as_handled()
+					return
+		if _edited_node == null and not _shape_draw_controller.is_mouse_captured():
+			if event is InputEventMouseButton or event is InputEventMouseMotion:
+				var editor_vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+				if editor_vp != null:
+					var cam: Camera3D = editor_vp.get_camera_3d()
+					if cam != null and _is_event_in_viewport(event, editor_vp):
+						var vp_event: InputEvent = event
+						if event is InputEventMouse:
+							var vp_parent: Control = editor_vp.get_parent() as Control
+							if vp_parent != null:
+								vp_event = event.duplicate()
+								(vp_event as InputEventMouse).position -= \
+										vp_parent.get_global_rect().position
+								if vp_event is InputEventMouseMotion:
+									(vp_event as InputEventMouseMotion).relative = \
+											(event as InputEventMouseMotion).relative
+						var result2: int = _shape_draw_controller.handle_input(cam, vp_event)
+						if result2 != 0:
+							if not _shape_draw_controller.is_active():
+								_hide_draw_param_strip()
+							update_overlays()
+							get_viewport().set_input_as_handled()
+							return
 	if _input_controller == null:
 		return
 	if _input_controller.handle_global_input(event):
@@ -347,6 +441,20 @@ func _input(event: InputEvent) -> void:
 		return
 	if _handle_mode_switch_in_global(key):
 		get_viewport().set_input_as_handled()
+
+
+## Return [code]true[/code] if [param event] occurred inside the 3D editor viewport.
+## Used to filter mouse events so the draw controller only processes clicks
+## that originated in the 3D viewport, not on editor panels or docks.
+func _is_event_in_viewport(event: InputEvent, vp: SubViewport) -> bool:
+	if not event is InputEventMouse:
+		return false
+	var mouse_event: InputEventMouse = event as InputEventMouse
+	var vp_parent: Control = vp.get_parent() as Control
+	if vp_parent == null:
+		return false
+	var vp_rect: Rect2 = vp_parent.get_global_rect()
+	return vp_rect.has_point(mouse_event.global_position)
 
 
 ## Handle mode-switch shortcuts (1-4) and grow/shrink (Ctrl+=/Ctrl+-) in the
@@ -505,6 +613,13 @@ func _make_visible(visible: bool) -> void:
 # ---------------------------------------------------------------------------
 
 func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
+	if _shape_draw_controller != null and _shape_draw_controller.is_active():
+		var result: int = _shape_draw_controller.handle_input(camera, event)
+		if result != 0:
+			if not _shape_draw_controller.is_active():
+				_hide_draw_param_strip()
+			update_overlays()
+			return result
 	if _edited_node == null:
 		return 0
 	var key_result: int = _handle_keyboard(event)
@@ -535,6 +650,42 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 	else:
 		_draw_mode_hint(overlay)
 	_draw_selection_dims(overlay)
+	_draw_shape_draw_overlay(overlay)
+
+
+func _draw_shape_draw_overlay(overlay: Control) -> void:
+	if _shape_draw_controller == null or not _shape_draw_controller.is_active():
+		return
+	var shift_held: bool = Input.is_key_pressed(KEY_SHIFT)
+	var ctrl_held: bool = Input.is_key_pressed(KEY_CTRL)
+	var state_text: String = _shape_draw_controller.build_state_label(shift_held, ctrl_held)
+	var dims_text: String = _shape_draw_controller.build_dims_label()
+	if not state_text.is_empty():
+		var font: Font = ThemeDB.fallback_font
+		var fsize: int = 12
+		var m: float = 8.0
+		var pos := Vector2(m, overlay.size.y - m - 18.0 - 18.0)
+		overlay.draw_string(font, pos + Vector2(1.0, 1.0), state_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+		overlay.draw_string(font, pos, state_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 1.0, 0.65, 0.90))
+	if not dims_text.is_empty():
+		var font2: Font = ThemeDB.fallback_font
+		var fsize2: int = 12
+		var m2: float = 8.0
+		var w: float = font2.get_string_size(dims_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2).x
+		var pos2 := Vector2(overlay.size.x - w - m2, overlay.size.y - m2 - 18.0)
+		overlay.draw_string(font2, pos2 + Vector2(1.0, 1.0), dims_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2, Color(0.0, 0.0, 0.0, 0.55))
+		overlay.draw_string(font2, pos2, dims_text,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2, Color(0.65, 1.0, 0.65, 0.90))
+
+
+func _hide_draw_param_strip() -> void:
+	if _panel != null:
+		var drawer = _panel.get_create_drawer()
+		if drawer != null:
+			drawer.hide_param_strip()
 
 
 func _handle_keyboard(event: InputEvent) -> int:
@@ -937,6 +1088,8 @@ func _on_snap_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
 	_gizmo_plugin.snap_step_override = _SNAP_PRESETS[index]
+	if _shape_draw_controller != null:
+		_shape_draw_controller.set_snap_step(_SNAP_PRESETS[index])
 
 
 func _on_rot_snap_selected(index: int) -> void:

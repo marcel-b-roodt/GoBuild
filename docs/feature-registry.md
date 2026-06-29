@@ -34,8 +34,9 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Staircase | ✅ Complete | Steps, rise/run/width; closed solid |
 | Arch | ✅ Complete | Outer radius, thickness, angle, segments, depth |
 | Shape insert toolbar | ✅ Complete | One-click creation in GoBuildPanel; full undo/redo |
-| Generator parameter preview (pre-commit) | 🔧 In Progress | Panel-native live preview + Accept/Cancel for Cylinder/Cone/Sphere/Staircase/Torus/Arch with configurable counts (sides/segments/steps/rings) and size params; defaults/schema/build dispatch moved into `ShapeCreationCatalog`; final commit inserts a normal node via undo/redo |
-| Shape placement at cursor | 🔧 In Progress | Right-click context menu "Add Shape" submenu in all modes; raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane fallback for miss case; Create drawer places at viewport centre; preview shapes start positioned at cursor |
+| Generator parameter preview (pre-commit) | ✅ Complete | Panel-native live preview + Accept/Cancel for Cylinder/Cone/Sphere/Staircase/Torus/Arch with configurable counts (sides/segments/steps/rings) and size params; defaults/schema/build dispatch moved into `ShapeCreationCatalog`; final commit inserts a normal node via undo/redo |
+| Shape placement at cursor | ✅ Complete | Right-click context menu "Add Shape" submenu in all modes; raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane fallback for miss case; Create drawer places at viewport centre; preview shapes start positioned at cursor |
+| Interactive shape draw (3-click insertion) | 🔧 In Progress | 3-click viewport drawing: POSITION → BASE (drag width/depth) → HEIGHT (drag along normal); wireframe ghost; live dimension labels; Shift constrains to uniform; Ctrl snaps to grid; non-drawable structural params (sides/rings/segments/caps) shown in compact panel strip; ellipsoid support for Sphere; design: `docs/interactive-shape-draw.md` |
 
 ---
 
@@ -197,7 +198,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Feature | Status | Notes |
 |---|---|---|
 | PolyBrush-style sculpting | 📋 Planned | Post-v1.0 |
-| Shape draw tool | 📋 Planned | Post-v1.0 |
+| Shape draw tool | 🔧 In Progress | Moved to Stage 1 — see "Interactive shape draw" above |
 | Parametric (re-editable) shapes | 📋 Planned | Post-v1.0 |
 | SpriteMesh (geometry from sprite outline) | 📋 Planned | Post-v1.0 |
 

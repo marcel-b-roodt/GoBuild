@@ -55,6 +55,7 @@ static func find_placement(
 		camera: Camera3D,
 		screen_pos: Vector2,
 		edited_node: GoBuildMeshInstance,
+		exclude: GoBuildMeshInstance = null,
 ) -> PlacementResult:
 	var result := PlacementResult.new()
 	var scene_root: Node = EditorInterface.get_edited_scene_root()
@@ -73,6 +74,8 @@ static func find_placement(
 		if not (node is GoBuildMeshInstance):
 			continue
 		var mi: GoBuildMeshInstance = node as GoBuildMeshInstance
+		if mi == exclude:
+			continue
 		if mi.go_build_mesh == null or mi.mesh == null:
 			continue
 		# Quick AABB rejection.
