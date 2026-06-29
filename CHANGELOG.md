@@ -10,14 +10,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased]
-
----
-
-## [0.8.0] — 2026-06-29
-
----
-
 ### Added
 - Interactive shape draw (3-click insertion) — click in the viewport to position a
   shape, drag to set width/depth, then drag to set height; live wireframe ghost and
