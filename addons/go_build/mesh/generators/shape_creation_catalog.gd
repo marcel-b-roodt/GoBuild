@@ -74,8 +74,8 @@ static func default_params(shape_name: String) -> Dictionary:
 			return {
 				"radius_major": 0.5,
 				"radius_minor": 0.2,
-				"rings": 24,
-				"tube_segments": 12,
+				"rings": 16,
+				"tube_segments": 8,
 			}
 		"Arch":
 			return {
@@ -192,7 +192,7 @@ static func default_non_drawable_params(shape_name: String) -> Dictionary:
 		"Cone":
 			return {"sides": 16, "cap_bottom": true}
 		"Torus":
-			return {"rings": 24, "tube_segments": 12}
+			return {"rings": 16, "tube_segments": 8}
 		"Staircase":
 			return {"steps": 4}
 		"Arch":
@@ -284,8 +284,8 @@ static func normalise_params(shape_name: String, raw_params: Dictionary) -> Dict
 				minor = maxf(0.01, major * 0.5)
 			p["radius_major"] = major
 			p["radius_minor"] = minor
-			p["rings"] = maxi(int(p.get("rings", 24)), 3)
-			p["tube_segments"] = maxi(int(p.get("tube_segments", 12)), 3)
+			p["rings"] = maxi(int(p.get("rings", 16)), 3)
+			p["tube_segments"] = maxi(int(p.get("tube_segments", 8)), 3)
 		"Arch":
 			var outer := maxf(float(p.get("outer_radius", 1.0)), 0.02)
 			var thick := maxf(float(p.get("thickness", 0.2)), 0.01)
@@ -338,8 +338,8 @@ static func build_mesh(shape_name: String, params: Dictionary) -> GoBuildMesh:
 			return TorusGenerator.generate(
 				float(p.get("radius_major", 0.5)),
 				float(p.get("radius_minor", 0.2)),
-				int(p.get("rings", 24)),
-				int(p.get("tube_segments", 12)),
+				int(p.get("rings", 16)),
+				int(p.get("tube_segments", 8)),
 			)
 		"Staircase":
 			return StaircaseGenerator.generate(

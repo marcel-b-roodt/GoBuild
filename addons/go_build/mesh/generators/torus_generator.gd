@@ -21,8 +21,8 @@ const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 static func generate(
 		radius_major: float = 0.5,
 		radius_minor: float = 0.2,
-		rings: int = 24,
-		tube_segments: int = 12,
+		rings: int = 16,
+		tube_segments: int = 8,
 		material_index: int = 0,
 ) -> GoBuildMesh:
 	assert(radius_major > 0.0, "TorusGenerator: radius_major must be > 0")

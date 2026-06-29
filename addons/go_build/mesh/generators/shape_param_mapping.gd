@@ -106,8 +106,8 @@ static func _torus_params(w: float, d: float, h: float, extra: Dictionary) -> Di
 	if radius_minor <= 0.0:
 		radius_minor = _EPSILON
 	var p: Dictionary = {"radius_major": radius_major, "radius_minor": radius_minor}
-	p["rings"] = int(extra.get("rings", 24))
-	p["tube_segments"] = int(extra.get("tube_segments", 12))
+	p["rings"] = int(extra.get("rings", 16))
+	p["tube_segments"] = int(extra.get("tube_segments", 8))
 	if not is_equal_approx(w, d):
 		var max_diam: float = maxf(w, d)
 		p["_scale_x"] = w / max_diam

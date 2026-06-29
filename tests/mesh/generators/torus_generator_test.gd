@@ -12,8 +12,8 @@ func test_torus_face_count() -> void:
 
 
 func test_torus_default_face_count() -> void:
-	# default rings=24, tube_segments=12 → 288 faces
-	assert_int(TorusGenerator.generate().faces.size()).is_equal(288)
+	# default rings=16, tube_segments=8 → 128 faces
+	assert_int(TorusGenerator.generate().faces.size()).is_equal(128)
 
 
 # ---------------------------------------------------------------------------
