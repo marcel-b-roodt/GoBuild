@@ -10,6 +10,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+---
+
 ## [0.8.0] — 2026-06-29
 
 ---
@@ -117,6 +121,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Staircase generator: side walls decomposed into grid cells for correct fan
   triangulation; bottom and back faces subdivided into per-step strips to eliminate
   T-junction duplicate edges; all edges are now manifold (exactly 2 faces per edge)
+- Edge loop cycling now works when clicking any edge in the current loop selection,
+  not just the last-selected edge; previously clicking a different edge in the loop
+  would compute an unwanted edge_path instead of cycling to the next loop type
+- Shape draw preview caps segment counts for Torus, Sphere, Cylinder, and Cone
+  during live drag, keeping the viewport responsive on high-poly shapes; full
+  resolution is used on commit
 
 ### Tests
 - Adjacency cache unit tests added
