@@ -635,7 +635,8 @@ func _refresh_ghost() -> void:
 		_refresh_ghost_edges(mesh)
 		_last_topology_key = topology_key
 	else:
-		_ghost.bake_preview()
+		# Dimension-only change: fast vertex-position update, no surface rebuild.
+		_ghost.bake_vertex_positions()
 	_position_ghost(ellipsoid_scale)
 
 
