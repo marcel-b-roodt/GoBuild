@@ -387,6 +387,28 @@ func test_coincident_groups_rebuilt_after_snapshot_restore() -> void:
 	assert_int(m.coincident_groups[0]).is_equal(m.coincident_groups[1])
 
 
+func test_coincident_groups_no_longer_coincident_after_vertex_move() -> void:
+	# Regression: after moving coincident vertices apart, rebuild must
+	# separate them into different groups.  Without rebuilding, a scale
+	# drag would expand to include stale "coincident" partners and move
+	# vertices that should stay put.
+	var m := GoBuildMesh.new()
+	m.vertices = [Vector3(0, 0, 0), Vector3(0, 0, 0), Vector3(1, 0, 0)]
+	var f := GoBuildFace.new()
+	f.vertex_indices = [0, 1, 2]
+	f.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2(1, 0)]
+	m.faces.append(f)
+	m.rebuild_edges()
+	# Vertices 0 and 1 are coincident.
+	assert_int(m.coincident_groups[0]).is_equal(m.coincident_groups[1])
+
+	# Move vertex 1 away from vertex 0.
+	m.vertices[1] = Vector3(2, 0, 0)
+	m.rebuild_coincident_groups()
+	# They are now in different groups.
+	assert_int(m.coincident_groups[0]).is_not_equal(m.coincident_groups[1])
+
+
 # ---------------------------------------------------------------------------
 # get_coincident_vertices
 # ---------------------------------------------------------------------------

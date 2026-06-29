@@ -183,6 +183,7 @@ func commit() -> void:
 			op.node.end_preview()
 		if op.node.auto_uv_mode != GoBuildFace.UvMode.NONE:
 			op.node._apply_auto_uv()
+		op.node.go_build_mesh.rebuild_coincident_groups()
 		op.node.bake()
 
 		var after_snapshot: Dictionary = op.node.go_build_mesh.take_snapshot()
