@@ -630,12 +630,10 @@ func _refresh_ghost() -> void:
 	_ghost.go_build_mesh = mesh
 	var topology_changed: bool = (topology_key != _last_topology_key)
 	if topology_changed:
-		_ghost.begin_preview()
-		_ghost.bake_preview()
+		_ghost.bake()
 		_refresh_ghost_edges(mesh)
 		_last_topology_key = topology_key
 	else:
-		# Dimension-only change: fast vertex-position update, no surface rebuild.
 		_ghost.bake_vertex_positions()
 	_position_ghost(ellipsoid_scale)
 
@@ -799,7 +797,6 @@ func _get_current_ghost_pos() -> Vector3:
 
 func _remove_ghost() -> void:
 	if _ghost != null and is_instance_valid(_ghost):
-		_ghost.end_preview()
 		var parent := _ghost.get_parent()
 		if parent != null:
 			parent.remove_child(_ghost)
