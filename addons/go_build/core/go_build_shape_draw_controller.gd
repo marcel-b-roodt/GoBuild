@@ -57,6 +57,7 @@ var _ghost_aabb_material: StandardMaterial3D = null
 
 var _ghost_dirty: bool = false
 var _last_drawn_key: String = ""
+var _last_topology_key: String = ""
 var _ghost_base_mesh: GoBuildMesh = null
 
 var _anchor_world: Vector3 = Vector3.ZERO
@@ -159,6 +160,7 @@ func start(
 	_snap_step = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(-1.0)
 	_state = DrawState.POSITION
 	_last_drawn_key = ""
+	_last_topology_key = ""
 	_ghost_base_mesh = null
 	_ensure_ghost_material()
 
@@ -186,6 +188,7 @@ func start_at_position(
 	_snap_step = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(-1.0)
 	_state = DrawState.POSITION
 	_last_drawn_key = ""
+	_last_topology_key = ""
 	_ghost_base_mesh = null
 	_ensure_ghost_material()
 	_last_camera = camera
@@ -213,6 +216,7 @@ func cancel() -> void:
 	_last_camera = null
 	_last_screen_pos = Vector2.ZERO
 	_last_drawn_key = ""
+	_last_topology_key = ""
 	_ghost_base_mesh = null
 
 
@@ -295,8 +299,6 @@ func _handle_mouse_button(camera: Camera3D, event: InputEventMouseButton) -> boo
 				_drawn_height = 0.0
 				_drag_dir_x = 1.0
 				_drag_dir_z = 1.0
-				_last_drawn_key = ""
-				_ghost_base_mesh = null
 				_hide_ghost()
 				_capture_mouse(event.position)
 				return true
@@ -308,6 +310,7 @@ func _handle_mouse_button(camera: Camera3D, event: InputEventMouseButton) -> boo
 				_state = DrawState.HEIGHT
 				_drawn_height = 0.0
 				_last_drawn_key = ""
+				_last_topology_key = ""
 				return true
 		DrawState.HEIGHT:
 			if event.pressed:
@@ -605,6 +608,7 @@ func _refresh_ghost() -> void:
 			+ str(snappedf(_drawn_depth, _DIM_SNAP)) + "|" \
 			+ str(snappedf(_drawn_height, _DIM_SNAP)) + "|" \
 			+ str(ellipsoid_scale)
+	var topology_key: String = _shape_name + "|" + str(_extra_params.hash())
 	var scale: Vector3 = _compute_ghost_scale(ellipsoid_scale)
 	var scaled_aabb: AABB = _compute_scaled_aabb(scale)
 	if full_key == _last_drawn_key and _ghost != null and is_instance_valid(_ghost):
@@ -624,9 +628,14 @@ func _refresh_ghost() -> void:
 	_ghost_base_mesh = mesh
 	_ensure_ghost()
 	_ghost.go_build_mesh = mesh
-	_ghost.begin_preview()
-	_ghost.bake_preview()
-	_refresh_ghost_edges(mesh)
+	var topology_changed: bool = (topology_key != _last_topology_key)
+	if topology_changed:
+		_ghost.begin_preview()
+		_ghost.bake_preview()
+		_refresh_ghost_edges(mesh)
+		_last_topology_key = topology_key
+	else:
+		_ghost.bake_preview()
 	_position_ghost(ellipsoid_scale)
 
 
