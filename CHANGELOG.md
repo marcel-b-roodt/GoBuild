@@ -10,6 +10,122 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+### Added
+- Interactive shape draw (3-click insertion) — click in the viewport to position a
+  shape, drag to set width/depth, then drag to set height; live wireframe ghost and
+  dimension labels update in real time; Shift constrains to uniform aspect ratio;
+  Ctrl snaps to grid; parent mode selector (Child/Sibling/Root); non-drawable params
+  (sides, rings, caps, etc.) shown in a compact panel strip during draw
+- ShapeParamMapping — maps AABB dimensions from the drawn box to generator-specific
+  parameters for all 8 shapes (Cube, Plane, Cylinder, Sphere, Cone, Torus,
+  Staircase, Arch); handles axis swapping for Plane (XZ) vs. other shapes (XYZ)
+- A* pathfinding for face_path and edge_path — replaces BFS/Dijkstra with
+  Euclidean distance heuristic for direct, geodesic-shortest paths instead of
+  hop-count or normal-deviation-weighted routes; geometric distance cost ensures
+  paths follow diagonals on curved surfaces instead of hugging coplanar strips
+- Boundary edge loop fallback — when Alt+Click on a single boundary edge (1 face)
+  produces no topology loop (corners, T-junctions, non-quad meshes), the loop
+  automatically falls back to walking connected boundary edges in both directions;
+  works on staircases, house shapes, and any mesh with boundary edges at 90° corners
+- Edge loop cycling — repeated Alt+Click on the same edge cycles through loop types:
+  topology loop → boundary loop (if available) → ring; lets users select edges
+  around 90° corners and shapes where the default loop result isn't what they want
+- Boundary loop face-sharing preference — at junction vertices where multiple boundary
+  edges meet, the loop prefers edges that share a face with the current edge,
+  keeping the loop walking along the same face boundary rather than jumping to
+  an unrelated face
+- Edge path (Alt+Click with 2+ edges selected) — finds the shortest geometric path
+  between the last two selected edges; A* with edge-midpoint heuristic; vertex-only
+  connection penalty discourages corner-cutting through non-face-sharing edges
+- Face path (Alt+Click in Face mode with a face already selected) — finds the
+  shortest geometric path between the last selected face and the clicked face;
+  A* with face-center heuristic; symmetric results in both directions
+- Adjacency caches on `GoBuildMesh` — O(1) lookup dicts (`_vertex_to_faces`,
+  `_vertex_to_edges`, `_face_to_edges`, `_edge_lookup`) rebuilt in `rebuild_edges()`;
+  replaces O(n) scans in `faces_of_vertex`, `find_edge`, etc.
+- Selection helpers — `SelectionHelpers` with `grow_vertices/edges/faces`,
+  `shrink_vertices/edges/faces`; wired to Ctrl+=/Ctrl+- keyboard shortcuts and
+  context menu in all sub-element modes
+- Loop/Ring select — `edge_loop` (with momentum disambiguation at multi-candidate
+  vertices and boundary loop fallback), `edge_ring`, `face_loop`, `face_ring`;
+  Alt+LMB (loop), Ctrl+Alt+LMB (ring); context menu "Select Loop/Ring"; Shift adds
+  to selection
+- Select Similar — context menu submenu per mode; Face: material, side count,
+  normal, coplanar, area; Edge: length, face count, dihedral; Vertex: valence;
+  dot-product comparison for normals, relative tolerance for area/length,
+  absolute tolerance for dihedral angles
+- UV texture visibility dropdown — per-material texture backgrounds in the UV
+  canvas; auto-switches on face selection
+- UV face isolation toggle — show only selected faces in UV canvas, hiding all
+  others to reduce visual noise during alignment
+- UV vertex drag and snap — per-UV-vertex selection and drag in the UV canvas;
+  grid snap during UV editing
+- Add Texture button in UV panel and via face context menu — file picker assigns
+  a texture to selected faces, creating or reusing a `StandardMaterial3D`
+- UV drawer-based panel layout — collapsible drawers for UV controls that fit
+  narrow dock widths
+- Cheatsheet popup — `GoBuildCheatsheetPopup` with balanced 2-column layout;
+  accessible via "Help" button in panel header; Escape to dismiss
+- Ctrl+Click toggle select — clicking with Ctrl held toggles element selection
+  (add if absent, remove if present); overlay hints show the modifier
+- Shape placement at cursor — right-click "Add Shape" submenu in all modes;
+  raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane
+  fallback for miss case; align-to-surface toggle
+- World-grid snap mode for gizmo drags — Ctrl+drag on any translate/rotate/scale
+  handle now snaps to the editor grid step; axis-aware flush offset and normal
+  clamping for placement operations
+
+### Changed
+- Mode-switch keys (1-4) now handled in global `_input` callback to take priority
+  over Godot's built-in viewport orthographic shortcuts
+- Selected-edge ribbons now face the camera for consistent visual thickness from
+  every viewing angle (no more paper-thin appearance when viewed edge-on)
+- Edge loop disambiguation at multi-candidate vertices now uses momentum (sum of
+  walk direction + previous walk direction) for reliable continuation
+- Overlay hints updated: Face mode shows "Alt+Click: Path" and "Ctrl+Alt+Click:
+  Ring"; Edge mode shows "Alt+Click: Loop (cycle)" and "Ctrl+Alt+Click: Ring";
+  all modes show "Ctrl+Click: Toggle" and "Ctrl+Drag: Snap"
+- F1 hotkey removed from cheatsheet (conflicts with Godot's add-child-node)
+- Face path and edge path cost functions now use pure geometric distance (face-center
+  to face-center, edge-midpoint to edge-midpoint) instead of flat hop cost plus
+  normal-deviation penalty; this matches Blender's "shortest path" behavior where
+  paths follow the geodesic shortest route rather than detouring through coplanar
+  surfaces
+- Pathfinding tie-breaking in A* prefers nodes closer to the goal (lower heuristic
+  score) when f-scores are equal, reducing directional asymmetry in path results
+
+### Fixed
+- Keys 1-4 for GoBuild mode switching no longer conflict with Godot's orthographic
+  view shortcuts (Top/Front/Side etc.)
+- Vertex and edge pick radii now computed per-element through the node's global
+  transform, correctly handling perspective foreshortening and non-uniform scale;
+  circumscribe multipliers increased for comfortable click targets that are
+  visibly larger than the drawn elements; minimum pick radius floor raised to 10 px
+- `close_requested` signal on cheatsheet popup now uses a lambda instead of
+  `unbind()` which was invalid in GDScript
+- Select Similar: Normal and Coplanar criteria now use dot-product comparison
+  (0.999 threshold ≈ 2.5°) instead of quantised string matching; Area and Length
+  use relative tolerance (0.1%); Dihedral uses absolute angle tolerance (3°)
+- UV general controls split into two rows for narrow panels; tile texture repeat
+  extends symmetrically into negative UV space; repeat value of 0 now valid
+  (single tile, no surrounding ring)
+- Shape placement offset, parenting, and preview positioning bugs fixed
+- Staircase generator: side walls decomposed into grid cells for correct fan
+  triangulation; bottom and back faces subdivided into per-step strips to eliminate
+  T-junction duplicate edges; all edges are now manifold (exactly 2 faces per edge)
+
+### Tests
+- Adjacency cache unit tests added
+- 11 failing assertions across 6 test suites fixed
+- Face path symmetry tests (grid, cube, staircase — A→B same length as B→A)
+- Edge path symmetry tests (grid, cube)
+- Face path diagonal preference test (grid)
+- Edge path straight-line preference test (grid)
+- Boundary edge loop tests (grid, cube, staircase)
+- Interior edge loop test (grid — topology walk still works)
+
+---
+
 ## [0.7.1] — 2026-06-12
 
 ---
@@ -31,79 +147,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `_compute_initial_world_size` for scale handles now uses the local-space
   axis instead of the world-space axis for projecting local vertex
   positions, fixing incorrect scale sensitivity on rotated meshes
-
----
-
-### Added
-- Shape placement at cursor — right-click "Add Shape" submenu in all modes;
-  raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane
-  fallback for miss case; normal-aligned surface placement and align-to-surface
-  toggle in the General drawer
-- World-grid snap mode for gizmo drags — Ctrl+drag on any translate/rotate/scale
-  handle now snaps to the editor grid step; axis-aware flush offset and normal
-  clamping for placement operations
-- Adjacency caches on `GoBuildMesh` — O(1) lookup dicts (`_vertex_to_faces`,
-  `_vertex_to_edges`, `_face_to_edges`, `_edge_lookup`) rebuilt in `rebuild_edges()`;
-  replaces O(n) scans in `faces_of_vertex`, `find_edge`, etc.
-- Selection helpers — `SelectionHelpers` with `grow_vertices/edges/faces`,
-  `shrink_vertices/edges/faces`; wired to Ctrl+=/Ctrl+- keyboard shortcuts and
-  context menu in all sub-element modes
-- Loop/Ring select — `edge_loop` (with momentum disambiguation at multi-candidate
-  vertices), `edge_ring`, `face_loop`, `face_ring`; Alt+LMB (loop),
-  Ctrl+Alt+LMB (ring); context menu "Select Loop/Ring"; Shift adds to selection
-- Face path select — Alt+LMB in Face mode finds the shortest path (BFS) from the
-  last selected face to the clicked face; Shift+Alt adds to selection
-- Select Similar — context menu submenu per mode; Face: material, side count,
-  normal, coplanar, area; Edge: length, face count, dihedral; Vertex: valence;
-  dot-product comparison for normals, relative tolerance for area/length,
-  absolute tolerance for dihedral angles
-- UV texture visibility dropdown — per-material texture backgrounds in the UV
-  canvas; auto-switches on face selection
-- UV face isolation toggle — show only selected faces in UV canvas, hiding all
-  others to reduce visual noise during alignment
-- UV vertex drag and snap — per-UV-vertex selection and drag in the UV canvas;
-  grid snap during UV editing
-- Add Texture button in UV panel and via face context menu — file picker assigns
-  a texture to selected faces, creating or reusing a `StandardMaterial3D`
-- UV drawer-based panel layout — collapsible drawers for UV controls that fit
-  narrow dock widths
-- Cheatsheet popup — `GoBuildCheatsheetPopup` with balanced 2-column layout;
-  accessible via "Help" button in panel header; Escape to dismiss
-- Ctrl+Click toggle select — clicking with Ctrl held toggles element selection
-  (add if absent, remove if present); overlay hints show the modifier
-
-### Changed
-- Mode-switch keys (1-4) now handled in global `_input` callback to take priority
-  over Godot's built-in viewport orthographic shortcuts
-- Selected-edge ribbons now face the camera for consistent visual thickness from
-  every viewing angle (no more paper-thin appearance when viewed edge-on)
-- Edge loop disambiguation at multi-candidate vertices now uses momentum (sum of
-  walk direction + previous walk direction) for reliable continuation
-- Overlay hints updated: Face mode shows "Alt+Click: Path" and "Ctrl+Alt+Click:
-  Ring"; Edge mode shows "Alt+Click: Loop" and "Ctrl+Alt+Click: Ring"; all modes
-  show "Ctrl+Click: Toggle" and "Ctrl+Drag: Snap"
-- F1 hotkey removed from cheatsheet (conflicts with Godot's add-child-node)
-
-### Fixed
-- Keys 1-4 for GoBuild mode switching no longer conflict with Godot's orthographic
-  view shortcuts (Top/Front/Side etc.)
-- Vertex and edge pick radii now computed per-element through the node's global
-  transform, correctly handling perspective foreshortening and non-uniform scale;
-  circumscribe multipliers increased for comfortable click targets that are
-  visibly larger than the drawn elements; minimum pick radius floor raised to 10 px
-- `close_requested` signal on cheatsheet popup now uses a lambda instead of
-  `unbind()` which was invalid in GDScript
-- Select Similar: Normal and Coplanar criteria now use dot-product comparison
-  (0.999 threshold ≈ 2.5°) instead of quantised string matching; Area and Length
-  use relative tolerance (0.1%); Dihedral uses absolute angle tolerance (3°)
-- UV general controls split into two rows for narrow panels; tile texture repeat
-  extends symmetrically into negative UV space; repeat value of 0 now valid
-  (single tile, no surrounding ring)
-- Shape placement offset, parenting, and preview positioning bugs fixed
-
-### Tests
-- Adjacency cache unit tests added
-- 11 failing assertions across 6 test suites fixed
 
 ---
 
