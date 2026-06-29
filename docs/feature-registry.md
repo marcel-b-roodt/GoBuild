@@ -36,7 +36,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Shape insert toolbar | ✅ Complete | One-click creation in GoBuildPanel; full undo/redo |
 | Generator parameter preview (pre-commit) | ✅ Complete | Panel-native live preview + Accept/Cancel for Cylinder/Cone/Sphere/Staircase/Torus/Arch with configurable counts (sides/segments/steps/rings) and size params; defaults/schema/build dispatch moved into `ShapeCreationCatalog`; final commit inserts a normal node via undo/redo |
 | Shape placement at cursor | ✅ Complete | Right-click context menu "Add Shape" submenu in all modes; raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane fallback for miss case; Create drawer places at viewport centre; preview shapes start positioned at cursor |
-| Interactive shape draw (3-click insertion) | 🔧 In Progress | 3-click viewport drawing: POSITION → BASE (drag width/depth) → HEIGHT (drag along normal); wireframe ghost; live dimension labels; Shift constrains to uniform; Ctrl snaps to grid; non-drawable structural params (sides/rings/segments/caps) shown in compact panel strip; ellipsoid support for Sphere; design: `docs/interactive-shape-draw.md` |
+| Interactive shape draw (3-click insertion) | ✅ Complete | 3-click viewport drawing: POSITION → BASE (drag width/depth) → HEIGHT (drag along normal); wireframe ghost; live dimension labels; Shift constrains to uniform; Ctrl snaps to grid; non-drawable structural params shown in compact panel strip; ellipsoid support for Sphere; bake_in_place for responsive preview |
 
 ---
 
@@ -112,9 +112,9 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | UV pack islands | ✅ Complete | `UvPackIslands.apply(mesh, margin)` — flood-fill island detection, uniform scale-to-fit, shelf-based bin-packing into 0-1 tile; panel Pack button; full undo/redo |
 | UV stitch islands | ✅ Complete | `UvStitchIslands.apply(mesh, selected_faces)` — merges UV islands along shared topology edges; snaps UVs on shared vertices; panel Stitch button; full undo/redo |
 | UV vertex mode | ✅ Complete | `UvSelectMode.VERTEX` — per-UV-vertex selection and drag in the UV canvas; coincident UV verts move together; Face/Vertex toggle button + Tab shortcut; box-select verts; full undo/redo with Escape cancel |
-| UV texture visibility dropdown | 🔧 In Progress | Dropdown replacing BG cycle button; shows per-material texture backgrounds from material_slots; auto-switches on face selection; manual override persists; design: `docs/uv-texture-insert.md` Slice 1 |
-| UV face isolation toggle | 🔧 In Progress | Toggle to show only selected faces in UV canvas, hiding all others; eliminates visual noise during UV alignment; design: `docs/uv-texture-insert.md` Slice 2 |
-| Add Tex button (UV editor) | 🔧 In Progress | File picker in UV panel to assign a texture to selected faces; creates or reuses a StandardMaterial3D with the chosen albedo_texture; full undo/redo; design: `docs/uv-texture-insert.md` Slice 3 |
+| UV texture visibility dropdown | ✅ Complete | Dropdown replacing BG cycle button; shows per-material texture backgrounds from material_slots; auto-switches on face selection; manual override persists |
+| UV face isolation toggle | ✅ Complete | Toggle to show only selected faces in UV canvas, hiding all others; eliminates visual noise during UV alignment |
+| Add Tex button (UV editor) | ✅ Complete | File picker in UV panel to assign a texture to selected faces; creates or reuses a StandardMaterial3D with the chosen albedo_texture; full undo/redo |
 | Drag-and-drop material/texture to UV canvas | 📋 Planned | Drop a Texture2D or Material from FileSystem dock onto UV canvas to assign to selected faces; deduplicates if texture already exists in a material slot; design: `docs/uv-texture-insert.md` Slice 4 |
 | UV settings drawer | 📋 Planned | Collapsible settings drawer in UV panel: dim alpha for unselected faces, auto-switch texture toggle, pixel snap toggle (prep), grid subdivision; design: `docs/uv-texture-insert.md` Slice 5–6 |
 | Lightmap UV (UV2) generation | 📋 Planned | Non-overlapping second channel |
@@ -198,7 +198,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Feature | Status | Notes |
 |---|---|---|
 | PolyBrush-style sculpting | 📋 Planned | Post-v1.0 |
-| Shape draw tool | 🔧 In Progress | Moved to Stage 1 — see "Interactive shape draw" above |
+| Shape draw tool | ✅ Complete | Moved to Stage 1 — see "Interactive shape draw" above |
 | Parametric (re-editable) shapes | 📋 Planned | Post-v1.0 |
 | SpriteMesh (geometry from sprite outline) | 📋 Planned | Post-v1.0 |
 

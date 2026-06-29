@@ -8,7 +8,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
----
+### Fixed
+- Mode-switch keys (1-4) and action keys (W/E/R, Delete/X/M/F) no longer fire while
+  typing in a SpinBox, LineEdit, or the Inspector — prevents accidental mode changes
+  when editing numeric values in GoBuild or Godot's Inspector
 
 ## [0.8.0] — 2026-06-29
 
