@@ -25,6 +25,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   rotate, scale) no longer leave coincident groups in a stale state, which caused
   subsequent scale drags to include vertices that should have been separated
   (e.g. after extrude+translate, scaling the top face would also move the base)
+- Removed unused GoBuildShapePreview (replaced by the interactive shape draw system)
 
 ---
 
