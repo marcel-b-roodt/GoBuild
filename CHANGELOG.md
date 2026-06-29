@@ -30,8 +30,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   than indirect face-sharing paths (e.g. on a sphere, going through 2 shorter
   face-sharing edges was cheaper than 1 direct vertex-only edge)
 - Removed unused GoBuildShapePreview class (replaced by interactive shape draw)
-- Shape draw ghost now uses full-resolution mesh with preview-optimized bake instead
-  of capping segment counts; wireframe shows the true final shape during drag
+- Shape draw ghost now uses full-resolution mesh; segment count capping removed.
+  Topology changes (shape type, extra params) trigger a full bake + edge wireframe
+  rebuild. Dimension-only changes (width/depth/height during drag) use
+  bake_vertex_positions() for fast in-place vertex updates without rebuilding
+  normals, UVs, or surface count.
 
 ---
 
