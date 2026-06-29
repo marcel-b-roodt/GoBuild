@@ -45,14 +45,6 @@ const _PREVIEW_RINGS_CAP: int = 12
 const _PREVIEW_SEGMENTS_CAP: int = 8
 const _PREVIEW_SIDES_CAP: int = 12
 
-## Maximum segment/ring counts for the live-draw preview ghost.  Higher
-## values cause noticeable lag during drag on shapes like Torus and Sphere.
-## The ghost uses capped segments during BASE and HEIGHT drag; the commit
-## uses the user's full-resolution extra params.
-const _PREVIEW_RINGS_CAP: int = 12
-const _PREVIEW_SEGMENTS_CAP: int = 8
-const _PREVIEW_SIDES_CAP: int = 12
-
 var _state: int = DrawState.IDLE
 var _shape_name: String = ""
 var _extra_params: Dictionary = {}
