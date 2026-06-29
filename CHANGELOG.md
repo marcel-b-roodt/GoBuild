@@ -10,34 +10,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.8.1] — 2026-06-29
-
----
-
-### Fixed
-- Edge loop cycling now works when clicking any edge in the current loop selection,
-  not just the last-selected edge; previously clicking a different edge in the loop
-  would compute an unwanted edge_path instead of cycling to the next loop type
-- Shape draw ghost uses full-resolution mesh; segment count capping removed.
-  Topology changes trigger full bake + edge wireframe rebuild. Dimension-only
-  changes use bake_in_place() and surface_update_vertex_region() for fast
-  in-place updates without allocating new ArrayMesh objects each frame groups after gizmo drags: vertex-move operations (translate,
-  rotate, scale) no longer leave coincident groups in a stale state, which caused
-  subsequent scale drags to include vertices that should have been separated
-  (e.g. after extrude+translate, scaling the top face would also move the base)
-- Edge path no longer takes detours through face-sharing edges; removed the
-  vertex-only penalty that made direct geometric paths appear more expensive
-  than indirect face-sharing paths (e.g. on a sphere, going through 2 shorter
-  face-sharing edges was cheaper than 1 direct vertex-only edge)
-- Removed unused GoBuildShapePreview class (replaced by interactive shape draw)
-- Shape draw ghost now uses full-resolution mesh; segment count capping removed.
-  Topology changes (shape type, extra params) trigger a full bake + edge wireframe
-  rebuild. Dimension-only changes (width/depth/height during drag) use
-  bake_vertex_positions() for fast in-place vertex updates without rebuilding
-  normals, UVs, or surface count.
-
----
-
 ## [0.8.0] — 2026-06-29
 
 ---
@@ -125,6 +97,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   surfaces
 - Pathfinding tie-breaking in A* prefers nodes closer to the goal (lower heuristic
   score) when f-scores are equal, reducing directional asymmetry in path results
+- Default Torus segments reduced from 24 rings / 12 tube segments to 16 / 8,
+  reducing face count from 288 to 128 for better interactive draw performance
 
 ### Fixed
 - Keys 1-4 for GoBuild mode switching no longer conflict with Godot's orthographic
@@ -148,9 +122,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Edge loop cycling now works when clicking any edge in the current loop selection,
   not just the last-selected edge; previously clicking a different edge in the loop
   would compute an unwanted edge_path instead of cycling to the next loop type
-- Shape draw preview caps segment counts for Torus, Sphere, Cylinder, and Cone
-  during live drag, keeping the viewport responsive on high-poly shapes; full
-  resolution is used on commit
+- Stale coincident groups after gizmo drags: vertex-move operations (translate,
+  rotate, scale) no longer leave coincident groups in a stale state, which caused
+  subsequent scale drags to include vertices that should have been separated
+  (e.g. after extrude+translate, scaling the top face would also move the base)
+- Shape draw ghost uses full-resolution mesh; segment count capping removed.
+  Topology changes trigger full bake + edge wireframe rebuild. Dimension-only
+  changes use bake_in_place() and surface_update_vertex_region() for fast
+  in-place updates without allocating new ArrayMesh objects each frame
+- Removed unused GoBuildShapePreview class (replaced by interactive shape draw)
 
 ### Tests
 - Adjacency cache unit tests added
