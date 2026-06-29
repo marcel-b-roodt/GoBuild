@@ -1266,6 +1266,15 @@ func _handle_edge_loop_ring(
 			var edges: Array[int] = first_option["edges"]
 			sel.set_selected_edges(edges)
 			return
+		# Check if seed_ei is in the current selection — if so, this is a cycle
+		# request on the original loop edge, not a path request.
+		if pre_edges.has(seed_ei) and _loop_cycle_seed == seed_ei \
+				and not _loop_cycle_options.is_empty():
+			_loop_cycle_index = (_loop_cycle_index + 1) % _loop_cycle_options.size()
+			var option: Dictionary = _loop_cycle_options[_loop_cycle_index]
+			var cycle_edges: Array[int] = option["edges"]
+			sel.set_selected_edges(cycle_edges)
+			return
 		_loop_cycle_seed = -1
 		var path: Array[int] = SelectionHelpers.edge_path(gbm, start_ei, seed_ei)
 		if path.is_empty():

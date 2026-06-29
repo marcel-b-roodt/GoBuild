@@ -37,6 +37,14 @@ const _MIN_DIM: float = 0.01
 const _CROSSHAIR_SIZE: float = 0.15
 const _DIM_SNAP: float = 0.02
 
+## Maximum segment/ring counts for the live-draw preview.  Higher values
+## cause noticeable lag during drag on shapes like Torus and Sphere because
+## the mesh is regenerated and baked every frame.  The commit uses the
+## user's actual extra params (which may specify higher counts).
+const _PREVIEW_RINGS_CAP: int = 12
+const _PREVIEW_SEGMENTS_CAP: int = 8
+const _PREVIEW_SIDES_CAP: int = 12
+
 var _state: int = DrawState.IDLE
 var _shape_name: String = ""
 var _extra_params: Dictionary = {}
@@ -600,6 +608,10 @@ func _refresh_ghost() -> void:
 	if _MAPPING_SCRIPT.needs_ellipsoid_scale(_shape_name):
 		ellipsoid_scale = _MAPPING_SCRIPT.ellipsoid_scale(params)
 		params = _MAPPING_SCRIPT.clean_drawn_params(params)
+	# Reduce segment counts during live drag for smoother preview on
+	# high-poly shapes (torus, sphere, cylinder, cone).  Full resolution
+	# is used on commit.
+	params = _cap_segments_for_preview(params)
 	var full_key: String = _shape_name + "|" + str(_extra_params.hash()) + "|" \
 			+ str(snappedf(_drawn_width, _DIM_SNAP)) + "|" \
 			+ str(snappedf(_drawn_depth, _DIM_SNAP)) + "|" \
@@ -627,6 +639,24 @@ func _refresh_ghost() -> void:
 	_ghost.bake()
 	_refresh_ghost_edges(mesh)
 	_position_ghost(ellipsoid_scale)
+
+
+## Cap segment counts in [param params] to preview-level values.
+## This keeps the drag preview responsive on high-poly shapes.
+## Torus: rings=24, tube_segments=12 → rings=12, tube_segments=8
+## Sphere: rings=8, segments=16 → rings=8, segments=8
+## Cylinder/Cone: sides=16 → sides=12
+static func _cap_segments_for_preview(params: Dictionary) -> Dictionary:
+	var capped: Dictionary = params.duplicate()
+	if capped.has("rings"):
+		capped["rings"] = mini(int(capped["rings"]), _PREVIEW_RINGS_CAP)
+	if capped.has("tube_segments"):
+		capped["tube_segments"] = mini(int(capped["tube_segments"]), _PREVIEW_SEGMENTS_CAP)
+	if capped.has("segments"):
+		capped["segments"] = mini(int(capped["segments"]), _PREVIEW_SEGMENTS_CAP)
+	if capped.has("sides"):
+		capped["sides"] = mini(int(capped["sides"]), _PREVIEW_SIDES_CAP)
+	return capped
 
 
 func _compute_ghost_scale(ellipsoid_scale: Vector3) -> Vector3:
