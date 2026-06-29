@@ -114,6 +114,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | UV vertex mode | ✅ Complete | `UvSelectMode.VERTEX` — per-UV-vertex selection and drag in the UV canvas; coincident UV verts move together; Face/Vertex toggle button + Tab shortcut; box-select verts; full undo/redo with Escape cancel |
 | UV texture visibility dropdown | ✅ Complete | Dropdown replacing BG cycle button; shows per-material texture backgrounds from material_slots; auto-switches on face selection; manual override persists |
 | UV face isolation toggle | ✅ Complete | Toggle to show only selected faces in UV canvas, hiding all others; eliminates visual noise during UV alignment |
+| UV Select Island (double-click) | ✅ Complete | Double-click a face in UV canvas to flood-fill select all UV-connected faces in its island; Shift+double-click adds island, Ctrl+double-click toggles |
 | Add Tex button (UV editor) | ✅ Complete | File picker in UV panel to assign a texture to selected faces; creates or reuses a StandardMaterial3D with the chosen albedo_texture; full undo/redo |
 | Drag-and-drop material/texture to UV canvas | 📋 Planned | Drop a Texture2D or Material from FileSystem dock onto UV canvas to assign to selected faces; deduplicates if texture already exists in a material slot; design: `docs/uv-texture-insert.md` Slice 4 |
 | UV settings drawer | 📋 Planned | Collapsible settings drawer in UV panel: dim alpha for unselected faces, auto-switch texture toggle, pixel snap toggle (prep), grid subdivision; design: `docs/uv-texture-insert.md` Slice 5–6 |

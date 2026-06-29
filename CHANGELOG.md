@@ -13,6 +13,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   typing in a SpinBox, LineEdit, or the Inspector — prevents accidental mode changes
   when editing numeric values in GoBuild or Godot's Inspector
 
+### Added
+- UV Select Island — double-click a face in the UV canvas to flood-fill select all
+  UV-connected faces in its island; Shift+double-click adds the island to the current
+  selection, Ctrl+double-click toggles it
+
 ## [0.8.0] — 2026-06-29
 
 ---

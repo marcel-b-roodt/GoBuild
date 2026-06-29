@@ -45,6 +45,7 @@ const _MESH_SCRIPT           := preload("res://addons/go_build/mesh/go_build_mes
 const _PICKER_SCRIPT         := preload("res://addons/go_build/uv/uv_picker.gd")
 const _ISLAND_XFORM_SCRIPT   := preload("res://addons/go_build/uv/uv_island_transform.gd")
 const _VERT_XFORM_SCRIPT     := preload("res://addons/go_build/uv/uv_vertex_transform.gd")
+const _ISLAND_SELECT_SCRIPT  := preload("res://addons/go_build/uv/uv_island_select.gd")
 
 # ---------------------------------------------------------------------------
 # Colours
@@ -81,6 +82,7 @@ const _ZOOM_MIN:     float = 40.0
 const _ZOOM_MAX:     float = 8000.0
 const _ZOOM_DEFAULT: float = 180.0
 const _CLICK_THRESHOLD: float = 8.0
+const _DBLCLICK_THRESHOLD: int = 400_000
 
 ## Pixels per UV unit.
 var _zoom: float = _ZOOM_DEFAULT
@@ -156,6 +158,11 @@ var _ctrl_held:  bool = false
 var _last_click_uv: Vector2 = Vector2(INF, INF)
 var _cycle_candidates: Array[int] = []
 var _cycle_index: int = 0
+
+## Double-click detection: timestamp of the last single-click (usec from
+## Time.get_ticks_usec).  A second click within _DBLCLICK_THRESHOLD usec
+## at the same spot is treated as a double-click, which selects the UV island.
+var _last_click_time: int = 0
 
 
 func _ready() -> void:
@@ -1088,15 +1095,43 @@ func _do_click_select(canvas_pos: Vector2) -> void:
 
 	var uv_pos := _canvas_to_uv(canvas_pos)
 
+	# Detect double-click: same spot within threshold time.
+	var now: int = Time.get_ticks_usec()
+	var dist_from_last := uv_pos.distance_squared_to(_last_click_uv)
+	var is_double_click := dist_from_last < 0.001 and (now - _last_click_time) < _DBLCLICK_THRESHOLD
+
+	# Double-click: select the entire UV island containing the clicked face.
+	if is_double_click:
+		var fi := _pick_face_visible(uv_pos)
+		_last_click_uv = uv_pos
+		_last_click_time = now
+		if fi >= 0:
+			var island: Array[int] = _ISLAND_SELECT_SCRIPT.select_island(
+				_target.go_build_mesh, fi)
+			if _shift_held:
+				for idx: int in island:
+					_target.selection.select_face(idx)
+			elif _ctrl_held:
+				for idx: int in island:
+					_target.selection.toggle_face(idx)
+			else:
+				_target.selection.set_selected_faces(island)
+		else:
+			if not _shift_held and not _ctrl_held:
+				if not _is_isolate_active():
+					_target.selection.clear()
+					_cycle_candidates.clear()
+		return
+
 	# Face cycling: if the click is near the previous click position, cycle
 	# through overlapping faces rather than always picking the topmost.
 	# In isolate mode, skip cycling since hidden faces are not visible.
-	var dist_from_last := uv_pos.distance_squared_to(_last_click_uv)
 	var same_spot := dist_from_last < 0.001 and not _cycle_candidates.is_empty()
 	if same_spot and not _shift_held and not _ctrl_held and not _is_isolate_active():
 		_cycle_index = (_cycle_index + 1) % _cycle_candidates.size()
 		var faces: Array[int] = [_cycle_candidates[_cycle_index]]
 		_target.selection.set_selected_faces(faces)
+		_last_click_time = now
 		return
 
 	var candidates := _pick_face_all(uv_pos)
@@ -1111,14 +1146,16 @@ func _do_click_select(canvas_pos: Vector2) -> void:
 		# In isolate mode, if no visible candidate exists at this point,
 		# don't change the selection — the click is on a hidden face.
 		if candidates.is_empty():
+			_last_click_time = now
 			return
 	_last_click_uv = uv_pos
+	_last_click_time = now
 	_cycle_candidates = candidates
 	_cycle_index = 0
 
-	var fi := _pick_face_visible(uv_pos)
+	var fi2 := _pick_face_visible(uv_pos)
 
-	if fi < 0:
+	if fi2 < 0:
 		if not _shift_held and not _ctrl_held:
 			if not _is_isolate_active():
 				_target.selection.clear()
@@ -1126,16 +1163,16 @@ func _do_click_select(canvas_pos: Vector2) -> void:
 		return
 
 	if candidates.size() > 1:
-		var idx := candidates.find(fi)
+		var idx := candidates.find(fi2)
 		if idx >= 0:
 			_cycle_index = idx
 
 	if _shift_held:
-		_target.selection.select_face(fi)
+		_target.selection.select_face(fi2)
 	elif _ctrl_held:
-		_target.selection.toggle_face(fi)
+		_target.selection.toggle_face(fi2)
 	else:
-		var faces: Array[int] = [fi]
+		var faces: Array[int] = [fi2]
 		_target.selection.set_selected_faces(faces)
 
 
