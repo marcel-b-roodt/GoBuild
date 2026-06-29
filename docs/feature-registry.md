@@ -115,6 +115,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | UV texture visibility dropdown | ✅ Complete | Dropdown replacing BG cycle button; shows per-material texture backgrounds from material_slots; auto-switches on face selection; manual override persists |
 | UV face isolation toggle | ✅ Complete | Toggle to show only selected faces in UV canvas, hiding all others; eliminates visual noise during UV alignment |
 | UV Select Island (double-click) | ✅ Complete | Double-click a face in UV canvas to flood-fill select all UV-connected faces in its island; Shift+double-click adds island, Ctrl+double-click toggles |
+| Prepare for Texturing | ✅ Complete | One-click "Prep Tex" button in UV panel Operations drawer: applies Box UV projection to all faces then packs islands into 0-1 tile; full undo/redo as single action |
 | Add Tex button (UV editor) | ✅ Complete | File picker in UV panel to assign a texture to selected faces; creates or reuses a StandardMaterial3D with the chosen albedo_texture; full undo/redo |
 | Drag-and-drop material/texture to UV canvas | 📋 Planned | Drop a Texture2D or Material from FileSystem dock onto UV canvas to assign to selected faces; deduplicates if texture already exists in a material slot; design: `docs/uv-texture-insert.md` Slice 4 |
 | UV settings drawer | 📋 Planned | Collapsible settings drawer in UV panel: dim alpha for unselected faces, auto-switch texture toggle, pixel snap toggle (prep), grid subdivision; design: `docs/uv-texture-insert.md` Slice 5–6 |

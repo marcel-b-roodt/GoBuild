@@ -17,6 +17,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - UV Select Island — double-click a face in the UV canvas to flood-fill select all
   UV-connected faces in its island; Shift+double-click adds the island to the current
   selection, Ctrl+double-click toggles it
+- Prepare for Texturing — one-click "Prep Tex" button in the UV panel Operations
+  drawer: applies Box UV projection to all faces, then packs islands into the 0-1
+  tile; full undo/redo as a single action
 
 ## [0.8.0] — 2026-06-29
 

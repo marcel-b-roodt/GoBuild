@@ -7,7 +7,7 @@
 ## Organised into collapsible drawers:
 ## - General: selection mode, isolate toggle, background dropdown, repeat.
 ## - Transform: Move/Rotate/Scale, Add Tex.
-## - Operations: Pack, Stitch.
+## - Operations: Pack, Stitch, Prep Tex.
 @tool
 class_name GoBuildUvPanel
 extends VBoxContainer
@@ -19,6 +19,7 @@ const _MESH_SCRIPT            := preload("res://addons/go_build/mesh/go_build_me
 const _SEL_MGR_SCRIPT         := preload("res://addons/go_build/core/selection_manager.gd")
 const _PACK_SCRIPT            := preload("res://addons/go_build/uv/uv_pack_islands.gd")
 const _STITCH_SCRIPT          := preload("res://addons/go_build/uv/uv_stitch_islands.gd")
+const _PREP_TEX_SCRIPT        := preload("res://addons/go_build/uv/uv_prepare_for_texturing.gd")
 const _FACE_SCRIPT            := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _MATERIAL_ASSIGN_SCRIPT := \
 	preload("res://addons/go_build/mesh/operations/material_assign_operation.gd")
@@ -40,6 +41,7 @@ var _isolate_btn: Button      = null
 var _pack_btn: Button         = null
 var _stitch_btn: Button       = null
 var _add_tex_btn: Button      = null
+var _prep_tex_btn: Button     = null
 var _select_mode_btn: Button  = null
 var _repeat_spin: SpinBox     = null
 var _snap_spin: SpinBox        = null
@@ -313,6 +315,17 @@ func _add_operations_controls(parent: VBoxContainer) -> void:
 	_stitch_btn.pressed.connect(_on_stitch_pressed)
 	row.add_child(_stitch_btn)
 
+	var row2 := HBoxContainer.new()
+	parent.add_child(row2)
+
+	_prep_tex_btn = Button.new()
+	_prep_tex_btn.text = "Prep Tex"
+	_prep_tex_btn.tooltip_text = (
+		"Apply Box UV projection to all faces, then pack islands."
+		+ " One-click texturing prep.")
+	_prep_tex_btn.pressed.connect(_on_prep_tex_pressed)
+	row2.add_child(_prep_tex_btn)
+
 
 # ---------------------------------------------------------------------------
 # Handlers
@@ -530,6 +543,27 @@ func _on_stitch_pressed() -> void:
 	if _plugin != null and count > 0:
 		var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
 		ur.create_action("Stitch UV Islands (%d merged)" % count)
+		ur.add_do_method(_canvas._target, "restore_and_bake", gbm.take_snapshot())
+		ur.add_undo_method(_canvas._target, "restore_and_bake", snapshot)
+		ur.commit_action()
+	_canvas.queue_redraw()
+
+
+func _on_prep_tex_pressed() -> void:
+	if _canvas == null or _canvas._target == null or _canvas._target.go_build_mesh == null:
+		return
+	var gbm: GoBuildMesh = _canvas._target.go_build_mesh
+	var snapshot := gbm.take_snapshot()
+	var xform: Transform3D = (
+		_canvas._target.global_transform
+		if _canvas._target.is_inside_tree()
+		else Transform3D.IDENTITY
+	)
+	var count := UvPrepareForTexturing.apply(gbm, xform)
+	_canvas._target.bake_in_place()
+	if _plugin != null and count > 0:
+		var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+		ur.create_action("Prepare for Texturing (%d islands)" % count)
 		ur.add_do_method(_canvas._target, "restore_and_bake", gbm.take_snapshot())
 		ur.add_undo_method(_canvas._target, "restore_and_bake", snapshot)
 		ur.commit_action()
