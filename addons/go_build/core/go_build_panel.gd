@@ -308,6 +308,12 @@ func trigger_hard_edge() -> void:
 func trigger_soft_edge() -> void:
 	if _edge_drawer != null: _edge_drawer.trigger_soft_edge()
 
+func trigger_rip() -> void:
+	if _vertex_drawer != null:
+		_vertex_drawer.trigger_rip()
+	elif _edge_drawer != null:
+		_edge_drawer.trigger_rip()
+
 func trigger_subdivide() -> void:
 	if _face_drawer != null: _face_drawer.trigger_subdivide()
 
@@ -615,6 +621,20 @@ func _update_ops_buttons() -> void:
 
 func _sync_legacy_handles() -> void:
 	_auto_uv_option = _general_drawer._auto_uv_option if _general_drawer != null else null
+
+
+## Sync the normal visualiser checkboxes with the current gizmo plugin state.
+## Called after the N key toggles the normal display.
+func _sync_normal_toggles() -> void:
+	if _general_drawer == null or _plugin == null:
+		return
+	var gp = _plugin.get("_gizmo_plugin")
+	if gp == null:
+		return
+	if _general_drawer._face_n_check != null:
+		_general_drawer._face_n_check.button_pressed = gp.show_face_normals
+	if _general_drawer._vtx_n_check != null:
+		_general_drawer._vtx_n_check.button_pressed = gp.show_vertex_normals
 
 
 ## Return the plugin version from plugin.cfg so panel text stays in sync.

@@ -122,7 +122,7 @@ static func find_placement(
 					local_from, local_dir, v0, v1, v2)
 			if t >= 0.0 and t < best_local_t:
 				best_local_t = t
-				var tri_normal: Vector3 = (v2 - v0).cross(v1 - v0)
+				var tri_normal: Vector3 = (v1 - v0).cross(v2 - v0)
 				if tri_normal.length_squared() > 0.0:
 					best_face_normal = tri_normal.normalized()
 		var local_hit: Vector3 = local_from + local_dir * best_local_t
@@ -153,16 +153,15 @@ static func find_placement(
 
 
 ## Construct a [Basis] that rotates the Y axis ([constant Vector3.UP])
-## to align with [param normal].  The normal is expected to point **into**
-## the surface (inward), so this function negates it to derive the outward
-## direction for the Y axis.
+## to align with [param normal].  The normal is the **outward** surface normal
+## (pointing away from the surface, toward the camera).
 ##
 ## For near-vertical normals (within 0.001 of UP or DOWN), returns identity
 ## (or 180-degree flip for DOWN) to avoid gimbal lock.
 ## For all other normals, uses two cross products to build an orthonormal basis
-## where Y = -normal (outward), Z = project(UP, normal_plane), X = Y x Z.
+## where Y = normal (outward), Z = project(UP, normal_plane), X = Y x Z.
 static func _align_y_to_normal(normal: Vector3) -> Basis:
-	var outward: Vector3 = -normal.normalized()
+	var outward: Vector3 = normal.normalized()
 	if absf(outward.dot(Vector3.UP)) > 0.9999:
 		if outward.y < 0.0:
 			return Basis(Vector3.RIGHT, Vector3.DOWN, Vector3.BACK)
@@ -195,11 +194,14 @@ static func _flush_offset(
 	var mn: Vector3 = aabb.position
 	var mx: Vector3 = aabb.position + aabb.size
 	if align_to_normal:
-		# When the shape's Y axis aligns with hit_normal, the face that
+		# When the shape's Y axis aligns with hit_normal (outward), the face that
 		# touches the surface is the mesh-local -Y face.  Push the origin
-		# away from the surface by the distance to that face.
+		# away from the surface by the distance from origin to the -Y face.
+		# Since hit_normal points outward and the offset is subtracted from the
+		# hit point, we need a negative Y offset so the shape sits ON the surface
+		# rather than below it.
 		var bottom_dist: float = absf(mn.y)
-		return hit_normal * bottom_dist
+		return -hit_normal * bottom_dist
 	# General case (no rotation): AABB support function.
 	var dist: float = mx.x * maxf(hit_normal.x, 0.0) \
 			+ mn.x * minf(hit_normal.x, 0.0) \

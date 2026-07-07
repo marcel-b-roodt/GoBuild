@@ -6,12 +6,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased]
+## [0.8.1] — 2026-06-30
 
 ### Fixed
-- Mode-switch keys (1-4) and action keys (W/E/R, Delete/X/M/F) no longer fire while
-  typing in a SpinBox, LineEdit, or the Inspector — prevents accidental mode changes
-  when editing numeric values in GoBuild or Godot's Inspector
+- Shape draw: interactive shapes now grow upward from the base during the HEIGHT
+  phase; previously the base was treated as the top of the AABB and height extended
+  downward (fix in `_align_y_to_normal` — outward normal convention)
+- Drag-and-drop on UV canvas: fixed `_can_drop_data` and `_drop_data` signatures
+  to use `Variant` instead of `Dictionary` (Godot 4 API requirement)
+
+---
+
+## [Unreleased]
 
 ### Added
 - UV Select Island — double-click a face in the UV canvas to flood-fill select all
@@ -23,6 +29,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - UV wireframe export (PNG) — "Export UV" button in the UV panel Operations drawer;
   renders UV wireframe to PNG at configurable resolution; white lines on transparent
   background by default; uses Bresenham line drawing with configurable width and colours
+- Drag-and-drop texture to UV canvas — drop a Texture2D or Material from the
+  FileSystem dock onto the UV canvas to assign it to selected faces; reuses existing
+  material slots or creates a new StandardMaterial3D; full undo/redo
+- Rip operation (V key) — split shared vertices or edges apart, creating an open
+  seam; works in Vertex mode and Edge mode; `RipOperation.apply_vertices` and
+  `RipOperation.apply_edges`; panel buttons, context menu entries, and V shortcut;
+  13 unit tests
+- Normal visualiser overlay — face normals (cyan lines from face centroids) and
+  vertex normals (lavender lines, area-weighted average of adjacent face normals);
+  "Normals" and "Vtx N" checkboxes in General drawer; N key shortcut toggles face normals
 
 ## [0.8.0] — 2026-06-29
 

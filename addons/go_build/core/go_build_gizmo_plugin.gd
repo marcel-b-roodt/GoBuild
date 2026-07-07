@@ -130,6 +130,12 @@ var mat_view_plane: StandardMaterial3D
 ## appearance; Godot 4 / Vulkan does not support line width > 1 px via add_lines.
 var mat_edge_selected_ribbon: StandardMaterial3D
 
+## Face-normal visualiser line material (bright cyan, no depth test).
+var mat_normal_face: StandardMaterial3D
+
+## Vertex-normal visualiser line material (bright blue, no depth test).
+var mat_normal_vertex: StandardMaterial3D
+
 ## Depth-tested variants for X-Ray off mode — unselected elements are occluded
 ## by the mesh.  Selected elements always use the no_depth_test versions.
 var mat_edge_normal_depth:     StandardMaterial3D
@@ -141,6 +147,18 @@ var mat_vertex_normal_depth:   StandardMaterial3D
 ## unselected elements use depth-tested materials so they are hidden behind the
 ## mesh surface.  Selected elements are always drawn on top regardless.
 var xray_mode: bool = true
+
+## When true, face normals are drawn as lines from each face centroid along its
+## normal direction.  Toggled via the panel "Normals" button or N key.
+var show_face_normals: bool = false
+
+## When true, vertex normals (averaged from adjacent face normals) are drawn as
+## lines from each vertex along its normal direction.  Toggled via the panel
+## "Vtx N" button.
+var show_vertex_normals: bool = false
+
+## Length of normal-visualiser lines in local mesh units (before gizmo scaling).
+var normal_display_length: float = 0.3
 
 ## Active transform mode.  Defaults to TRANSLATE on plugin load.
 ## Written by plugin.gd when W/E/R is pressed; read by GoBuildGizmo via Object.get().
@@ -241,6 +259,9 @@ func setup(plugin: EditorPlugin) -> void:
 	# Selected-edge ribbon material — solid orange, same as vertex/face selected colour.
 	# Used for flat quad ribbons that give selected edges a visually thicker appearance.
 	mat_edge_selected_ribbon = _cone_mat(COLOR_SELECTED)
+	# Normal visualiser materials — bright, always on top.
+	mat_normal_face   = _line_mat_nodepth(Color(0.2, 0.85, 1.0, 1.0))   # cyan
+	mat_normal_vertex = _line_mat_nodepth(Color(0.5, 0.5, 1.0, 1.0))     # lavender
 	# Depth-tested material variants — used for unselected elements when xray_mode
 	# is off.  Same colours as the no_depth_test versions but with depth test enabled
 	# so elements behind the mesh surface are occluded.
@@ -696,4 +717,3 @@ static func _build_scale_cube_mesh() -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
-

@@ -16,6 +16,10 @@ extends Control
 ## auto-switch), so the panel can update its dropdown.
 signal bg_mode_changed
 
+## Emitted when a resource (Texture2D or Material) is dropped onto the canvas.
+## The panel handles the assignment to selected faces with undo/redo.
+signal resource_dropped(resource_path: String)
+
 ## Transform mode for island manipulation.
 enum UvTransformMode {
 	MOVE   = 0,
@@ -94,6 +98,9 @@ var _pan_dragging:       bool    = false
 var _pan_drag_start:     Vector2 = Vector2.ZERO
 var _pan_drag_start_pan: Vector2 = Vector2.ZERO
 
+## True while a Godot drag-and-drop operation hovers this control.
+var _file_drag_active:   bool    = false
+
 ## The mesh node being visualised (may be null).
 var _target: MeshInstance3D = null
 
@@ -167,6 +174,53 @@ var _last_click_time: int = 0
 
 func _ready() -> void:
 	focus_mode = Control.FOCUS_ALL
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_DRAG_BEGIN:
+		_file_drag_active = true
+	elif what == NOTIFICATION_DRAG_END:
+		_file_drag_active = false
+		_cancel_island_drag()
+		_cancel_vert_drag()
+		_box_selecting = false
+		_box_select_start = Vector2.ZERO
+		_box_select_end = Vector2.ZERO
+		_vert_dragging = false
+		_vert_drag_state = null
+		_island_dragging = false
+		_island_drag_state = null
+		queue_redraw()
+
+
+# ---------------------------------------------------------------------------
+# Drag-and-drop support — accept Texture2D or Material from FileSystem
+# ---------------------------------------------------------------------------
+
+func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:
+	if _target == null or _target.go_build_mesh == null:
+		return false
+	if data is Dictionary and data.has("type") and data["type"] == &"files":
+		var files: Array = data.get("files", [])
+		for f: String in files:
+			var ext: String = f.to_lower()
+			if ext.ends_with(".png") or ext.ends_with(".jpg") \
+					or ext.ends_with(".jpeg") or ext.ends_with(".svg") \
+					or ext.ends_with(".webp") or ext.ends_with(".bmp") \
+					or ext.ends_with(".tres") or ext.ends_with(".res"):
+				return true
+	return false
+
+
+func _drop_data(_at_position: Vector2, data: Variant) -> void:
+	if not (data is Dictionary):
+		return
+	if not data.has("type") or data["type"] != &"files":
+		return
+	var files: Array = data.get("files", [])
+	if files.is_empty():
+		return
+	resource_dropped.emit(files[0])
 
 
 # ---------------------------------------------------------------------------
@@ -884,7 +938,11 @@ func _handle_mouse_button(mb: InputEventMouseButton) -> void:
 		return
 
 	# Selection / island drag (left mouse).
+	# Suppress when a file drag-and-drop is in progress.
 	if mb.button_index == MOUSE_BUTTON_LEFT:
+		if _file_drag_active:
+			accept_event()
+			return
 		if mb.pressed:
 			_begin_left_press(mb.position, mb)
 		else:
@@ -894,6 +952,8 @@ func _handle_mouse_button(mb: InputEventMouseButton) -> void:
 
 
 func _handle_mouse_motion(mm: InputEventMouseMotion) -> void:
+	if _file_drag_active:
+		return
 	# Update modifier state.
 	_shift_held = mm.shift_pressed
 	_ctrl_held = mm.ctrl_pressed

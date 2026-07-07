@@ -187,6 +187,12 @@ func _redraw() -> void:
 			_draw_context_edges(gbm, edge_mat)
 			_draw_face_centres(gbm, sel, plugin.mat_face_normal, plugin.mat_face_fill)
 
+	# Normal visualiser overlay (drawn in all sub-element modes when toggled on).
+	if plugin.show_face_normals:
+		_draw_face_normals(gbm, plugin.mat_normal_face, gizmo_s)
+	if plugin.show_vertex_normals:
+		_draw_vertex_normals(gbm, plugin.mat_normal_vertex, gizmo_s)
+
 	# Draw the 3-axis translate handle whenever any sub-element is selected.
 	if sel.get_mode() != SelectionManager.Mode.OBJECT and not sel.is_empty():
 		var centroid: Vector3 = _compute_selection_centroid(gbm, sel)
@@ -474,6 +480,63 @@ func _draw_face_centres(
 		var fill_mesh := ArrayMesh.new()
 		fill_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		add_mesh(fill_mesh, mat_fill)
+
+
+# ---------------------------------------------------------------------------
+# Normal visualiser
+# ---------------------------------------------------------------------------
+
+## Draw face normals as lines from each face centroid along its outward normal.
+## Length is scaled by [param gizmo_s] to keep a constant screen size.
+func _draw_face_normals(gbm: GoBuildMesh, mat: Material, gizmo_s: float) -> void:
+	if gbm.faces.is_empty():
+		return
+	var length: float = gizmo_s * 0.3
+	var lines := PackedVector3Array()
+	lines.resize(gbm.faces.size() * 2)
+	var i := 0
+	for face: GoBuildFace in gbm.faces:
+		if face.vertex_indices.size() < 3:
+			continue
+		var centre := Vector3.ZERO
+		for vi: int in face.vertex_indices:
+			centre += gbm.vertices[vi]
+		centre /= face.vertex_indices.size()
+		var normal: Vector3 = gbm.compute_face_normal(face)
+		lines[i]     = centre
+		lines[i + 1] = centre + normal * length
+		i += 2
+	if i > 0:
+		lines = lines.slice(0, i)
+		add_lines(lines, mat)
+
+
+## Draw vertex normals (averaged from adjacent face normals) as lines from each
+## vertex along its averaged normal direction.  Length is scaled by
+## [param gizmo_s] to keep a constant screen size.
+func _draw_vertex_normals(gbm: GoBuildMesh, mat: Material, gizmo_s: float) -> void:
+	if gbm.vertices.is_empty() or gbm.faces.is_empty():
+		return
+	var length: float = gizmo_s * 0.25
+	# Pre-compute face normals.
+	var face_normals: Array[Vector3] = []
+	face_normals.resize(gbm.faces.size())
+	for fi: int in gbm.faces.size():
+		face_normals[fi] = gbm.compute_face_normal(gbm.faces[fi])
+	# Accumulate per-vertex normal (area-weighted average).
+	var vert_normals: PackedVector3Array = []
+	vert_normals.resize(gbm.vertices.size())
+	var lines := PackedVector3Array()
+	for vi: int in gbm.vertices.size():
+		var n := Vector3.ZERO
+		for fi: int in gbm.faces_of_vertex(vi):
+			n += face_normals[fi]
+		if n.length_squared() > 1e-8:
+			n = n.normalized()
+			lines.append(gbm.vertices[vi])
+			lines.append(gbm.vertices[vi] + n * length)
+	if not lines.is_empty():
+		add_lines(lines, mat)
 
 
 # ---------------------------------------------------------------------------

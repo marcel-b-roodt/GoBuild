@@ -152,6 +152,7 @@ func _ready() -> void:
 	_canvas.draw.connect(_update_zoom_label)
 	_canvas.draw.connect(_update_transform_buttons)
 	_canvas.bg_mode_changed.connect(_on_canvas_bg_mode_changed)
+	_canvas.resource_dropped.connect(_on_resource_dropped)
 
 
 # ---------------------------------------------------------------------------
@@ -597,6 +598,10 @@ func _on_export_uv_file_selected(path: String, gbm: GoBuildMesh) -> void:
 	var ok := UvWireframeExport.save_png(path, gbm)
 	if not ok:
 		push_warning("GoBuild: Failed to save UV wireframe to %s" % path)
+
+
+func _on_resource_dropped(resource_path: String) -> void:
+	_on_tex_file_selected(resource_path)
 
 
 func _on_canvas_bg_mode_changed() -> void:

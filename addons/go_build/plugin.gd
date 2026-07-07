@@ -40,6 +40,8 @@ const _SHAPE_DRAW_CTRL_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_shape_draw_controller.gd")
 const _SHAPE_DRAW_OVERLAY_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_shape_draw_overlay.gd")
+const _DROP_OVERLAY_SCRIPT := preload(
+		"res://addons/go_build/core/go_build_material_drop_overlay.gd")
 const _ICON                 := preload("res://addons/go_build/go_build.svg")
 
 
@@ -83,6 +85,7 @@ var _input_controller: SelectionInputController  = null
 var _drag_controller: GoBuildDragController       = null
 var _shape_draw_controller: GoBuildShapeDrawController = null
 var _draw_overlay: Control = null
+var _drop_overlay: GoBuildMaterialDropOverlay = null
 var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
@@ -165,6 +168,7 @@ func _enter_tree() -> void:
 
 	_build_toolbar()
 	_build_draw_overlay()
+	_build_drop_overlay()
 	_tool_pinner = Node3DEditorToolPinner.new()
 	set_process(true)
 
@@ -260,6 +264,20 @@ func _build_draw_overlay() -> void:
 	container.add_child(_draw_overlay)
 
 
+func _build_drop_overlay() -> void:
+	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if vp == null:
+		return
+	var container: Control = vp.get_parent() as Control
+	if container == null:
+		return
+	_drop_overlay = _DROP_OVERLAY_SCRIPT.new()
+	_drop_overlay.name = "GoBuildMaterialDropOverlay"
+	_drop_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_drop_overlay.mouse_filter = Control.MOUSE_FILTER_PASS
+	container.add_child(_drop_overlay)
+
+
 func _update_draw_overlay() -> void:
 	if _draw_overlay == null or not is_instance_valid(_draw_overlay):
 		return
@@ -311,6 +329,10 @@ func _exit_tree() -> void:
 	if _draw_overlay != null and is_instance_valid(_draw_overlay):
 		_draw_overlay.queue_free()
 		_draw_overlay = null
+
+	if _drop_overlay != null and is_instance_valid(_drop_overlay):
+		_drop_overlay.queue_free()
+		_drop_overlay = null
 
 	if _gizmo_plugin:
 		remove_node_3d_gizmo_plugin(_gizmo_plugin)
@@ -587,6 +609,9 @@ func _edit(object: Object) -> void:
 			_edited_node.selection.set_mode(carry_mode as SelectionManager.Mode)
 		if _edited_node.selection.mode != SelectionManager.Mode.OBJECT:
 			call_deferred("_suppress_native_gizmo")
+	# Update the drop overlay to point at the current (or null) edited node.
+	if _drop_overlay != null and is_instance_valid(_drop_overlay):
+		_drop_overlay.setup(self, _edited_node)
 
 	if _panel:
 		_panel.set_target(_edited_node)
@@ -755,10 +780,8 @@ func _handle_action_key(keycode: Key) -> int:
 		KEY_W:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
 		KEY_E:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.ROTATE)
 		KEY_R:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.SCALE)
-		# Consume V so the native editor never switches to physical/pan mode.
-		# GoBuild uses Alt (not V) for vertex snap, so V has no GoBuild action —
-		# swallowing it here is the entire suppression contract for this key.
-		KEY_V:             return 1
+		KEY_V:             return _handle_rip_key()
+		KEY_N:             return _handle_normal_vis_key()
 	# Element-mode action keys — handled by helpers to keep return count low.
 	var result: int = _handle_element_action_key(keycode)
 	return result
@@ -799,6 +822,27 @@ func _handle_bridge_key() -> int:
 		_panel.trigger_bridge()
 		return 1
 	return 0
+
+
+## Intercept V in Vertex or Edge mode; triggers Rip.  Pass through otherwise.
+func _handle_rip_key() -> int:
+	if _edited_node != null and _panel != null \
+			and _edited_node.selection.get_mode() != SelectionManager.Mode.OBJECT:
+		_panel.trigger_rip()
+		return 1
+	return 0
+
+
+## Intercept N; toggles face normal visualiser on/off.
+func _handle_normal_vis_key() -> int:
+	if _gizmo_plugin == null:
+		return 0
+	_gizmo_plugin.show_face_normals = not _gizmo_plugin.show_face_normals
+	if _edited_node != null:
+		_edited_node.update_gizmos()
+	if _panel != null and _panel.has_method("_sync_normal_toggles"):
+		_panel._sync_normal_toggles()
+	return 1
 
 
 ## Intercept = / + in sub-element modes; triggers Grow Selection.
@@ -859,6 +903,20 @@ func get_project_settings() -> GoBuildProjectSettings:
 func set_xray_mode(enabled: bool) -> void:
 	if _gizmo_plugin != null:
 		_gizmo_plugin.xray_mode = enabled
+	if _edited_node != null:
+		_edited_node.update_gizmos()
+
+
+func set_show_face_normals(enabled: bool) -> void:
+	if _gizmo_plugin != null:
+		_gizmo_plugin.show_face_normals = enabled
+	if _edited_node != null:
+		_edited_node.update_gizmos()
+
+
+func set_show_vertex_normals(enabled: bool) -> void:
+	if _gizmo_plugin != null:
+		_gizmo_plugin.show_vertex_normals = enabled
 	if _edited_node != null:
 		_edited_node.update_gizmos()
 

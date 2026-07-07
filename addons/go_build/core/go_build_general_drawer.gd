@@ -27,6 +27,8 @@ const _UNDO_SPIN_SCRIPT_G   := preload("res://addons/go_build/core/go_build_undo
 var _delete_btn:    Button    = null
 var _cull_check:    CheckBox  = null
 var _xray_check:    CheckBox  = null
+var _face_n_check:   CheckBox  = null
+var _vtx_n_check:    CheckBox  = null
 var _auto_uv_option: OptionButton = null
 var _auto_uv_scale_spin: GoBuildUndoSpinBox = null
 var _auto_uv_u_offset_spin: GoBuildUndoSpinBox = null
@@ -91,6 +93,34 @@ func _ready() -> void:
 	)
 	_xray_check.toggled.connect(_on_xray_check_toggled)
 	_content.add_child(_xray_check)
+
+	# ── Normal visualiser toggles ────────────────────────────────────────
+	var normal_row := HBoxContainer.new()
+	_content.add_child(normal_row)
+
+	var face_n_check := CheckBox.new()
+	face_n_check.text = "Normals"
+	face_n_check.button_pressed = false
+	face_n_check.add_theme_font_size_override("font_size", 11)
+	face_n_check.tooltip_text = (
+		"Show face normals as cyan lines from each face centroid.\n"
+		+ "Shortcut: N"
+	)
+	face_n_check.toggled.connect(_on_face_normals_toggled)
+	normal_row.add_child(face_n_check)
+	_face_n_check = face_n_check
+
+	var vtx_n_check := CheckBox.new()
+	vtx_n_check.text = "Vtx N"
+	vtx_n_check.button_pressed = false
+	vtx_n_check.add_theme_font_size_override("font_size", 11)
+	vtx_n_check.tooltip_text = (
+		"Show vertex normals as lavender lines from each vertex.\n"
+		+ "Vertex normals are the area-weighted average of adjacent face normals."
+	)
+	vtx_n_check.toggled.connect(_on_vertex_normals_toggled)
+	normal_row.add_child(vtx_n_check)
+	_vtx_n_check = vtx_n_check
 
 	# ── Auto UV mode selector ────────────────────────────────────────────
 	var uv_row := HBoxContainer.new()
@@ -307,6 +337,16 @@ func _on_cull_check_toggled(enabled: bool) -> void:
 func _on_xray_check_toggled(enabled: bool) -> void:
 	if _plugin != null and _plugin.has_method("set_xray_mode"):
 		_plugin.set_xray_mode(enabled)
+
+
+func _on_face_normals_toggled(enabled: bool) -> void:
+	if _plugin != null and _plugin.has_method("set_show_face_normals"):
+		_plugin.set_show_face_normals(enabled)
+
+
+func _on_vertex_normals_toggled(enabled: bool) -> void:
+	if _plugin != null and _plugin.has_method("set_show_vertex_normals"):
+		_plugin.set_show_vertex_normals(enabled)
 
 
 ## Write the new Auto UV mode to the active target.

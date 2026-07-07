@@ -1,6 +1,6 @@
 ## Edge-mode operations drawer for the GoBuild editor panel.
 ##
-## Hosts Extrude, Bevel, Bridge/Fill, Loop Cut, Hard, and Soft buttons.
+## Hosts Extrude, Bevel, Bridge/Fill, Loop Cut, Hard, Soft, and Rip buttons.
 ##
 ## Drop into any [VBoxContainer] with [method Node.add_child].  After adding:
 ##   - Call [method GoBuildDrawer.set_plugin] once.
@@ -28,6 +28,8 @@ const _LOOP_CUT_SCRIPT_E      := \
 		preload("res://addons/go_build/mesh/operations/loop_cut_operation.gd")
 const _HARD_EDGE_SCRIPT_E     := \
 		preload("res://addons/go_build/mesh/operations/hard_edge_operation.gd")
+const _RIP_SCRIPT_E            := \
+		preload("res://addons/go_build/mesh/operations/rip_operation.gd")
 
 const _EDGE_EXTRUDE_DEFAULT_WIDTH: float = 0.5
 const _BEVEL_DEFAULT_WIDTH: float = 0.01
@@ -39,6 +41,7 @@ var _bridge_btn:       Button = null
 var _loop_cut_btn:     Button = null
 var _hard_edge_btn:    Button = null
 var _soft_edge_btn:    Button = null
+var _rip_btn:          Button = null
 
 
 func _ready() -> void:
@@ -93,6 +96,13 @@ func _ready() -> void:
 	grid.add_child(_soft_edge_btn)
 	_register_op(_soft_edge_btn, _cond_edge_any)
 
+	_rip_btn = _op_button("Rip",
+		"Rip selected edges out of unselected faces, creating an open seam (V).\n"
+		+ "Requires Edge mode with \u22651 edge selected.")
+	_rip_btn.pressed.connect(_on_rip_pressed)
+	grid.add_child(_rip_btn)
+	_register_op(_rip_btn, _cond_edge_any)
+
 
 # ---------------------------------------------------------------------------
 # External trigger entry points
@@ -126,6 +136,11 @@ func trigger_hard_edge() -> void:
 ## Equivalent to pressing the Soft Edge button.
 func trigger_soft_edge() -> void:
 	_on_soft_edge_pressed()
+
+
+## Equivalent to pressing the Rip button.
+func trigger_rip() -> void:
+	_on_rip_pressed()
 
 
 # ---------------------------------------------------------------------------
@@ -305,3 +320,18 @@ func _on_soft_edge_pressed() -> void:
 		func(): HardEdgeOperation.apply(_target.go_build_mesh, edges, false),
 		false,
 	)
+
+
+func _on_rip_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return
+	var sel_edges: Array[int] = _target.selection.get_selected_edges()
+	if sel_edges.is_empty():
+		return
+	var edges_to_rip: Array[int] = []
+	edges_to_rip.assign(sel_edges)
+	_run_op("Rip Edge",
+			func(): RipOperation.apply_edges(_target.go_build_mesh, edges_to_rip),
+			false)

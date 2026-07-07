@@ -94,7 +94,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Shift+drag → Extrude | ✅ Complete | `_should_extrude_drag` + `_begin_extrude_drag` in `selection_input_controller.gd`; extrudes at distance=0 then translates; undo restores pre-extrude state in one step |
 | Shift+drag → Inset | ✅ Complete | `_should_inset_drag` + `_begin_inset_drag` in `selection_input_controller.gd`; `InsetOperation.apply` at distance=0 then `_apply_inset_drag` (screen-space delta → lerp to centroid); undo restores pre-inset state in one step |
 | Right-click context menu | ✅ Complete | `PopupMenu` in `selection_input_controller.gd`; per-mode items (Select All, Extrude, Flip Normals); Add Shape submenu in all modes; Object mode context menu enabled; Add Texture in Face mode |
-| Rip | 📋 Planned | Split shared vertices or edges apart by duplicating them and leaving an open seam; Vertex and Edge mode; `V` key |
+| Rip | ✅ Complete | Split shared vertices or edges apart by duplicating them and leaving an open seam; Vertex and Edge mode; `V` key; `RipOperation.apply_vertices` and `RipOperation.apply_edges`; context menu entry; panel button; 13 unit tests |
 
 ---
 
@@ -118,8 +118,8 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Prepare for Texturing | ✅ Complete | One-click "Prep Tex" button in UV panel Operations drawer: applies Box UV projection to all faces then packs islands into 0-1 tile; full undo/redo as single action |
 | UV wireframe export (PNG) | ✅ Complete | "Export UV" button in UV panel Operations drawer; renders UV wireframe to PNG at configurable resolution; white lines on transparent background by default; uses Bresenham line drawing with configurable width and colours |
 | Add Tex button (UV editor) | ✅ Complete | File picker in UV panel to assign a texture to selected faces; creates or reuses a StandardMaterial3D with the chosen albedo_texture; full undo/redo |
-| Drag-and-drop material/texture to UV canvas | 📋 Planned | Drop a Texture2D or Material from FileSystem dock onto UV canvas to assign to selected faces; deduplicates if texture already exists in a material slot; design: `docs/uv-texture-insert.md` Slice 4 |
-| UV settings drawer | 📋 Planned | Collapsible settings drawer in UV panel: dim alpha for unselected faces, auto-switch texture toggle, pixel snap toggle (prep), grid subdivision; design: `docs/uv-texture-insert.md` Slice 5–6 |
+| Drag-and-drop material/texture to UV canvas | ✅ Complete | Drop a Texture2D or Material from the FileSystem dock onto the UV canvas to assign it to selected faces; reuses existing material slots or creates a new StandardMaterial3D; full undo/redo |
+| UV settings drawer | ✅ Complete | Collapsible settings drawer in UV panel: dim alpha for unselected faces (isolate toggle), auto-switch texture toggle, pixel snap (UV snap grid size SpinBox), grid subdivision (tile repeat) |
 | Lightmap UV (UV2) generation | 📋 Planned | Non-overlapping second channel |
 | Per-face material assignment | ✅ Complete | `MaterialAssignOperation.apply(mesh, faces, slot, material=null)`; assigns `face.material_index`; optionally writes material to `material_slots[slot]`; grows slots array as needed; Use button per palette slot in both Face mode (selected faces) and Object mode (all faces); full undo/redo; 10 unit tests |
 | Material palette panel | ✅ Complete | Auto-discovered palettes from filesystem (`GoBuildProjectSettings.discover_palettes`); palette dropdown + [+ New] / [🗑 Delete] buttons; per-palette material list with [Use] + [×] per slot; [EditorResourcePicker] for adding materials; `filesystem_changed` signal refreshes dropdown live |
@@ -135,7 +135,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Smooth groups | ✅ Complete | `SmoothGroupOperation.apply(mesh, faces, group_id)`; group 0 = flat-shaded, non-zero IDs average normals at shared vertices; panel Surface section with Group SpinBox (0-31) + Assign, Flat, Smooth buttons; 9 unit tests |
 | Hard/soft edge toggle | ✅ Complete | `HardEdgeOperation.apply(mesh, edges, hard)`; `GoBuildEdge.is_hard` (derived); `GoBuildMesh.hard_edge_pairs @export`; BFS `_compute_face_regions()` replaces smooth-group-keyed normals; panel Hard/Soft buttons in Edge section; 11 unit tests incl. bake seam |
 | Vertex color paint | 📋 Planned | Per-vertex RGBA brush |
-| Normal visualiser overlay | 📋 Planned | Face + vertex normals as viewport lines |
+| Normal visualiser overlay | ✅ Complete | Face normals as cyan lines from face centroids; vertex normals as lavender lines from vertices (area-weighted average of adjacent face normals); toggled via "Normals" / "Vtx N" checkboxes in General drawer or N key shortcut; `_draw_face_normals` and `_draw_vertex_normals` in `GoBuildGizmo._redraw()` |
 
 ---
 

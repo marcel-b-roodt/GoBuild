@@ -1721,6 +1721,7 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 				if sel.get_selected_vertices().size() >= 2:
 					popup.add_item("Merge at Center  (M)", 11)
 				popup.add_item("Weld (Merge by Distance)", 12)
+				popup.add_item("Rip  (V)", 13)
 				popup.add_item("Delete", 10)
 		SelectionManager.Mode.EDGE:
 			if not sel.get_selected_edges().is_empty():
@@ -1729,6 +1730,7 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 				popup.add_item("Loop Cut", 23)
 				popup.add_item("Bridge/Fill  (F)", 22)
 				popup.add_item("Extrude Edge", 21)
+				popup.add_item("Rip  (V)", 26)
 				popup.add_separator()
 				popup.add_item("Hard Edge", 24)
 				popup.add_item("Soft Edge", 25)
@@ -1842,6 +1844,9 @@ func _on_context_menu_pressed(
 		12:  # Weld (merge by distance)
 			if _panel != null:
 				_panel.trigger_weld()
+		13:  # Rip
+			if _panel != null:
+				_panel.trigger_rip()
 		22:  # Bridge/Fill
 			if _panel != null:
 				_panel.trigger_bridge()
@@ -1857,6 +1862,9 @@ func _on_context_menu_pressed(
 		25:  # Soft edge
 			if _panel != null:
 				_panel.trigger_soft_edge()
+		26:  # Rip (edge mode)
+			if _panel != null:
+				_panel.trigger_rip()
 		34:  # Flat shading
 			if _panel != null:
 				_panel.trigger_flat()
