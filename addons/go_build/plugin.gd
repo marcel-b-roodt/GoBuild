@@ -92,9 +92,11 @@ var _drag_was_active: bool = false
 var _drag_mouse_pos: Vector2 = Vector2.ZERO
 ## Whether Ctrl was held during the drag (for surface-slot assignment).
 var _drag_ctrl_held: bool = false
-## Cached material that Godot's editor set during a drag.  We suppress the
-## full-object tint and show a per-surface preview instead.
+## Cached material that Godot's editor set during a drag.
 var _drag_cached_material: Material = null
+## Snapshot of the GoBuildMesh before the drag preview started.
+## Restored each frame before applying the preview so changes never accumulate.
+var _drag_snapshot: Dictionary = {}
 var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
@@ -341,10 +343,13 @@ func _exit_tree() -> void:
 ## Cancel any active material-drop preview and reset drag state.
 ## Call when [_edited_node] is being cleared or the plugin is exiting.
 func _cleanup_drag_state() -> void:
-	if _drag_cached_material != null and _edited_node != null \
-			and is_instance_valid(_edited_node):
-		GoBuildMaterialDropConverter.cancel_preview(_edited_node)
+	if _edited_node != null and is_instance_valid(_edited_node):
+		if not _drag_snapshot.is_empty():
+			GoBuildMaterialDropConverter.cancel_preview(_edited_node, _drag_snapshot)
+		else:
+			GoBuildMaterialDropConverter.clear_overrides(_edited_node)
 	_drag_cached_material = null
+	_drag_snapshot = {}
 	_drag_was_active = false
 
 
@@ -355,19 +360,23 @@ func _process(_delta: float) -> void:
 
 	# Detect drag-and-drop material assignment.  Godot's 3D viewport handles
 	# drops at the C++ level, setting material_override or surface_override_material.
-	# We suppress the full-object tint and show a per-surface preview instead,
-	# then apply permanently on drop via GoBuild's face-level system.
+	# We suppress the full-object tint and show a per-face preview via GoBuild's
+	# data model (restore from snapshot each frame, apply to hovered face, rebake).
+	# On drop: restore from snapshot, apply permanently with undo/redo.
+	# On cancel: restore from snapshot, rebake (back to original state).
 	# Only operates on _edited_node — unselected objects get Godot's native handling.
 	var dragging: bool = get_viewport().gui_is_dragging()
 	if dragging:
 		_drag_ctrl_held = Input.is_key_pressed(KEY_CTRL)
 		if _edited_node != null and is_instance_valid(_edited_node) \
 				and _edited_node.go_build_mesh != null:
-			_drag_cached_material = GoBuildMaterialDropConverter.update_preview(
-					_edited_node, _drag_cached_material,
+			var result := GoBuildMaterialDropConverter.update_preview(
+					_edited_node, _drag_cached_material, _drag_snapshot,
 					EditorInterface.get_editor_viewport_3d(0).get_camera_3d() \
 							if EditorInterface.get_editor_viewport_3d(0) != null else null,
 					_drag_mouse_pos, _drag_ctrl_held)
+			_drag_cached_material = result["material"]
+			_drag_snapshot = result["snapshot"]
 	if _drag_was_active and not dragging:
 		# Drag just ended.
 		if _edited_node != null and is_instance_valid(_edited_node) \
@@ -378,11 +387,13 @@ func _process(_delta: float) -> void:
 			GoBuildMaterialDropConverter.apply_drop(
 					_edited_node, get_undo_redo(),
 					camera, _drag_mouse_pos, _drag_ctrl_held,
-					_drag_cached_material)
+					_drag_cached_material, _drag_snapshot)
 		elif _edited_node != null and is_instance_valid(_edited_node):
-			# Drag cancelled or no material — clear any preview overrides.
-			GoBuildMaterialDropConverter.cancel_preview(_edited_node)
+			# Drag cancelled — restore from snapshot.
+			GoBuildMaterialDropConverter.cancel_preview(
+					_edited_node, _drag_snapshot)
 		_drag_cached_material = null
+		_drag_snapshot = {}
 	_drag_was_active = dragging
 
 	# Live UV refresh in Object mode: schedule a single end-of-frame rebake
