@@ -277,8 +277,14 @@ func _build_draw_overlay() -> void:
 func _update_draw_overlay() -> void:
 	if _draw_overlay == null or not is_instance_valid(_draw_overlay):
 		return
-	if _shape_draw_controller == null or not _shape_draw_controller.is_active() \
-			or _edited_node != null:
+	# Show overlay if shape draw is active OR if a material drag is in progress.
+	var show_overlay: bool = false
+	if _shape_draw_controller != null and _shape_draw_controller.is_active() \
+			and _edited_node == null:
+		show_overlay = true
+	if _drag_cached_material != null:
+		show_overlay = true
+	if not show_overlay:
 		_draw_overlay.visible = false
 		_draw_overlay.queue_redraw()
 		return
@@ -289,9 +295,12 @@ func _update_draw_overlay() -> void:
 
 
 func _on_draw_overlay() -> void:
-	if _shape_draw_controller == null or not _shape_draw_controller.is_active():
-		return
-	_draw_shape_draw_overlay(_draw_overlay)
+	if _shape_draw_controller != null and _shape_draw_controller.is_active():
+		_draw_shape_draw_overlay(_draw_overlay)
+	# Draw material drag hint below the shape draw overlay (or alone).
+	if _drag_cached_material != null and _edited_node != null \
+			and is_instance_valid(_edited_node):
+		_draw_material_drag_hint(_draw_overlay)
 
 
 func _exit_tree() -> void:
@@ -384,12 +393,16 @@ func _process(_delta: float) -> void:
 				and _drag_cached_material != null:
 			var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
 			var camera: Camera3D = vp.get_camera_3d() if vp != null else null
-			GoBuildMaterialDropConverter.apply_drop(
+			var applied := GoBuildMaterialDropConverter.apply_drop(
 					_edited_node, get_undo_redo(),
 					camera, _drag_mouse_pos, _drag_ctrl_held,
 					_drag_cached_material, _drag_snapshot)
+			if not applied:
+				# Raycast missed — cancel (restore from snapshot).
+				GoBuildMaterialDropConverter.cancel_preview(
+						_edited_node, _drag_snapshot)
 		elif _edited_node != null and is_instance_valid(_edited_node):
-			# Drag cancelled — restore from snapshot.
+			# Drag cancelled (Escape / right-click) — restore from snapshot.
 			GoBuildMaterialDropConverter.cancel_preview(
 					_edited_node, _drag_snapshot)
 		_drag_cached_material = null
@@ -778,6 +791,24 @@ func _draw_shape_draw_overlay(overlay: Control) -> void:
 				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2, Color(0.0, 0.0, 0.0, 0.55))
 		overlay.draw_string(font2, pos2, dims_text,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2, Color(0.65, 1.0, 0.65, 0.90))
+
+
+func _draw_material_drag_hint(overlay: Control) -> void:
+	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var camera: Camera3D = vp.get_camera_3d() if vp != null else null
+	var hint: String = GoBuildMaterialDropConverter.build_drag_hint(
+			_edited_node, camera, _drag_mouse_pos,
+			_drag_ctrl_held, _drag_cached_material)
+	if hint.is_empty():
+		return
+	var font: Font = ThemeDB.fallback_font
+	var fsize: int = 13
+	var m: float = 8.0
+	var pos := Vector2(m, m + fsize)
+	overlay.draw_string(font, pos + Vector2(1.0, 1.0), hint,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+	overlay.draw_string(font, pos, hint,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.75, 0.92, 1.0, 0.92))
 
 
 func _hide_draw_param_strip() -> void:

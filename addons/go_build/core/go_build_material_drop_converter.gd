@@ -9,13 +9,15 @@
 ##   - During drag: suppress Godot's full-object tint, take a snapshot of the
 ##     GoBuildMesh, then each frame: restore from snapshot, apply the material
 ##     to the hovered face(s), and rebake.  This gives a true per-face preview.
-##   - On drop: restore from snapshot, apply permanently with undo/redo.
-##   - On cancel: restore from snapshot and rebake (back to original state).
+##   - On drop (raycast hit): restore from snapshot, apply permanently with
+##     undo/redo.
+##   - On drop (raycast miss): restore from snapshot, cancel.  The user missed.
+##   - On cancel (Escape / right-click): restore from snapshot and rebake.
 ##   - Default drop: raycast to find the face under the cursor, apply the
 ##     material to that face (or all selected faces if a selection exists).
 ##   - Ctrl drop: apply to all faces sharing the same GoBuild material slot
 ##     as the hovered face.
-##   - If raycasting fails: apply to all faces (last resort).
+##   - If raycasting fails: the drop is cancelled (no material applied).
 ##
 ## Only operates on the plugin's [_edited_node].  If the user drops onto a
 ## GoBuildMeshInstance that is not being edited, Godot's native system handles
@@ -34,6 +36,49 @@ const _SELECTION_MGR_SCRIPT  := preload(
 const _MESH_INSTANCE_SCRIPT   := preload(
 		"res://addons/go_build/core/go_build_mesh_instance.gd")
 const _PICKING_SCRIPT          := preload("res://addons/go_build/core/picking_helper.gd")
+
+
+## Build a short hint string describing what the material drop will do.
+## Returns an empty string when not dragging or no material is cached.
+static func build_drag_hint(
+		node: GoBuildMeshInstance,
+		camera: Camera3D,
+		screen_pos: Vector2,
+		ctrl_held: bool,
+		cached_mat: Material,
+) -> String:
+	if cached_mat == null or node == null or node.go_build_mesh == null:
+		return ""
+	var mat_name: String = cached_mat.resource_name
+	if mat_name.is_empty():
+		mat_name = cached_mat.resource_path.get_file().get_basename()
+	if mat_name.is_empty():
+		mat_name = "Material"
+
+	# Face selection takes priority.
+	if node.selection.get_mode() == SelectionManager.Mode.FACE:
+		var sel: Array[int] = node.selection.get_selected_faces()
+		if not sel.is_empty():
+			return "%s  →  %d selected face%s" % [
+					mat_name, sel.size(), "s" if sel.size() != 1 else ""]
+
+	# Raycast to determine target.
+	if camera == null:
+		return "%s  →  hover a face" % mat_name
+	var face_idx: int = PickingHelper.find_nearest_face(
+			camera, screen_pos, node, node.go_build_mesh)
+	if face_idx < 0:
+		return "%s  →  hover a face" % mat_name
+
+	if ctrl_held:
+		var slot: int = node.go_build_mesh.faces[face_idx].material_index
+		var count: int = 0
+		for f: GoBuildFace in node.go_build_mesh.faces:
+			if f.material_index == slot:
+				count += 1
+		return "%s  →  slot %d (%d face%s)" % [
+				mat_name, slot, count, "s" if count != 1 else ""]
+	return "%s  →  face %d" % [mat_name, face_idx]
 
 
 ## Called each [method _process] frame while a drag is active on the
@@ -91,12 +136,13 @@ static func update_preview(
 	var gbm: GoBuildMesh = node.go_build_mesh
 	var target_faces: Array[int] = _resolve_target_faces(
 			node, gbm, camera, screen_pos, ctrl_held)
-	if target_faces.is_empty():
-		target_faces = _all_face_indices(gbm)
 
-	var target_slot: int = 0
-	if not target_faces.is_empty():
-		target_slot = gbm.faces[target_faces[0]].material_index
+	if target_faces.is_empty():
+		# Raycast missed — just show the original state, no preview.
+		node.bake_in_place()
+		return result
+
+	var target_slot: int = gbm.faces[target_faces[0]].material_index
 
 	# Apply preview to the GoBuildMesh data model and rebake.
 	MaterialAssignOperation.apply_to_selected_faces(
@@ -109,6 +155,8 @@ static func update_preview(
 ## Apply the cached material permanently when the drag ends with a drop.
 ## Restores from snapshot first to get a clean state, then applies via
 ## GoBuild's face-level system with undo/redo.
+## Returns [code]true[/code] if the material was applied, [code]false[/code] if
+## the raycast missed and the drop was cancelled.
 static func apply_drop(
 		node: GoBuildMeshInstance,
 		ur: EditorUndoRedoManager,
@@ -135,11 +183,11 @@ static func apply_drop(
 			node, gbm, camera, screen_pos, ctrl_held)
 
 	if target_faces.is_empty():
-		target_faces = _all_face_indices(gbm)
+		# Raycast missed — cancel the drop, restore to original state.
+		node.bake_in_place()
+		return false
 
-	var target_slot: int = 0
-	if not target_faces.is_empty():
-		target_slot = gbm.faces[target_faces[0]].material_index
+	var target_slot: int = gbm.faces[target_faces[0]].material_index
 
 	# Take undo snapshot from the clean state.
 	var undo_snapshot := gbm.take_snapshot()
@@ -176,6 +224,7 @@ static func clear_overrides(node: GoBuildMeshInstance) -> void:
 ##   - Ctrl held: all faces sharing the same GoBuild material slot as the
 ##     hovered face.
 ##   - Default: the single face under the cursor, or existing face selection.
+##   - Returns empty if raycast misses (drop should be cancelled).
 static func _resolve_target_faces(
 		node: GoBuildMeshInstance,
 		gbm: GoBuildMesh,
@@ -207,14 +256,6 @@ static func _resolve_target_faces(
 		return result
 
 	return [face_idx]
-
-
-static func _all_face_indices(gbm: GoBuildMesh) -> Array[int]:
-	var faces: Array[int] = []
-	faces.resize(gbm.faces.size())
-	for i: int in gbm.faces.size():
-		faces[i] = i
-	return faces
 
 
 ## Extract the material that Godot's editor set as an override.
