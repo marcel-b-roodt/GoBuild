@@ -59,16 +59,16 @@ static func build_drag_hint(
 	if node.selection.get_mode() == SelectionManager.Mode.FACE:
 		var sel: Array[int] = node.selection.get_selected_faces()
 		if not sel.is_empty():
-			return "Drop %s on %d selected face%s" % [
+			return "%s  →  %d selected face%s" % [
 					mat_name, sel.size(), "s" if sel.size() != 1 else ""]
 
 	# Raycast to determine target.
 	if camera == null:
-		return "Drop %s: hover a face" % mat_name
+		return "%s  →  hover a face    Ctrl: assign to slot" % mat_name
 	var face_idx: int = PickingHelper.find_nearest_face(
 			camera, screen_pos, node, node.go_build_mesh)
 	if face_idx < 0:
-		return "Drop %s: hover a face" % mat_name
+		return "%s  →  hover a face    Ctrl: assign to slot" % mat_name
 
 	if ctrl_held:
 		var slot: int = node.go_build_mesh.faces[face_idx].material_index
@@ -76,9 +76,9 @@ static func build_drag_hint(
 		for f: GoBuildFace in node.go_build_mesh.faces:
 			if f.material_index == slot:
 				count += 1
-		return "Ctrl+Drop %s: slot %d (%d face%s)" % [
+		return "%s  →  slot %d (%d face%s)" % [
 				mat_name, slot, count, "s" if count != 1 else ""]
-	return "Drop %s on face %d" % [mat_name, face_idx]
+	return "%s  →  face %d    Ctrl: assign to slot" % [mat_name, face_idx]
 
 
 ## Called each [method _process] frame while a drag is active on the
