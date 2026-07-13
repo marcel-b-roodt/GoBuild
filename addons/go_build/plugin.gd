@@ -346,7 +346,14 @@ func _process(_delta: float) -> void:
 	# overrides into GoBuild's face-level material system.
 	var dragging: bool = get_viewport().gui_is_dragging()
 	if dragging:
-		_drag_mouse_pos = get_viewport().get_mouse_position()
+		# Track mouse position in the 3D SubViewport's local coordinate space
+		# so the raycast picks the correct face on drop.
+		var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+		if vp != null:
+			var vp_parent: Control = vp.get_parent() as Control
+			if vp_parent != null:
+				var screen_mouse: Vector2 = get_viewport().get_mouse_position()
+				_drag_mouse_pos = screen_mouse - vp_parent.get_screen_position()
 		_drag_ctrl_held = Input.is_key_pressed(KEY_CTRL)
 	if _drag_was_active and not dragging:
 		# Drag just ended — convert any overrides Godot set.
