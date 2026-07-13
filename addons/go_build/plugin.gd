@@ -87,7 +87,7 @@ var _shape_draw_controller: GoBuildShapeDrawController = null
 var _draw_overlay: Control = null
 ## True while a Godot drag-and-drop is in progress over the viewport.
 ## Used to detect the end of a drag so we can convert any material overrides
-## that Godot's built-in handler set on the edited GoBuildMeshInstance.
+## that Godot's built-in handler set on a GoBuildMeshInstance.
 var _drag_was_active: bool = false
 ## Last known mouse position in the 3D viewport during a drag (SubViewport-local).
 var _drag_mouse_pos: Vector2 = Vector2.ZERO
@@ -96,6 +96,12 @@ var _drag_ctrl_held: bool = false
 ## Cached material that Godot's editor set during a drag.  We suppress the
 ## preview each frame but remember what was dropped so we can apply it on drop.
 var _drag_cached_material: Material = null
+## Snapshot of the target node's GoBuildMesh before the drag preview started.
+## Used to restore the mesh to its original state before applying permanently.
+var _drag_snapshot: Dictionary = {}
+## The GoBuildMeshInstance that the drag is targeting.  May differ from
+## _edited_node when the user drops onto an unselected GoBuild object.
+var _drag_target_node: GoBuildMeshInstance = null
 var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
@@ -345,34 +351,59 @@ func _process(_delta: float) -> void:
 
 	# Detect drag-and-drop completion.  Godot's 3D viewport editor handles
 	# drops at the C++ level and sets material_override or surface_override_material
-	# on the MeshInstance3D.  We suppress the preview during drag and convert the
-	# cached material to GoBuild's face-level system on drop.
+	# on the MeshInstance3D.  We suppress the preview during drag, show our own
+	# per-face preview, and convert the cached material on drop.
 	var dragging: bool = get_viewport().gui_is_dragging()
 	if dragging:
 		_drag_ctrl_held = Input.is_key_pressed(KEY_CTRL)
-		# Suppress Godot's native material override preview during drag and
-		# cache the material so we can apply it on drop.
-		if _edited_node != null and is_instance_valid(_edited_node) \
-				and _edited_node.go_build_mesh != null:
-			var cached := GoBuildMaterialDropConverter.cache_and_suppress(
-					_edited_node, _drag_cached_material)
-			if cached != null:
-				_drag_cached_material = cached
+		# Find the target node: prefer _edited_node, but also scan the scene
+		# for any GoBuildMeshInstance with an override (user may have dropped
+		# onto an unselected object).
+		var target: GoBuildMeshInstance = _edited_node
+		if target == null or not is_instance_valid(target) \
+				or target.go_build_mesh == null \
+				or not GoBuildMaterialDropConverter.extract_override_material(target):
+			var scene_root: Node = EditorInterface.get_edited_scene_root()
+			if scene_root != null:
+				target = GoBuildMaterialDropConverter.find_node_with_override(scene_root)
+		if target != null and is_instance_valid(target) \
+				and target.go_build_mesh != null:
+			if _drag_target_node != target:
+				# Target changed — reset state for the new node.
+				_drag_target_node = target
+				_drag_snapshot = {}
+				_drag_cached_material = null
+			var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+			var camera: Camera3D = vp.get_camera_3d() if vp != null else null
+			var result := GoBuildMaterialDropConverter.cache_and_suppress(
+					target, _drag_cached_material,
+					camera, _drag_mouse_pos, _drag_ctrl_held,
+					_drag_snapshot)
+			_drag_cached_material = result["material"]
+			_drag_snapshot = result["snapshot"]
+			_drag_target_node = target
 	if _drag_was_active and not dragging:
-		# Drag just ended — convert the cached material to face-level.
-		if _edited_node != null and is_instance_valid(_edited_node) \
-				and _edited_node.go_build_mesh != null \
+		# Drag just ended.
+		if _drag_target_node != null and is_instance_valid(_drag_target_node) \
+				and _drag_target_node.go_build_mesh != null \
 				and _drag_cached_material != null:
 			var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
 			var camera: Camera3D = vp.get_camera_3d() if vp != null else null
 			GoBuildMaterialDropConverter.convert_with_material(
-					_edited_node, get_undo_redo(),
+					_drag_target_node, get_undo_redo(),
 					camera, _drag_mouse_pos, _drag_ctrl_held,
-					_drag_cached_material)
-			_drag_cached_material = null
-		else:
-			GoBuildMaterialDropConverter.clear_overrides(_edited_node)
-			_drag_cached_material = null
+					_drag_cached_material, _drag_snapshot)
+		elif _drag_target_node != null and is_instance_valid(_drag_target_node) \
+				and not _drag_snapshot.is_empty():
+			# Drag was cancelled — restore from snapshot.
+			GoBuildMaterialDropConverter.cancel_drag(
+					_drag_target_node, _drag_snapshot)
+		elif _drag_target_node != null and is_instance_valid(_drag_target_node):
+			GoBuildMaterialDropConverter.clear_overrides(_drag_target_node)
+		# Reset drag state.
+		_drag_cached_material = null
+		_drag_snapshot = {}
+		_drag_target_node = null
 	_drag_was_active = dragging
 
 	# Live UV refresh in Object mode: schedule a single end-of-frame rebake
