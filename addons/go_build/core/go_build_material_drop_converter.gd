@@ -3,17 +3,18 @@
 ##
 ## Godot's 3D viewport editor intercepts drag-and-drop before any GDScript
 ## overlay can, setting [material_override] (default drag) or
-## [surface_override_material] (Ctrl+drag) on the MeshInstance3D.  This helper
-## detects those overrides after the drop completes and migrates them into
-## [GoBuildMesh.material_slots] + per-face [GoBuildFace.material_index].
+## [surface_override_material] (Ctrl+drag) on the MeshInstance3D as a preview.
 ##
-## Conversion strategy:
+## Strategy:
+##   - During drag: [method cache_and_suppress] extracts and caches the material
+##     Godot set, then clears the override so the preview doesn't show.
+##   - On drop: [method convert_with_material] uses the cached material plus
+##     a raycast to determine the target face and applies via GoBuild's system.
 ##   - Default drop: raycast to find the face under the cursor, apply the
 ##     material to that face (or all selected faces if a selection exists).
-##   - Ctrl drop: apply to all faces sharing the same material slot as the
-##     hovered face.
-##   - If raycasting fails: apply [material_override] to all faces.
-##   - Drag cancel (no override): clear any stale overrides.
+##   - Ctrl drop: apply to all faces sharing the same GoBuild material slot
+##     as the hovered face.
+##   - If raycasting fails: apply to all faces (last resort).
 @tool
 class_name GoBuildMaterialDropConverter
 extends RefCounted
@@ -30,46 +31,47 @@ const _MESH_INSTANCE_SCRIPT   := preload(
 const _PICKING_SCRIPT          := preload("res://addons/go_build/core/picking_helper.gd")
 
 
-## Check whether [param node] has any material overrides that were likely
-## set by Godot's editor drag-and-drop.
-static func has_editor_override(node: GoBuildMeshInstance) -> bool:
+## Called each [method _process] frame while a drag is active.
+## Extracts any material override Godot set, caches it (or keeps the previous
+## cache if nothing new was set), and clears the override to suppress the
+## full-object preview tint.
+##
+## Returns the cached material (which may be [param prev_cache] if Godot
+## didn't set a new override this frame, or a newly extracted one).
+static func cache_and_suppress(
+		node: GoBuildMeshInstance,
+		prev_cache: Material,
+) -> Material:
 	if node == null or node.go_build_mesh == null:
-		return false
-	if node.material_override != null:
-		return true
-	if node._edit_cull_override:
-		return false
-	if node.mesh == null:
-		return false
-	var am := node.mesh as ArrayMesh
-	if am == null:
-		return false
-	for si: int in am.get_surface_count():
-		if node.get_surface_override_material(si) != null:
-			return true
-	return false
+		return prev_cache
+	# Check for editor-set overrides and extract the material.
+	var mat: Material = _extract_override_material(node)
+	if mat != null:
+		_clear_overrides_no_bake(node)
+		return mat
+	# No new override this frame — keep the previous cache.
+	return prev_cache
 
 
-## Convert any editor-set material overrides on [param node] into GoBuild's
-## face-level material system, using [param ur] for undo/redo.
+## Convert the cached material into GoBuild's face-level system, using
+## [param ur] for undo/redo.  Called when the drag ends.
 ##
 ## [param camera] is used to raycast and find the face under the cursor.
 ## [param screen_pos] is the last known mouse position during the drag.
 ## [param ctrl_held] determines whether to apply to the hovered face only
 ## (default) or to all faces sharing the same material slot (Ctrl).
+## [param mat] is the cached material from [method cache_and_suppress].
 ##
 ## Returns [code]true[/code] if a conversion was made.
-static func convert(
+static func convert_with_material(
 		node: GoBuildMeshInstance,
 		ur: EditorUndoRedoManager,
 		camera: Camera3D,
 		screen_pos: Vector2,
 		ctrl_held: bool,
+		mat: Material,
 ) -> bool:
-	if node == null or node.go_build_mesh == null:
-		return false
-	if not has_editor_override(node):
-		_clear_overrides(node)
+	if node == null or node.go_build_mesh == null or mat == null:
 		return false
 
 	var gbm: GoBuildMesh = node.go_build_mesh
@@ -84,12 +86,6 @@ static func convert(
 	if target_faces.is_empty():
 		# Fallback: apply to all faces.
 		target_faces = _all_face_indices(gbm)
-
-	# Extract the material from whichever override Godot set.
-	var mat: Material = _extract_override_material(node)
-	if mat == null:
-		_clear_overrides(node)
-		return false
 
 	# Determine the target slot.  For a single face, use its existing slot
 	# so we only change the material without moving the face to a different slot.
@@ -112,8 +108,15 @@ static func convert(
 	return true
 
 
+## Clear all editor-set material overrides on [param node].
+## Called after conversion or when a drag ends without a cached material.
+static func clear_overrides(node: GoBuildMeshInstance) -> void:
+	_clear_overrides(node)
+
+
 ## Resolve which faces the material should be applied to.
-##   - Ctrl held: all faces sharing the same material slot as the hovered face.
+##   - Ctrl held: all faces sharing the same GoBuild material slot as the
+##     hovered face.
 ##   - Default: the single face under the cursor, or existing face selection.
 static func _resolve_target_faces(
 		node: GoBuildMeshInstance,
@@ -179,6 +182,13 @@ static func _extract_override_material(node: GoBuildMeshInstance) -> Material:
 
 ## Clear all editor-set material overrides on [param node].
 static func _clear_overrides(node: GoBuildMeshInstance) -> void:
+	_clear_overrides_no_bake(node)
+	node.bake_in_place()
+
+
+## Clear overrides without rebaking.  Used during drag suppression where
+## we only need to remove the visual preview, not rebuild the mesh.
+static func _clear_overrides_no_bake(node: GoBuildMeshInstance) -> void:
 	if node == null:
 		return
 	if node.material_override != null:
@@ -188,4 +198,3 @@ static func _clear_overrides(node: GoBuildMeshInstance) -> void:
 		if am != null:
 			for si: int in am.get_surface_count():
 				node.set_surface_override_material(si, null)
-	node.bake_in_place()

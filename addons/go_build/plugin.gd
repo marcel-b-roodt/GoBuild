@@ -89,10 +89,13 @@ var _draw_overlay: Control = null
 ## Used to detect the end of a drag so we can convert any material overrides
 ## that Godot's built-in handler set on the edited GoBuildMeshInstance.
 var _drag_was_active: bool = false
-## Last known mouse position in the 3D viewport during a drag.
+## Last known mouse position in the 3D viewport during a drag (SubViewport-local).
 var _drag_mouse_pos: Vector2 = Vector2.ZERO
 ## Whether Ctrl was held during the drag (for surface-slot assignment).
 var _drag_ctrl_held: bool = false
+## Cached material that Godot's editor set during a drag.  We suppress the
+## preview each frame but remember what was dropped so we can apply it on drop.
+var _drag_cached_material: Material = null
 var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
@@ -342,28 +345,34 @@ func _process(_delta: float) -> void:
 
 	# Detect drag-and-drop completion.  Godot's 3D viewport editor handles
 	# drops at the C++ level and sets material_override or surface_override_material
-	# on the MeshInstance3D.  We detect the drag-end transition and convert those
-	# overrides into GoBuild's face-level material system.
+	# on the MeshInstance3D.  We suppress the preview during drag and convert the
+	# cached material to GoBuild's face-level system on drop.
 	var dragging: bool = get_viewport().gui_is_dragging()
 	if dragging:
-		# Track mouse position in the 3D SubViewport's local coordinate space
-		# so the raycast picks the correct face on drop.
-		var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
-		if vp != null:
-			var vp_parent: Control = vp.get_parent() as Control
-			if vp_parent != null:
-				var screen_mouse: Vector2 = get_viewport().get_mouse_position()
-				_drag_mouse_pos = screen_mouse - vp_parent.get_screen_position()
 		_drag_ctrl_held = Input.is_key_pressed(KEY_CTRL)
-	if _drag_was_active and not dragging:
-		# Drag just ended — convert any overrides Godot set.
+		# Suppress Godot's native material override preview during drag and
+		# cache the material so we can apply it on drop.
 		if _edited_node != null and is_instance_valid(_edited_node) \
 				and _edited_node.go_build_mesh != null:
+			var cached := GoBuildMaterialDropConverter.cache_and_suppress(
+					_edited_node, _drag_cached_material)
+			if cached != null:
+				_drag_cached_material = cached
+	if _drag_was_active and not dragging:
+		# Drag just ended — convert the cached material to face-level.
+		if _edited_node != null and is_instance_valid(_edited_node) \
+				and _edited_node.go_build_mesh != null \
+				and _drag_cached_material != null:
 			var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
 			var camera: Camera3D = vp.get_camera_3d() if vp != null else null
-			GoBuildMaterialDropConverter.convert(
+			GoBuildMaterialDropConverter.convert_with_material(
 					_edited_node, get_undo_redo(),
-					camera, _drag_mouse_pos, _drag_ctrl_held)
+					camera, _drag_mouse_pos, _drag_ctrl_held,
+					_drag_cached_material)
+			_drag_cached_material = null
+		else:
+			GoBuildMaterialDropConverter.clear_overrides(_edited_node)
+			_drag_cached_material = null
 	_drag_was_active = dragging
 
 	# Live UV refresh in Object mode: schedule a single end-of-frame rebake
@@ -422,6 +431,15 @@ func _notification(what: int) -> void:
 ## consume these keys before [method _forward_3d_gui_input] is called.  The global
 ## _input callback runs first, letting us intercept and mark them handled.
 func _input(event: InputEvent) -> void:
+	# Track mouse position in SubViewport-local coords during drags for raycasting.
+	if event is InputEventMouseMotion:
+		if get_viewport().gui_is_dragging():
+			var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+			if vp != null:
+				var vp_parent: Control = vp.get_parent() as Control
+				if vp_parent != null:
+					_drag_mouse_pos = (event as InputEventMouseMotion).position \
+							- vp_parent.get_global_rect().position
 	if _shape_draw_controller != null and _shape_draw_controller.is_active():
 		if event is InputEventKey:
 			var key := event as InputEventKey
