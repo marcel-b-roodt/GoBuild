@@ -413,7 +413,7 @@ func _process(_delta: float) -> void:
 				# Successful drop — extract the material and apply.
 				var mat: Material = GoBuildMaterialDropConverter.extract_override_material(
 						_edited_node)
-				GoBuildMaterialDropConverter._clear_overrides_no_bake(_edited_node)
+				GoBuildMaterialDropConverter.clear_overrides_no_bake(_edited_node)
 				var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
 				var camera: Camera3D = vp.get_camera_3d() if vp != null else null
 				var applied := GoBuildMaterialDropConverter.apply_drop(
@@ -824,9 +824,10 @@ func _draw_material_drag_hint(overlay: Control) -> void:
 	if hint.is_empty():
 		return
 	var font: Font = ThemeDB.fallback_font
-	var fsize: int = 13
+	var fsize: int = 12
 	var m: float = 8.0
-	var pos := Vector2(m, m + fsize)
+	var w: float = font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
+	var pos := Vector2(overlay.size.x - w - m, overlay.size.y - m - 18.0)
 	overlay.draw_string(font, pos + Vector2(1.0, 1.0), hint,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
 	overlay.draw_string(font, pos, hint,
