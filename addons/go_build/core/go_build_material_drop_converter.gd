@@ -78,6 +78,9 @@ static func convert(
 	var target_faces: Array[int] = _resolve_target_faces(
 			node, gbm, camera, screen_pos, ctrl_held)
 
+	print("GoBuildMaterialDropConverter: ctrl=%s screen_pos=%s target_faces=%d" % [
+			ctrl_held, str(screen_pos), target_faces.size()])
+
 	if target_faces.is_empty():
 		# Fallback: apply to all faces.
 		target_faces = _all_face_indices(gbm)
@@ -127,10 +130,12 @@ static func _resolve_target_faces(
 
 	# Raycast to find the face under the cursor.
 	if camera == null:
+		push_warning("GoBuildMaterialDropConverter: camera is null, cannot raycast")
 		return []
 	var face_idx: int = PickingHelper.find_nearest_face(
 			camera, screen_pos, node, gbm)
 	if face_idx < 0:
+		push_warning("GoBuildMaterialDropConverter: raycast miss at screen_pos=%s" % str(screen_pos))
 		return []
 
 	# Ctrl held: apply to all faces with the same material slot.
