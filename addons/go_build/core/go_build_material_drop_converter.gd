@@ -55,20 +55,20 @@ static func build_drag_hint(
 	if mat_name.is_empty():
 		mat_name = "Material"
 
-	# Face selection takes priority.
+	# Face selection takes priority — Ctrl is irrelevant.
 	if node.selection.get_mode() == SelectionManager.Mode.FACE:
 		var sel: Array[int] = node.selection.get_selected_faces()
 		if not sel.is_empty():
-			return "%s  →  %d selected face%s" % [
+			return "Drop %s on %d selected face%s" % [
 					mat_name, sel.size(), "s" if sel.size() != 1 else ""]
 
 	# Raycast to determine target.
 	if camera == null:
-		return "%s  →  hover a face" % mat_name
+		return "Drop %s: hover a face" % mat_name
 	var face_idx: int = PickingHelper.find_nearest_face(
 			camera, screen_pos, node, node.go_build_mesh)
 	if face_idx < 0:
-		return "%s  →  hover a face" % mat_name
+		return "Drop %s: hover a face" % mat_name
 
 	if ctrl_held:
 		var slot: int = node.go_build_mesh.faces[face_idx].material_index
@@ -76,9 +76,9 @@ static func build_drag_hint(
 		for f: GoBuildFace in node.go_build_mesh.faces:
 			if f.material_index == slot:
 				count += 1
-		return "%s  →  slot %d (%d face%s)" % [
+		return "Ctrl+Drop %s: slot %d (%d face%s)" % [
 				mat_name, slot, count, "s" if count != 1 else ""]
-	return "%s  →  face %d" % [mat_name, face_idx]
+	return "Drop %s on face %d" % [mat_name, face_idx]
 
 
 ## Called each [method _process] frame while a drag is active on the
@@ -170,7 +170,7 @@ static func apply_drop(
 		return false
 
 	# Clear all preview overrides.
-	_clear_overrides_no_bake(node)
+	clear_overrides_no_bake(node)
 
 	var gbm: GoBuildMesh = node.go_build_mesh
 
@@ -211,7 +211,7 @@ static func cancel_preview(node: GoBuildMeshInstance, snapshot: Dictionary) -> v
 	if node.go_build_mesh != null and not snapshot.is_empty():
 		node.go_build_mesh.restore_snapshot(snapshot)
 		node.bake_in_place()
-	_clear_overrides_no_bake(node)
+	clear_overrides_no_bake(node)
 
 
 ## Clear all editor-set material overrides on [param node] and rebake.
@@ -294,7 +294,8 @@ static func _clear_surface_overrides(node: GoBuildMeshInstance) -> void:
 
 
 ## Clear overrides without rebaking.  Used when we're about to rebake anyway.
-static func _clear_overrides_no_bake(node: GoBuildMeshInstance) -> void:
+## Public so the plugin can call it when extracting the drop material.
+static func clear_overrides_no_bake(node: GoBuildMeshInstance) -> void:
 	if node == null:
 		return
 	if node.material_override != null:
@@ -304,6 +305,6 @@ static func _clear_overrides_no_bake(node: GoBuildMeshInstance) -> void:
 
 ## Clear all editor-set material overrides on [param node] and rebake.
 static func _clear_overrides(node: GoBuildMeshInstance) -> void:
-	_clear_overrides_no_bake(node)
+	clear_overrides_no_bake(node)
 	if node != null:
 		node.bake_in_place()
