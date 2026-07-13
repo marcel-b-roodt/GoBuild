@@ -40,8 +40,8 @@ const _SHAPE_DRAW_CTRL_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_shape_draw_controller.gd")
 const _SHAPE_DRAW_OVERLAY_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_shape_draw_overlay.gd")
-const _DROP_OVERLAY_SCRIPT := preload(
-		"res://addons/go_build/core/go_build_material_drop_overlay.gd")
+const _DROP_CONVERTER_SCRIPT := preload(
+		"res://addons/go_build/core/go_build_material_drop_converter.gd")
 const _ICON                 := preload("res://addons/go_build/go_build.svg")
 
 
@@ -85,7 +85,10 @@ var _input_controller: SelectionInputController  = null
 var _drag_controller: GoBuildDragController       = null
 var _shape_draw_controller: GoBuildShapeDrawController = null
 var _draw_overlay: Control = null
-var _drop_overlay: GoBuildMaterialDropOverlay = null
+## True while a Godot drag-and-drop is in progress over the viewport.
+## Used to detect the end of a drag so we can convert any material overrides
+## that Godot's built-in handler set on the edited GoBuildMeshInstance.
+var _drag_was_active: bool = false
 var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
@@ -168,7 +171,6 @@ func _enter_tree() -> void:
 
 	_build_toolbar()
 	_build_draw_overlay()
-	_build_drop_overlay()
 	_tool_pinner = Node3DEditorToolPinner.new()
 	set_process(true)
 
@@ -264,20 +266,6 @@ func _build_draw_overlay() -> void:
 	container.add_child(_draw_overlay)
 
 
-func _build_drop_overlay() -> void:
-	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
-	if vp == null:
-		return
-	var container: Control = vp.get_parent() as Control
-	if container == null:
-		return
-	_drop_overlay = _DROP_OVERLAY_SCRIPT.new()
-	_drop_overlay.name = "GoBuildMaterialDropOverlay"
-	_drop_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_drop_overlay.mouse_filter = Control.MOUSE_FILTER_PASS
-	container.add_child(_drop_overlay)
-
-
 func _update_draw_overlay() -> void:
 	if _draw_overlay == null or not is_instance_valid(_draw_overlay):
 		return
@@ -330,10 +318,6 @@ func _exit_tree() -> void:
 		_draw_overlay.queue_free()
 		_draw_overlay = null
 
-	if _drop_overlay != null and is_instance_valid(_drop_overlay):
-		_drop_overlay.queue_free()
-		_drop_overlay = null
-
 	if _gizmo_plugin:
 		remove_node_3d_gizmo_plugin(_gizmo_plugin)
 		_gizmo_plugin = null
@@ -351,6 +335,19 @@ func _exit_tree() -> void:
 func _process(_delta: float) -> void:
 	if _edited_node != null and _tool_pinner != null:
 		_tool_pinner.pin_if_active(_edited_node.selection.mode)
+
+	# Detect drag-and-drop completion.  Godot's 3D viewport editor handles
+	# drops at the C++ level and sets material_override or surface_override_material
+	# on the MeshInstance3D.  We detect the drag-end transition and convert those
+	# overrides into GoBuild's face-level material system.
+	var dragging: bool = get_viewport().gui_is_dragging()
+	if _drag_was_active and not dragging:
+		# Drag just ended — convert any overrides Godot set.
+		if _edited_node != null and is_instance_valid(_edited_node) \
+				and _edited_node.go_build_mesh != null:
+			GoBuildMaterialDropConverter.convert(
+					_edited_node, get_undo_redo())
+	_drag_was_active = dragging
 
 	# Live UV refresh in Object mode: schedule a single end-of-frame rebake
 	# whenever the node's transform changes.  The flag ensures at most one
@@ -609,9 +606,6 @@ func _edit(object: Object) -> void:
 			_edited_node.selection.set_mode(carry_mode as SelectionManager.Mode)
 		if _edited_node.selection.mode != SelectionManager.Mode.OBJECT:
 			call_deferred("_suppress_native_gizmo")
-	# Update the drop overlay to point at the current (or null) edited node.
-	if _drop_overlay != null and is_instance_valid(_drop_overlay):
-		_drop_overlay.setup(self, _edited_node)
 
 	if _panel:
 		_panel.set_target(_edited_node)

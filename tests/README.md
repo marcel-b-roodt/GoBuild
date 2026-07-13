@@ -7,17 +7,17 @@ GDScript tests using [GdUnit4](https://github.com/MikeSchulze/gdUnit4).
 ```
 tests/
   mesh/
-    go_build_mesh_test.gd       ← GoBuildMesh data model tests
-    shape_generator_test.gd     ← Primitive shape generator tests
-    operations/
-      extrude_test.gd           ← Extrude face operation tests
-      bevel_test.gd             ← Bevel edge operation tests
-      weld_test.gd              ← Weld/merge vertex tests
+	go_build_mesh_test.gd       ← GoBuildMesh data model tests
+	shape_generator_test.gd     ← Primitive shape generator tests
+	operations/
+	  extrude_test.gd           ← Extrude face operation tests
+	  bevel_test.gd             ← Bevel edge operation tests
+	  weld_test.gd              ← Weld/merge vertex tests
   uv/
-    planar_projection_test.gd   ← Planar UV projection + unit tiling tests
-    box_projection_test.gd      ← Box UV projection tests
+	planar_projection_test.gd   ← Planar UV projection + unit tiling tests
+	box_projection_test.gd      ← Box UV projection tests
   export/
-    obj_export_test.gd          ← OBJ export writer tests
+	obj_export_test.gd          ← OBJ export writer tests
 ```
 
 ### Running tests locally
@@ -38,7 +38,6 @@ See `.github/workflows/ci.yml`.
 extends GdUnitTestSuite
 
 func test_cube_face_count() -> void:
-    var mesh = CubeGenerator.generate(1.0, 1.0, 1.0, 0)
-    assert_int(mesh.faces.size()).is_equal(6)
+	var mesh = CubeGenerator.generate(1.0, 1.0, 1.0, 0)
+	assert_int(mesh.faces.size()).is_equal(6)
 ```
-
