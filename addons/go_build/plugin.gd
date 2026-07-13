@@ -89,6 +89,10 @@ var _draw_overlay: Control = null
 ## Used to detect the end of a drag so we can convert any material overrides
 ## that Godot's built-in handler set on the edited GoBuildMeshInstance.
 var _drag_was_active: bool = false
+## Last known mouse position in the 3D viewport during a drag.
+var _drag_mouse_pos: Vector2 = Vector2.ZERO
+## Whether Ctrl was held during the drag (for surface-slot assignment).
+var _drag_ctrl_held: bool = false
 var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
 var _rot_snap_btn: OptionButton                  = null
@@ -341,12 +345,18 @@ func _process(_delta: float) -> void:
 	# on the MeshInstance3D.  We detect the drag-end transition and convert those
 	# overrides into GoBuild's face-level material system.
 	var dragging: bool = get_viewport().gui_is_dragging()
+	if dragging:
+		_drag_mouse_pos = get_viewport().get_mouse_position()
+		_drag_ctrl_held = Input.is_key_pressed(KEY_CTRL)
 	if _drag_was_active and not dragging:
 		# Drag just ended — convert any overrides Godot set.
 		if _edited_node != null and is_instance_valid(_edited_node) \
 				and _edited_node.go_build_mesh != null:
+			var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+			var camera: Camera3D = vp.get_camera_3d() if vp != null else null
 			GoBuildMaterialDropConverter.convert(
-					_edited_node, get_undo_redo())
+					_edited_node, get_undo_redo(),
+					camera, _drag_mouse_pos, _drag_ctrl_held)
 	_drag_was_active = dragging
 
 	# Live UV refresh in Object mode: schedule a single end-of-frame rebake
