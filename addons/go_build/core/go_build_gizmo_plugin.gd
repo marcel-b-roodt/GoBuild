@@ -142,10 +142,12 @@ var mat_edge_normal_depth:     StandardMaterial3D
 var mat_edge_context_depth:    StandardMaterial3D
 var mat_vertex_normal_depth:   StandardMaterial3D
 
-## When true (default), vertex cubes and edge lines are always drawn on top of
-## geometry (no_depth_test), making them visible even when occluded.  When false,
-## unselected elements use depth-tested materials so they are hidden behind the
-## mesh surface.  Selected elements are always drawn on top regardless.
+## When true (default), all gizmo elements are always visible on top of geometry
+## (no_depth_test) and picking ignores occlusion — the user can select any element
+## regardless of whether it is behind the mesh surface.  When false, all elements
+## are still drawn on top (always visible), but picking culls back-facing faces and
+## occludes vertices/edges behind the nearest visible face, so the user can only
+## select elements they can actually see.
 var xray_mode: bool = true
 
 ## When true, face normals are drawn as lines from each face centroid along its

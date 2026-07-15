@@ -465,34 +465,65 @@ static func nearest_face_distance(
 ## [param rect] (a normalised [Rect2] in viewport pixels).
 ##
 ## Vertices behind the camera are skipped via [method Camera3D.is_position_in_frustum].
+## When [param cull_occluded] is true, vertices hidden behind the mesh surface
+## are skipped (requires X-ray mode to be off).
 static func find_vertices_in_rect(
 		camera: Camera3D,
 		rect: Rect2,
 		node: GoBuildMeshInstance,
 		gbm: GoBuildMesh,
+		cull_occluded: bool = false,
 ) -> Array[int]:
 	var result: Array[int] = []
 	var gt: Transform3D = node.global_transform
+	var inv_gt: Transform3D
+	var ray_origin: Vector3
+	var ray_dir: Vector3
+	if cull_occluded:
+		inv_gt = node.global_transform.affine_inverse()
+
 	for idx: int in gbm.vertices.size():
-		var world_pos: Vector3 = gt * gbm.vertices[idx]
+		var local_pos: Vector3 = gbm.vertices[idx]
+		var world_pos: Vector3 = gt * local_pos
 		if not camera.is_position_in_frustum(world_pos):
 			continue
-		if rect.has_point(camera.unproject_position(world_pos)):
-			result.append(idx)
+		if not rect.has_point(camera.unproject_position(world_pos)):
+			continue
+		if cull_occluded:
+			var screen_pos: Vector2 = camera.unproject_position(world_pos)
+			var occlude_t: float = nearest_face_distance(
+					camera, screen_pos, node, gbm, true)
+			if occlude_t < INF:
+				var r_o: Vector3 = inv_gt * camera.project_ray_origin(screen_pos)
+				var r_d: Vector3 = (inv_gt.basis * camera.project_ray_normal(screen_pos)).normalized()
+				var diff: Vector3 = local_pos - r_o
+				var denom: float = r_d.dot(r_d)
+				if denom > 1e-9:
+					var t_v: float = diff.dot(r_d) / denom
+					if t_v > occlude_t + 0.001:
+						continue
+		result.append(idx)
 	return result
 
 
 ## Return indices of all edges where at least one endpoint projects into [param rect].
 ##
 ## This matches Blender's "touch" box-select behaviour for edges.
+## When [param cull_occluded] is true, edges whose midpoint is hidden behind
+## the mesh surface are skipped (requires X-ray mode to be off).
 static func find_edges_in_rect(
 		camera: Camera3D,
 		rect: Rect2,
 		node: GoBuildMeshInstance,
 		gbm: GoBuildMesh,
+		cull_occluded: bool = false,
 ) -> Array[int]:
 	var result: Array[int] = []
 	var gt: Transform3D = node.global_transform
+	var inv_gt: Transform3D
+	if cull_occluded:
+		inv_gt = node.global_transform.affine_inverse()
+
 	for idx: int in gbm.edges.size():
 		var edge: GoBuildEdge = gbm.edges[idx]
 		var wa: Vector3 = gt * gbm.vertices[edge.vertex_a]
@@ -501,26 +532,59 @@ static func find_edges_in_rect(
 				and rect.has_point(camera.unproject_position(wa))
 		var in_b: bool = camera.is_position_in_frustum(wb) \
 				and rect.has_point(camera.unproject_position(wb))
-		if in_a or in_b:
-			result.append(idx)
+		if not in_a and not in_b:
+			continue
+		if cull_occluded:
+			var mid_local: Vector3 = (gbm.vertices[edge.vertex_a] + gbm.vertices[edge.vertex_b]) * 0.5
+			var mid_world: Vector3 = gt * mid_local
+			if camera.is_position_in_frustum(mid_world):
+				var screen_pos: Vector2 = camera.unproject_position(mid_world)
+				var occlude_t: float = nearest_face_distance(
+						camera, screen_pos, node, gbm, true)
+				if occlude_t < INF:
+					var r_o: Vector3 = inv_gt * camera.project_ray_origin(screen_pos)
+					var r_d: Vector3 = (inv_gt.basis * camera.project_ray_normal(screen_pos)).normalized()
+					var diff: Vector3 = mid_local - r_o
+					var denom: float = r_d.dot(r_d)
+					if denom > 1e-9:
+						var t_mid: float = diff.dot(r_d) / denom
+						if t_mid > occlude_t + 0.001:
+							continue
+		result.append(idx)
 	return result
 
 
 ## Return indices of all faces whose screen-projected centroid falls inside [param rect].
 ##
 ## The centroid is the arithmetic mean of the face's vertex positions.
+## When [param cull_backfaces] is true, back-facing faces are skipped
+## (matches X-ray-off behaviour).
 static func find_faces_in_rect(
 		camera: Camera3D,
 		rect: Rect2,
 		node: GoBuildMeshInstance,
 		gbm: GoBuildMesh,
+		cull_backfaces: bool = false,
 ) -> Array[int]:
 	var result: Array[int] = []
 	var gt: Transform3D = node.global_transform
+	var inv_gt: Transform3D
+	var ray_dir: Vector3
+	if cull_backfaces:
+		inv_gt = node.global_transform.affine_inverse()
+		# Use the rect centre as a representative camera direction for backface culling.
+		# All faces share the same camera direction, so we compute it once.
+		var rect_centre: Vector2 = rect.position + rect.size * 0.5
+		ray_dir = (inv_gt.basis * camera.project_ray_normal(rect_centre)).normalized()
+
 	for idx: int in gbm.faces.size():
 		var face: GoBuildFace = gbm.faces[idx]
 		if face.vertex_indices.is_empty():
 			continue
+		if cull_backfaces:
+			var face_normal: Vector3 = gbm.compute_face_normal(face)
+			if ray_dir.dot(face_normal) >= 0.0:
+				continue
 		var centroid: Vector3 = Vector3.ZERO
 		for vi: int in face.vertex_indices:
 			centroid += gbm.vertices[vi]
@@ -602,5 +666,3 @@ static func _compute_gizmo_scale_at(camera: Camera3D, world_pos: Vector3) -> flo
 	if camera.projection == Camera3D.PROJECTION_PERSPECTIVE:
 		return maxf(dist * tan(deg_to_rad(camera.fov * 0.5)) * _GIZMO_SCREEN_FACTOR, 0.01)
 	return maxf(camera.size * _GIZMO_ORTHO_SCALE, 0.01)
-
-

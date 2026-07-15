@@ -157,16 +157,10 @@ func _redraw() -> void:
 			pass  # Mesh renders normally; no sub-element overlay needed.
 
 		SelectionManager.Mode.VERTEX:
-			var edge_mat: Material = plugin.mat_edge_context_depth \
-					if not plugin.xray_mode else plugin.mat_edge_context
-			_draw_context_edges(gbm, edge_mat)
-			var vert_norm: Material = plugin.mat_vertex_normal_depth \
-					if not plugin.xray_mode else plugin.mat_vertex_normal
-			_draw_vertices(gbm, sel, vert_norm, plugin.mat_vertex_selected, gizmo_s)
+			_draw_context_edges(gbm, plugin.mat_edge_context)
+			_draw_vertices(gbm, sel, plugin.mat_vertex_normal, plugin.mat_vertex_selected, gizmo_s)
 
 		SelectionManager.Mode.EDGE:
-			var edge_norm: Material = plugin.mat_edge_normal_depth \
-					if not plugin.xray_mode else plugin.mat_edge_normal
 			# Camera forward in local space so the selected-edge ribbon faces the viewer.
 			var cam_fwd_local: Vector3 = Vector3.BACK
 			var cam: Camera3D = plugin.call("get_editor_camera")
@@ -178,13 +172,11 @@ func _redraw() -> void:
 					cam_fwd_local = Vector3.BACK
 				else:
 					cam_fwd_local = cam_fwd_local.normalized()
-			_draw_edges(gbm, sel, edge_norm, plugin.mat_edge_selected,
+			_draw_edges(gbm, sel, plugin.mat_edge_normal, plugin.mat_edge_selected,
 					plugin.get("mat_edge_selected_ribbon"), gizmo_s, cam_fwd_local)
 
 		SelectionManager.Mode.FACE:
-			var edge_mat: Material = plugin.mat_edge_context_depth \
-					if not plugin.xray_mode else plugin.mat_edge_context
-			_draw_context_edges(gbm, edge_mat)
+			_draw_context_edges(gbm, plugin.mat_edge_context)
 			_draw_face_centres(gbm, sel, plugin.mat_face_normal, plugin.mat_face_fill)
 
 	# Normal visualiser overlay (drawn in all sub-element modes when toggled on).

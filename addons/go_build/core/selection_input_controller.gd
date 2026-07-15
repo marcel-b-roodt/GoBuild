@@ -1449,17 +1449,18 @@ func _finish_box_select(
 		return
 
 	var rect: Rect2 = _get_box_select_rect()
+	var no_xray: bool = _gizmo_plugin != null and not _gizmo_plugin.xray_mode
 	var hit_indices: Array[int] = []
 	match mode:
 		SelectionManager.Mode.VERTEX:
 			hit_indices = PickingHelper.find_vertices_in_rect(
-					camera, rect, edited_node, gbm)
+					camera, rect, edited_node, gbm, no_xray)
 		SelectionManager.Mode.EDGE:
 			hit_indices = PickingHelper.find_edges_in_rect(
-					camera, rect, edited_node, gbm)
+					camera, rect, edited_node, gbm, no_xray)
 		SelectionManager.Mode.FACE:
 			hit_indices = PickingHelper.find_faces_in_rect(
-					camera, rect, edited_node, gbm)
+					camera, rect, edited_node, gbm, no_xray)
 
 	if not additive and not toggle:
 		sel.clear()
