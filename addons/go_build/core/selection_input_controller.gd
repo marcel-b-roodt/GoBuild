@@ -1307,6 +1307,7 @@ func _handle_face_loop_ring(
 		pre_faces: Array[int],
 		ring: bool,
 ) -> void:
+	var no_xray: bool = _gizmo_plugin != null and not _gizmo_plugin.xray_mode
 	var fi: int = PickingHelper.find_nearest_face(camera, click_pos, edited_node, gbm, no_xray)
 	if fi == -1:
 		return
