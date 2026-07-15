@@ -183,6 +183,7 @@ func _enter_tree() -> void:
 	_build_toolbar()
 	_build_draw_overlay()
 	_tool_pinner = Node3DEditorToolPinner.new()
+	add_tool_menu_item("GoBuild: Reset Panel Layout", _reset_panel_layout)
 	set_process(true)
 
 
@@ -312,6 +313,7 @@ func _on_draw_overlay() -> void:
 
 func _exit_tree() -> void:
 	remove_custom_type("GoBuildMeshInstance")
+	remove_tool_menu_item("GoBuild: Reset Panel Layout")
 
 	if _toolbar:
 		remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar)
@@ -354,6 +356,20 @@ func _exit_tree() -> void:
 	if _tool_pinner != null:
 		_tool_pinner.invalidate()
 		_tool_pinner = null
+
+
+## Remove both dock panels from their current positions and re-add them
+## to the default dock slots.  This recovers closed or misplaced panels.
+func _reset_panel_layout() -> void:
+	if _panel_scroll != null and is_instance_valid(_panel_scroll):
+		remove_control_from_docks(_panel_scroll)
+	if _uv_panel != null and is_instance_valid(_uv_panel):
+		remove_control_from_docks(_uv_panel)
+	# Re-add to default slots.
+	if _panel_scroll != null and is_instance_valid(_panel_scroll):
+		add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel_scroll)
+	if _uv_panel != null and is_instance_valid(_uv_panel):
+		add_control_to_dock(DOCK_SLOT_BOTTOM, _uv_panel)
 
 
 ## Cancel any active material-drop preview and reset drag state.

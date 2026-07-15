@@ -1058,7 +1058,7 @@ func _find_occluding_mesh(
 			continue
 		# Face-level intersection against potential occluder.
 		var other_idx: int = PickingHelper.find_nearest_face(
-				camera, click_pos, mi, mi.go_build_mesh)
+				camera, click_pos, mi, mi.go_build_mesh, true)
 		if other_idx == -1:
 			continue
 		# Compare centroids as depth proxies.
@@ -1127,13 +1127,14 @@ func _handle_pick(
 		return 1
 
 	var hit_idx: int = -1
+	var no_xray: bool = _gizmo_plugin != null and not _gizmo_plugin.xray_mode
 	match mode:
 		SelectionManager.Mode.VERTEX:
-			hit_idx = PickingHelper.find_nearest_vertex(camera, click_pos, edited_node, gbm)
+			hit_idx = PickingHelper.find_nearest_vertex(camera, click_pos, edited_node, gbm, -1.0, no_xray)
 		SelectionManager.Mode.EDGE:
-			hit_idx = PickingHelper.find_nearest_edge(camera, click_pos, edited_node, gbm)
+			hit_idx = PickingHelper.find_nearest_edge(camera, click_pos, edited_node, gbm, -1.0, no_xray)
 		SelectionManager.Mode.FACE:
-			hit_idx = PickingHelper.find_nearest_face(camera, click_pos, edited_node, gbm)
+			hit_idx = PickingHelper.find_nearest_face(camera, click_pos, edited_node, gbm, no_xray)
 
 	if hit_idx == -1:
 		if not additive and not toggle:
@@ -1242,7 +1243,9 @@ func _handle_edge_loop_ring(
 		pre_edges: Array[int],
 		ring: bool,
 ) -> void:
-	var seed_ei: int = PickingHelper.find_nearest_edge(camera, click_pos, edited_node, gbm)
+	var no_xray: bool = _gizmo_plugin != null and not _gizmo_plugin.xray_mode
+	var seed_ei: int = PickingHelper.find_nearest_edge(
+			camera, click_pos, edited_node, gbm, -1.0, no_xray)
 	if seed_ei == -1:
 		return
 	if ring:
@@ -1304,7 +1307,7 @@ func _handle_face_loop_ring(
 		pre_faces: Array[int],
 		ring: bool,
 ) -> void:
-	var fi: int = PickingHelper.find_nearest_face(camera, click_pos, edited_node, gbm)
+	var fi: int = PickingHelper.find_nearest_face(camera, click_pos, edited_node, gbm, no_xray)
 	if fi == -1:
 		return
 	if ring:
@@ -1371,8 +1374,9 @@ func _context_face_loop(edited_node: GoBuildMeshInstance) -> void:
 	if gbm == null or gbm.edges.is_empty():
 		return
 	var sel: SelectionManager = edited_node.selection
+	var no_xray_ctx: bool = _gizmo_plugin != null and not _gizmo_plugin.xray_mode
 	var fi: int = PickingHelper.find_nearest_face(
-			_context_camera, _right_click_press_pos, edited_node, gbm)
+			_context_camera, _right_click_press_pos, edited_node, gbm, no_xray_ctx)
 	if fi == -1:
 		return
 	var selected_faces: Array[int] = sel.get_selected_faces()
@@ -1398,8 +1402,9 @@ func _context_face_ring(edited_node: GoBuildMeshInstance) -> void:
 	if gbm == null or gbm.edges.is_empty():
 		return
 	var sel: SelectionManager = edited_node.selection
+	var no_xray_ctx: bool = _gizmo_plugin != null and not _gizmo_plugin.xray_mode
 	var fi: int = PickingHelper.find_nearest_face(
-			_context_camera, _right_click_press_pos, edited_node, gbm)
+			_context_camera, _right_click_press_pos, edited_node, gbm, no_xray_ctx)
 	if fi == -1:
 		return
 	var seed_ei: int = _nearest_edge_of_face(

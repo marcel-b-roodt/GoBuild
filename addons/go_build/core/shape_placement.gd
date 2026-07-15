@@ -85,7 +85,7 @@ static func find_placement(
 		if mi.get_aabb().intersects_ray(local_from, local_dir) == null:
 			continue
 		var face_idx: int = PickingHelper.find_nearest_face(
-				camera, screen_pos, mi, mi.go_build_mesh)
+				camera, screen_pos, mi, mi.go_build_mesh, true)
 		if face_idx == -1:
 			continue
 		# Compute hit distance for depth comparison.

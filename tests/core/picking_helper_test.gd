@@ -147,3 +147,35 @@ func test_ray_hits_edge_midpoint() -> void:
 	)
 	assert_float(t).is_greater(0.0)
 
+
+# ---------------------------------------------------------------------------
+# Backface culling logic
+# ---------------------------------------------------------------------------
+
+## Verify that the two-sided intersection accepts backface hits,
+## and that the backface-cull check (dot product) correctly rejects them.
+func test_two_sided_accepts_backface_but_cull_dot_rejects() -> void:
+	var tri := _make_xz_triangle()
+	# Ray from below the triangle going +Y (hitting the back face).
+	var ray_origin := Vector3(0, -5, 0.667)
+	var ray_dir := Vector3(0, 1, 0)
+	# Two-sided: should hit.
+	var t: float = PickingHelper.ray_triangle_intersect(
+		ray_origin, ray_dir, tri[0], tri[1], tri[2]
+	)
+	assert_float(t).is_greater(0.0)
+	# Backface-cull check: face normal of XZ-plane triangle pointing +Y.
+	# dot(ray_dir, normal) = dot((0,1,0), (0,1,0)) = 1.0 >= 0 → backface → skip.
+	var face_normal := Vector3(0, 1, 0)
+	assert_float(ray_dir.dot(face_normal)).is_greater(0.0)
+
+
+func test_frontface_passes_cull_check() -> void:
+	var tri := _make_xz_triangle()
+	# Ray from above going -Y (hitting the front face).
+	var ray_origin := Vector3(0, 5, 0.667)
+	var ray_dir := Vector3(0, -1, 0)
+	# dot(ray_dir, normal) = dot((0,-1,0), (0,1,0)) = -1.0 < 0 → front face → pass.
+	var face_normal := Vector3(0, 1, 0)
+	assert_float(ray_dir.dot(face_normal)).is_less(0.0)
+

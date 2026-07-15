@@ -10,7 +10,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 
 | Feature | Status | Notes |
 |---|---|---|
-| EditorPlugin scaffold (`plugin.gd`) | ✅ Complete | Entry point, toolbar registration, GoBuildPanel dock |
+| EditorPlugin scaffold (`plugin.gd`) | ✅ Complete | Entry point, toolbar registration, GoBuildPanel dock; "Reset Panel Layout" tool menu item restores dock positions |
 | `GoBuildMesh` internal data model | ✅ Complete | Vertex / edge / face lists, normals, UVs, material slots; `translate_vertices`, `compute_centroid`, `take_snapshot`/`restore_snapshot`; `coincident_groups` + `rebuild_coincident_groups` / `get_coincident_vertices` for shared-corner drag correctness |
 | `ArrayMesh` bake pipeline | ✅ Complete | Fan triangulation, flat/smooth-group normals, UV0+UV1 |
 | MeshInstance3D edit-mode integration | ✅ Complete | `GoBuildMeshInstance` — auto-bakes on resource assign |
@@ -48,7 +48,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Edit-mode toolbar (Object / Vertex / Edge / Face) | ✅ Complete | Radio buttons in GoBuildPanel; synced via `mode_changed` signal |
 | Keyboard shortcuts 1/2/3/4 (mode switch) | ✅ Complete | Global `_input` in `plugin.gd` — intercepts before Godot's orthographic view shortcuts |
 | Viewport gizmos (`EditorNode3DGizmoPlugin`) | ✅ Complete | `GoBuildGizmoPlugin` + `GoBuildGizmo`; vertex/edge/face overlays with selected/unselected colour coding |
-| Click-picking (select element on click) | ✅ Complete | `PickingHelper` — screen-space vertex/edge + Möller-Trumbore face; Shift=add, Ctrl=toggle; 11 unit tests |
+| Click-picking (select element on click) | ✅ Complete | `PickingHelper` — screen-space vertex/edge + Möller–Trumbore face; Shift=add, Ctrl=toggle; backface culling + vertex/edge occlusion when X-ray off; 13 unit tests |
 | Multi-select (box, Shift, Ctrl) | ✅ Complete | Left-drag → rubber-band box select; Shift=additive, Ctrl=toggle; `_forward_3d_draw_over_viewport` fills + outlines rect; `PickingHelper.find_*_in_rect` |
 | Grow / Shrink selection | ✅ Complete | `SelectionHelpers.grow_*` / `shrink_*` — one topological ring outward/inward; keyboard Ctrl+=/Ctrl+- and context menu; works in Vertex, Edge, Face modes |
 | Loop / Ring select | ✅ Complete | `SelectionHelpers.edge_loop` / `edge_ring` / `face_loop` / `face_ring` — quad-topology walk; Alt+LMB (loop), Ctrl+Alt+LMB (ring); context menu Select Loop/Ring; terminates at boundaries, poles, n-gons; Shift adds to selection |

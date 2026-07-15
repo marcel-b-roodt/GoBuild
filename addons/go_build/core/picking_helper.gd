@@ -227,6 +227,12 @@ static func _fallback_edge_pick_radius(camera: Camera3D) -> float:
 ## When multiple candidates are within threshold the one with the smallest
 ## squared screen distance wins.
 ##
+## When [param cull_occluded] is true, vertices hidden behind the mesh surface
+## are skipped.  A vertex is considered occluded if the nearest front-facing face
+## along the camera ray is closer to the camera than the vertex.  This requires
+## a [param gbm] with up-to-date edges (call [method GoBuildMesh.rebuild_edges]
+## before using occlusion culling).
+##
 ## When [param threshold_px] is [code]-1.0[/code] (default), each vertex gets its
 ## own pick radius computed from its local-space offset through the node's
 ## global transform.  This correctly handles perspective (closer vertices appear
@@ -237,6 +243,7 @@ static func find_nearest_vertex(
 		node: GoBuildMeshInstance,
 		gbm: GoBuildMesh,
 		threshold_px: float = -1.0,
+		cull_occluded: bool = false,
 ) -> int:
 	var gt: Transform3D = node.global_transform
 	var gizmo_scale: float = _compute_gizmo_scale_at(camera, node.global_position)
@@ -244,6 +251,15 @@ static func find_nearest_vertex(
 	var global_pick_r: float
 	if not use_per_vertex:
 		global_pick_r = threshold_px
+
+	# Pre-compute the nearest face distance for occlusion culling.
+	var occlude_t: float = INF
+	if cull_occluded:
+		occlude_t = nearest_face_distance(camera, click_pos, node, gbm, true)
+
+	var inv_gt: Transform3D = node.global_transform.affine_inverse()
+	var ray_origin: Vector3 = inv_gt * camera.project_ray_origin(click_pos)
+	var ray_dir: Vector3 = (inv_gt.basis * camera.project_ray_normal(click_pos)).normalized()
 
 	var best_idx: int = -1
 	var best_dist_sq: float = INF
@@ -253,6 +269,15 @@ static func find_nearest_vertex(
 		var world_pos: Vector3 = gt * local_pos
 		if not camera.is_position_in_frustum(world_pos):
 			continue
+		if cull_occluded:
+			# Compute the parametric t of this vertex along the camera ray.
+			# If the vertex is farther than the nearest face, it is occluded.
+			var diff: Vector3 = local_pos - ray_origin
+			var denom: float = ray_dir.dot(ray_dir)
+			if denom > 1e-9:
+				var t_v: float = diff.dot(ray_dir) / denom
+				if t_v > occlude_t + 0.001:
+					continue
 		var screen_pos: Vector2 = camera.unproject_position(world_pos)
 		var dist_sq: float = screen_pos.distance_squared_to(click_pos)
 		var pick_r: float
@@ -275,6 +300,11 @@ static func find_nearest_vertex(
 ## Return the index of the nearest edge whose projected screen segment comes
 ## within [param threshold_px] pixels of [param click_pos], or [code]-1[/code].
 ##
+## When [param cull_occluded] is true, edges whose midpoint is hidden behind the
+## mesh surface are skipped.  An edge is considered occluded if the nearest
+## front-facing face along the camera ray is closer to the camera than the
+## edge's midpoint.
+##
 ## When [param threshold_px] is [code]-1.0[/code] (default), the edge pick radius
 ## is computed per-edge-midpoint through the node's global transform so it
 ## correctly accounts for perspective and non-uniform scale.
@@ -284,6 +314,7 @@ static func find_nearest_edge(
 		node: GoBuildMeshInstance,
 		gbm: GoBuildMesh,
 		threshold_px: float = -1.0,
+		cull_occluded: bool = false,
 ) -> int:
 	var gt: Transform3D = node.global_transform
 	var gizmo_scale: float = _compute_gizmo_scale_at(camera, node.global_position)
@@ -292,22 +323,39 @@ static func find_nearest_edge(
 	if not use_per_edge:
 		global_pick_r = threshold_px
 
+	# Pre-compute the nearest face distance for occlusion culling.
+	var occlude_t: float = INF
+	var inv_gt: Transform3D
+	var ray_origin: Vector3
+	var ray_dir: Vector3
+	if cull_occluded:
+		occlude_t = nearest_face_distance(camera, click_pos, node, gbm, true)
+		inv_gt = node.global_transform.affine_inverse()
+		ray_origin = inv_gt * camera.project_ray_origin(click_pos)
+		ray_dir = (inv_gt.basis * camera.project_ray_normal(click_pos)).normalized()
+
 	var best_idx: int = -1
 	var best_dist: float = INF
 
 	for idx: int in gbm.edges.size():
 		var edge: GoBuildEdge = gbm.edges[idx]
+		var mid_local: Vector3 = (gbm.vertices[edge.vertex_a] + gbm.vertices[edge.vertex_b]) * 0.5
 		var wa: Vector3 = gt * gbm.vertices[edge.vertex_a]
 		var wb: Vector3 = gt * gbm.vertices[edge.vertex_b]
 		if not camera.is_position_in_frustum(wa) and not camera.is_position_in_frustum(wb):
 			continue
+		if cull_occluded:
+			var diff: Vector3 = mid_local - ray_origin
+			var denom: float = ray_dir.dot(ray_dir)
+			if denom > 1e-9:
+				var t_mid: float = diff.dot(ray_dir) / denom
+				if t_mid > occlude_t + 0.001:
+					continue
 		var sa: Vector2 = camera.unproject_position(wa)
 		var sb: Vector2 = camera.unproject_position(wb)
 		var dist: float = point_to_segment_dist(click_pos, sa, sb)
 		var pick_r: float
 		if use_per_edge:
-			# Use the edge midpoint's local position for pick-radius computation.
-			var mid_local: Vector3 = (gbm.vertices[edge.vertex_a] + gbm.vertices[edge.vertex_b]) * 0.5
 			pick_r = compute_edge_pick_radius_from_local(
 					camera, gt, mid_local, gizmo_scale)
 		else:
@@ -326,13 +374,19 @@ static func find_nearest_edge(
 ## Return the index of the face hit nearest to the camera by a ray cast
 ## through [param click_pos], or [code]-1[/code] if no face is hit.
 ##
-## Uses Möller–Trumbore ray–triangle intersection (two-sided) after
-## fan-triangulating each face from vertex 0.
+## When [param cull_backfaces] is true, faces whose outward normal faces away
+## from the camera (backfaces) are skipped.  This matches the visual behaviour
+## when X-ray mode is off — the user can only click on faces they can see.
+##
+## Uses Möller–Trumbore ray–triangle intersection after fan-triangulating
+## each face from vertex 0.  When [param cull_backfaces] is false the
+## intersection is two-sided (default).
 static func find_nearest_face(
 		camera: Camera3D,
 		click_pos: Vector2,
 		node: GoBuildMeshInstance,
 		gbm: GoBuildMesh,
+		cull_backfaces: bool = false,
 ) -> int:
 	# Convert the camera ray to the node's local space so vertex positions
 	# can be used directly without transforming every vertex.
@@ -348,6 +402,10 @@ static func find_nearest_face(
 		var face: GoBuildFace = gbm.faces[idx]
 		if face.vertex_indices.size() < 3:
 			continue
+		if cull_backfaces:
+			var face_normal: Vector3 = gbm.compute_face_normal(face)
+			if ray_dir.dot(face_normal) >= 0.0:
+				continue
 		# Fan-triangulate from vertex 0.
 		var v0: Vector3 = gbm.vertices[face.vertex_indices[0]]
 		for tri: int in range(face.vertex_indices.size() - 2):
@@ -359,6 +417,44 @@ static func find_nearest_face(
 				best_idx = idx
 
 	return best_idx
+
+
+## Return the parametric distance [code]t[/code] of the nearest face hit along the
+## camera ray through [param click_pos], or [code]INF[/code] if no face is hit.
+##
+## When [param cull_backfaces] is true, backfaces are skipped (same rule as
+## [method find_nearest_face]).
+##
+## Used for occlusion testing: a vertex or edge at distance [code]t_v[/code]
+## is occluded if [code]t_v > nearest_face_t[/code].
+static func nearest_face_distance(
+		camera: Camera3D,
+		click_pos: Vector2,
+		node: GoBuildMeshInstance,
+		gbm: GoBuildMesh,
+		cull_backfaces: bool = false,
+) -> float:
+	var inv_gt: Transform3D = node.global_transform.affine_inverse()
+	var ray_origin: Vector3 = inv_gt * camera.project_ray_origin(click_pos)
+	var ray_dir: Vector3 = (inv_gt.basis * camera.project_ray_normal(click_pos)).normalized()
+
+	var best_t: float = INF
+	for idx: int in gbm.faces.size():
+		var face: GoBuildFace = gbm.faces[idx]
+		if face.vertex_indices.size() < 3:
+			continue
+		if cull_backfaces:
+			var face_normal: Vector3 = gbm.compute_face_normal(face)
+			if ray_dir.dot(face_normal) >= 0.0:
+				continue
+		var v0: Vector3 = gbm.vertices[face.vertex_indices[0]]
+		for tri: int in range(face.vertex_indices.size() - 2):
+			var v1: Vector3 = gbm.vertices[face.vertex_indices[tri + 1]]
+			var v2: Vector3 = gbm.vertices[face.vertex_indices[tri + 2]]
+			var t: float = ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
+			if t >= 0.0 and t < best_t:
+				best_t = t
+	return best_t
 
 
 # ---------------------------------------------------------------------------

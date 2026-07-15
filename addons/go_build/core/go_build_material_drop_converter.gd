@@ -66,7 +66,7 @@ static func build_drag_hint(
 	if camera == null:
 		return "%s  →  hover a face    Ctrl: assign to slot" % mat_name
 	var face_idx: int = PickingHelper.find_nearest_face(
-			camera, screen_pos, node, node.go_build_mesh)
+			camera, screen_pos, node, node.go_build_mesh, true)
 	if face_idx < 0:
 		return "%s  →  hover a face    Ctrl: assign to slot" % mat_name
 
@@ -242,7 +242,7 @@ static func _resolve_target_faces(
 	if camera == null:
 		return []
 	var face_idx: int = PickingHelper.find_nearest_face(
-			camera, screen_pos, node, gbm)
+			camera, screen_pos, node, gbm, true)
 	if face_idx < 0:
 		return []
 
