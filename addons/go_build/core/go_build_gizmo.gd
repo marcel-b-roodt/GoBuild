@@ -547,22 +547,32 @@ func _draw_vertex_normals(gbm: GoBuildMesh, mat: Material, gizmo_s: float) -> vo
 func _compute_selection_centroid(gbm: GoBuildMesh, sel: SelectionManager) -> Vector3:
 	var sum := Vector3.ZERO
 	var count := 0
+	var vcount: int = gbm.vertices.size()
 	match sel.get_mode():
 		SelectionManager.Mode.VERTEX:
 			for idx: int in sel.get_selected_vertices():
-				sum += gbm.vertices[idx]
-				count += 1
+				if idx >= 0 and idx < vcount:
+					sum += gbm.vertices[idx]
+					count += 1
 		SelectionManager.Mode.EDGE:
 			for eidx: int in sel.get_selected_edges():
+				if eidx < 0 or eidx >= gbm.edges.size():
+					continue
 				var edge: GoBuildEdge = gbm.edges[eidx]
-				sum += gbm.vertices[edge.vertex_a]
-				sum += gbm.vertices[edge.vertex_b]
-				count += 2
+				if edge.vertex_a >= 0 and edge.vertex_a < vcount:
+					sum += gbm.vertices[edge.vertex_a]
+					count += 1
+				if edge.vertex_b >= 0 and edge.vertex_b < vcount:
+					sum += gbm.vertices[edge.vertex_b]
+					count += 1
 		SelectionManager.Mode.FACE:
 			for fidx: int in sel.get_selected_faces():
+				if fidx < 0 or fidx >= gbm.faces.size():
+					continue
 				for vidx: int in gbm.faces[fidx].vertex_indices:
-					sum += gbm.vertices[vidx]
-					count += 1
+					if vidx >= 0 and vidx < vcount:
+						sum += gbm.vertices[vidx]
+						count += 1
 	return sum / count if count > 0 else Vector3.ZERO
 
 

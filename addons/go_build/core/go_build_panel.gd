@@ -309,10 +309,15 @@ func trigger_soft_edge() -> void:
 	if _edge_drawer != null: _edge_drawer.trigger_soft_edge()
 
 func trigger_rip() -> void:
-	if _vertex_drawer != null:
-		_vertex_drawer.trigger_rip()
-	elif _edge_drawer != null:
-		_edge_drawer.trigger_rip()
+	if _target == null:
+		return
+	match _target.selection.get_mode():
+		SelectionManager.Mode.VERTEX:
+			if _vertex_drawer != null:
+				_vertex_drawer.trigger_rip()
+		SelectionManager.Mode.EDGE:
+			if _edge_drawer != null:
+				_edge_drawer.trigger_rip()
 
 func trigger_subdivide() -> void:
 	if _face_drawer != null: _face_drawer.trigger_subdivide()

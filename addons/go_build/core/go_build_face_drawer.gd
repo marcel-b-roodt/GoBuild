@@ -164,6 +164,7 @@ func _on_extrude_pressed() -> void:
 	preview.param_min   = -100.0
 	preview.param_max   = 100.0
 	preview.radial      = false
+	preview.snap_step   = 0.1
 	preview.screen_direction = screen_dir
 	preview.apply_fn    = func(p: float) -> void: \
 			ExtrudeOperation.apply(_target.go_build_mesh, faces_to_extrude, p)
@@ -188,6 +189,7 @@ func _on_inset_pressed() -> void:
 	preview.param_min   = 0.0
 	preview.param_max   = 1.0
 	preview.radial      = false
+	preview.snap_step   = 0.1
 	preview.apply_fn    = func(p: float) -> void: \
 			InsetOperation.apply(_target.go_build_mesh, faces_to_inset, p)
 	_plugin.call("begin_param_preview", preview)

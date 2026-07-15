@@ -94,7 +94,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Shift+drag → Extrude | ✅ Complete | `_should_extrude_drag` + `_begin_extrude_drag` in `selection_input_controller.gd`; extrudes at distance=0 then translates; undo restores pre-extrude state in one step |
 | Shift+drag → Inset | ✅ Complete | `_should_inset_drag` + `_begin_inset_drag` in `selection_input_controller.gd`; `InsetOperation.apply` at distance=0 then `_apply_inset_drag` (screen-space delta → lerp to centroid); undo restores pre-inset state in one step |
 | Right-click context menu | ✅ Complete | `PopupMenu` in `selection_input_controller.gd`; per-mode items (Select All, Extrude, Flip Normals); Add Shape submenu in all modes; Object mode context menu enabled; Add Texture in Face mode |
-| Rip | ✅ Complete | Split shared vertices or edges apart by duplicating them and leaving an open seam; Vertex and Edge mode; `V` key; `RipOperation.apply_vertices` and `RipOperation.apply_edges`; context menu entry; panel button; 13 unit tests |
+| Rip | ✅ Complete | Split shared vertices or edges apart by duplicating them and leaving an open seam; Vertex and Edge mode; `V` key; `RipOperation.apply_vertices` and `RipOperation.apply_edges`; context menu entry; panel button; 14 unit tests |
 
 ---
 

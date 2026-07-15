@@ -190,6 +190,7 @@ func _on_extrude_edge_pressed() -> void:
 	preview.param_min   = -100.0
 	preview.param_max   = 100.0
 	preview.radial      = false
+	preview.snap_step   = 0.1
 	preview.apply_fn    = func(p: float) -> void:
 		last_new_edges.clear()
 		var result: Array[int] = EdgeExtrudeOperation.apply(
@@ -216,6 +217,7 @@ func _on_bevel_pressed() -> void:
 	preview.param_start = _BEVEL_DEFAULT_WIDTH
 	preview.param_min   = 0.0001
 	preview.radial      = false
+	preview.snap_step   = 0.05
 	preview.apply_fn    = func(p: float) -> void: \
 			BevelOperation.apply(_target.go_build_mesh, edges_to_bevel, p)
 	_plugin.call("begin_param_preview", preview)
@@ -282,6 +284,7 @@ func _on_loop_cut_pressed() -> void:
 	preview.scale_by_gizmo   = false
 	preview.snap_to_start    = true
 	preview.snap_threshold   = 0.04
+	preview.snap_step        = 0.1
 	preview.radial           = false
 	preview.apply_fn         = func(p: float) -> void: \
 			LoopCutOperation.apply(_target.go_build_mesh, edges_to_cut, p)
@@ -332,6 +335,85 @@ func _on_rip_pressed() -> void:
 		return
 	var edges_to_rip: Array[int] = []
 	edges_to_rip.assign(sel_edges)
-	_run_op("Rip Edge",
-			func(): RipOperation.apply_edges(_target.go_build_mesh, edges_to_rip),
-			false)
+
+	var gbm: GoBuildMesh = _target.go_build_mesh
+	gbm.rebuild_edges()
+
+	var vertex_set: Dictionary = {}
+	var face_set: Dictionary = {}
+	for ei: int in edges_to_rip:
+		if ei < 0 or ei >= gbm.edges.size():
+			continue
+		var edge: GoBuildEdge = gbm.edges[ei]
+		vertex_set[edge.vertex_a] = true
+		vertex_set[edge.vertex_b] = true
+		for fi: int in edge.face_indices:
+			face_set[fi] = true
+
+	var rip_verts: Array[int] = []
+	for vi: int in vertex_set:
+		rip_verts.append(vi)
+	var rip_faces: Array[int] = []
+	for fi: int in face_set:
+		rip_faces.append(fi)
+
+	var direction: Vector3 = RipOperation.compute_rip_direction(gbm, rip_faces)
+	GoBuildDebug.log("[RipEdge] edges=%s verts=%s faces=%s direction=%s" \
+			% [str(edges_to_rip), str(rip_verts), str(rip_faces), str(direction)])
+	var world_direction: Vector3 = _target.global_transform.basis * direction
+	direction = direction.normalized()
+
+	var screen_dir: Vector2 = Vector2(1.0, 0.0)
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if sv != null:
+		var cam: Camera3D = sv.get_camera_3d()
+		if cam != null:
+			var centroid: Vector3 = Vector3.ZERO
+			var vcount: int = 0
+			for vi: int in rip_verts:
+				if vi < 0 or vi >= gbm.vertices.size():
+					continue
+				centroid += gbm.vertices[vi]
+				vcount += 1
+			if vcount > 0:
+				centroid /= vcount
+			var world_pos: Vector3 = _target.global_transform * centroid
+			var center_screen: Vector2 = cam.unproject_position(world_pos)
+			var tip_screen: Vector2 = cam.unproject_position(world_pos + world_direction)
+			var dir: Vector2 = tip_screen - center_screen
+			if dir.length() > 1.0:
+				screen_dir = dir.normalized()
+
+	var preview := GoBuildParamPreview.new()
+	preview.action_name = "Rip Edge"
+	preview.param_label = "Distance"
+	preview.param_start = 0.5
+	preview.param_min   = -100.0
+	preview.param_max   = 100.0
+	preview.radial      = false
+	preview.snap_step   = 0.1
+	preview.screen_direction = screen_dir
+	var target_ref: GoBuildMeshInstance = _target
+	var last_ripped_verts: Array[int] = []
+	preview.apply_fn    = func(p: float) -> void:
+		last_ripped_verts.clear()
+		var result: Array[int] = RipOperation.apply_edge_drag(
+				_target.go_build_mesh, edges_to_rip, direction, p)
+		last_ripped_verts.assign(result)
+	preview.post_commit_fn = func() -> void:
+		if target_ref == null or not is_instance_valid(target_ref):
+			return
+		GoBuildDebug.log("[RipEdge] post_commit_fn: last_ripped=%s" % str(last_ripped_verts))
+		if last_ripped_verts.is_empty():
+			return
+		var ripped_verts: Array[int] = []
+		ripped_verts.assign(last_ripped_verts)
+		var timer: SceneTreeTimer = target_ref.get_tree().create_timer(0.0)
+		timer.timeout.connect(func() -> void:
+			if target_ref == null or not is_instance_valid(target_ref):
+				return
+			target_ref.selection.set_mode(SelectionManager.Mode.VERTEX)
+			target_ref.selection.set_selected_vertices(ripped_verts)
+			target_ref.update_gizmos()
+		)
+	_plugin.call("begin_param_preview", preview)

@@ -109,6 +109,8 @@ static func get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]
 			result.assign(sel.get_selected_vertices())
 		SelectionManager.Mode.EDGE:
 			for eidx: int in sel.get_selected_edges():
+				if eidx < 0 or eidx >= gbm.edges.size():
+					continue
 				var edge: GoBuildEdge = gbm.edges[eidx]
 				if not result.has(edge.vertex_a):
 					result.append(edge.vertex_a)
@@ -116,6 +118,8 @@ static func get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]
 					result.append(edge.vertex_b)
 		SelectionManager.Mode.FACE:
 			for fidx: int in sel.get_selected_faces():
+				if fidx < 0 or fidx >= gbm.faces.size():
+					continue
 				for vidx: int in gbm.faces[fidx].vertex_indices:
 					if not result.has(vidx):
 						result.append(vidx)
@@ -124,7 +128,8 @@ static func get_affected_vertex_indices(node: GoBuildMeshInstance) -> Array[int]
 	if gbm.coincident_groups.size() == gbm.vertices.size():
 		var groups_needed: Dictionary = {}
 		for idx: int in result:
-			groups_needed[gbm.coincident_groups[idx]] = true
+			if idx >= 0 and idx < gbm.coincident_groups.size():
+				groups_needed[gbm.coincident_groups[idx]] = true
 
 		var already_included: Dictionary = {}
 		for idx: int in result:

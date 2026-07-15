@@ -122,7 +122,7 @@ func update(
 	if _is_gizmo_mode():
 		_update_gizmo_drag(camera, pixel_offset, shift_pressed, ctrl_pressed)
 	else:
-		_update_param_drag()
+		_update_param_drag(ctrl_pressed)
 
 
 func handle_motion_event(mm: InputEventMouseMotion) -> void:
@@ -141,7 +141,7 @@ func handle_motion_event(mm: InputEventMouseMotion) -> void:
 		if _editor_plugin != null:
 			_editor_plugin.update_overlays()
 	else:
-		_update_param_drag()
+		_update_param_drag(mm.ctrl_pressed)
 		if _editor_plugin != null:
 			_editor_plugin.update_overlays()
 
@@ -159,7 +159,7 @@ func handle_motion_raw(
 	if _is_gizmo_mode():
 		_update_gizmo_drag(camera, frame_delta, shift_pressed, ctrl_pressed)
 	else:
-		_update_param_drag()
+		_update_param_drag(ctrl_pressed)
 
 
 func commit() -> void:
@@ -173,6 +173,7 @@ func commit() -> void:
 		return
 
 	if op.node != null and is_instance_valid(op.node):
+		GoBuildDebug.log("[DC] commit: action=%s param=%.4f" % [op.action_name, op.param])
 		if not _is_gizmo_mode():
 			_flush_param_apply_sync(op.node, op.param)
 		else:
@@ -186,6 +187,11 @@ func commit() -> void:
 		op.node.go_build_mesh.rebuild_coincident_groups()
 		op.node.bake()
 
+		GoBuildDebug.log("[DC] commit: mesh after bake: verts=%d faces=%d edges=%d" \
+				% [op.node.go_build_mesh.vertices.size(),
+					op.node.go_build_mesh.faces.size(),
+					op.node.go_build_mesh.edges.size()])
+
 		var after_snapshot: Dictionary = op.node.go_build_mesh.take_snapshot()
 		op.node.update_gizmos()
 
@@ -196,6 +202,8 @@ func commit() -> void:
 			ur.add_undo_method(op.node, "restore_and_bake", op.snapshot)
 			ur.commit_action(false)
 
+		var fn_valid: bool = op.post_commit_fn.is_valid()
+		GoBuildDebug.log("[DC] commit: calling post_commit_fn valid=%s" % str(fn_valid))
 		if op.post_commit_fn.is_valid():
 			op.post_commit_fn.call()
 
@@ -692,7 +700,7 @@ func _flush_gizmo_apply_sync(node: GoBuildMeshInstance) -> void:
 # Internal — param drag
 # ---------------------------------------------------------------------------
 
-func _update_param_drag() -> void:
+func _update_param_drag(ctrl_pressed: bool = false) -> void:
 	var op: GoBuildDragOperation = _op
 	var tracker_delta: float = _tracker.get_delta()
 	var precision_mult: float = _tracker.get_precision_multiplier()
@@ -702,6 +710,8 @@ func _update_param_drag() -> void:
 			+ tracker_delta * op.units_per_pixel * precision_mult
 	var clamped: float = clampf(raw, op.param_min, op.param_max)
 	var hit_bound: bool = clamped != raw
+	if ctrl_pressed and op.snap_step > 0.0:
+		clamped = snappedf(clamped, op.snap_step)
 	if op.snap_to_start and absf(clamped - op.param_start) < op.snap_threshold:
 		clamped = op.param_start
 

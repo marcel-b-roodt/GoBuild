@@ -20,6 +20,7 @@ const _MESH_INST_SCRIPT_V  := preload("res://addons/go_build/core/go_build_mesh_
 const _DRAWER_SCRIPT       := preload("res://addons/go_build/core/go_build_drawer.gd")
 const _WELD_SCRIPT         := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
 const _RIP_SCRIPT          := preload("res://addons/go_build/mesh/operations/rip_operation.gd")
+const _PARAM_PREVIEW_SCRIPT_V := preload("res://addons/go_build/core/go_build_param_preview.gd")
 
 # Buttons — exposed for tests.
 var _merge_btn: Button = null
@@ -49,8 +50,8 @@ func _ready() -> void:
 	_register_op(_weld_btn, _cond_vertex_any)
 
 	_rip_btn = _op_button("Rip",
-		"Rip selected vertices out of unselected faces, creating an open seam (V).\n"
-		+ "Requires Vertex mode with \u22651 vertex selected.")
+		"Rip selected vertices, creating an open seam, then drag to move (V).\n"
+		+ "Requires Vertex mode with \u22651 vertex that shares faces with unselected geometry.")
 	_rip_btn.pressed.connect(_on_rip_pressed)
 	grid.add_child(_rip_btn)
 	_register_op(_rip_btn, _cond_vertex_rip)
@@ -103,15 +104,7 @@ func _cond_vertex_rip() -> bool:
 	for vi: int in sel_verts:
 		if vi >= gbm.vertices.size():
 			continue
-		var adjacent: Array[int] = gbm.faces_of_vertex(vi)
-		var sel_count: int = 0
-		var unsel_count: int = 0
-		for fi: int in adjacent:
-			if _target.selection.is_face_selected(fi):
-				sel_count += 1
-			else:
-				unsel_count += 1
-		if sel_count > 0 and unsel_count > 0:
+		if gbm.faces_of_vertex(vi).size() > 0:
 			return true
 	return false
 
@@ -157,6 +150,74 @@ func _on_rip_pressed() -> void:
 	var faces_for_rip: Array[int] = []
 	if not sel_faces.is_empty():
 		faces_for_rip.assign(sel_faces)
-	_run_op("Rip Vertices",
-			func(): RipOperation.apply_vertices(_target.go_build_mesh, to_rip, faces_for_rip),
-			false)
+
+	var gbm: GoBuildMesh = _target.go_build_mesh
+
+	var rip_faces: Array[int] = []
+	if faces_for_rip.is_empty():
+		gbm.rebuild_edges()
+		for vi: int in to_rip:
+			for fi: int in gbm.faces_of_vertex(vi):
+				rip_faces.append(fi)
+	else:
+		rip_faces.assign(faces_for_rip)
+
+	var direction: Vector3 = RipOperation.compute_rip_direction(gbm, rip_faces)
+	GoBuildDebug.log("[RipVertex] to_rip=%s faces_for_rip=%s direction=%s rip_faces=%s" \
+			% [str(to_rip), str(faces_for_rip), str(direction), str(rip_faces)])
+	var world_direction: Vector3 = _target.global_transform.basis * direction
+	direction = direction.normalized()
+
+	var screen_dir: Vector2 = Vector2(1.0, 0.0)
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if sv != null:
+		var cam: Camera3D = sv.get_camera_3d()
+		if cam != null:
+			var centroid: Vector3 = Vector3.ZERO
+			var vcount: int = 0
+			for vi: int in to_rip:
+				if vi < 0 or vi >= gbm.vertices.size():
+					continue
+				centroid += gbm.vertices[vi]
+				vcount += 1
+			if vcount > 0:
+				centroid /= vcount
+			var world_pos: Vector3 = _target.global_transform * centroid
+			var center_screen: Vector2 = cam.unproject_position(world_pos)
+			var tip_screen: Vector2 = cam.unproject_position(world_pos + world_direction)
+			var dir: Vector2 = tip_screen - center_screen
+			if dir.length() > 1.0:
+				screen_dir = dir.normalized()
+
+	var preview := GoBuildParamPreview.new()
+	preview.action_name = "Rip Vertex"
+	preview.param_label = "Distance"
+	preview.param_start = 0.5
+	preview.param_min   = -100.0
+	preview.param_max   = 100.0
+	preview.radial      = false
+	preview.snap_step   = 0.1
+	preview.screen_direction = screen_dir
+	var target_ref: GoBuildMeshInstance = _target
+	var last_ripped_verts: Array[int] = []
+	preview.apply_fn    = func(p: float) -> void:
+		last_ripped_verts.clear()
+		var result: Array[int] = RipOperation.apply_vertex_drag(
+				_target.go_build_mesh, to_rip, faces_for_rip, direction, p)
+		last_ripped_verts.assign(result)
+	preview.post_commit_fn = func() -> void:
+		if target_ref == null or not is_instance_valid(target_ref):
+			return
+		GoBuildDebug.log("[RipVertex] post_commit_fn: last_ripped=%s" % str(last_ripped_verts))
+		if last_ripped_verts.is_empty():
+			return
+		var ripped_verts: Array[int] = []
+		ripped_verts.assign(last_ripped_verts)
+		var timer: SceneTreeTimer = target_ref.get_tree().create_timer(0.0)
+		timer.timeout.connect(func() -> void:
+			if target_ref == null or not is_instance_valid(target_ref):
+				return
+			target_ref.selection.set_selected_vertices(ripped_verts)
+			target_ref.update_gizmos()
+		)
+	_plugin.call("begin_param_preview", preview)

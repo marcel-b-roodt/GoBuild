@@ -1246,6 +1246,7 @@ func begin_param_preview(preview: GoBuildParamPreview) -> void:
 	op.scale_by_gizmo = preview.scale_by_gizmo
 	op.snap_to_start = preview.snap_to_start
 	op.snap_threshold = preview.snap_threshold
+	op.snap_step = preview.snap_step
 	op.screen_direction = preview.screen_direction
 	op.post_commit_fn = preview.post_commit_fn
 	op.preview_mode = true

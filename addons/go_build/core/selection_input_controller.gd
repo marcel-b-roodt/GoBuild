@@ -441,8 +441,11 @@ func get_param_preview_overlay_text() -> String:
 	var snap_hint: String = ""
 	if _param_preview.snap_to_start:
 		snap_hint = "  [near %.2f snaps]" % _param_preview.param_start
-	return "%s: %.4f%s   LMB=accept   RMB/Esc=cancel" % [
-		_param_preview.param_label, _param_preview.param, snap_hint]
+	var ctrl_hint: String = ""
+	if _param_preview.snap_step > 0.0:
+		ctrl_hint = "   Ctrl: snap to %.2f" % _param_preview.snap_step
+	return "%s: %.4f%s%s   LMB=accept   RMB/Esc=cancel" % [
+		_param_preview.param_label, _param_preview.param, snap_hint, ctrl_hint]
 
 
 

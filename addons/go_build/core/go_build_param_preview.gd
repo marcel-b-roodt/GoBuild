@@ -86,3 +86,9 @@ var screen_direction: Vector2 = Vector2(1.0, 0.0)
 ## Signature: [code]() -> void[/code].
 ## Used to update the selection (e.g. select the new edges after extrude).
 var post_commit_fn: Callable = Callable()
+
+## Snap step for Ctrl+snap during param drag.  When Ctrl is held and this
+## value is positive, the parameter snaps to the nearest multiple of this step.
+## Set to 0 (default) to disable Ctrl-snap entirely.
+## For normalised 0–1 parameters like inset amount, use 0.1.
+var snap_step: float = 0.0
