@@ -328,11 +328,13 @@ static func find_nearest_edge(
 	var inv_gt: Transform3D
 	var ray_origin: Vector3
 	var ray_dir: Vector3
+	var denom: float = 0.0
 	if cull_occluded:
 		occlude_t = nearest_face_distance(camera, click_pos, node, gbm, true)
 		inv_gt = node.global_transform.affine_inverse()
 		ray_origin = inv_gt * camera.project_ray_origin(click_pos)
 		ray_dir = (inv_gt.basis * camera.project_ray_normal(click_pos)).normalized()
+		denom = ray_dir.dot(ray_dir)
 
 	var best_idx: int = -1
 	var best_dist: float = INF
@@ -345,12 +347,20 @@ static func find_nearest_edge(
 		if not camera.is_position_in_frustum(wa) and not camera.is_position_in_frustum(wb):
 			continue
 		if cull_occluded:
-			var diff: Vector3 = mid_local - ray_origin
-			var denom: float = ray_dir.dot(ray_dir)
+			# An edge is pickable if EITHER endpoint is in front of the nearest
+			# visible face.  Using just the midpoint is too aggressive — edges
+			# that straddle the surface get rejected even though part is visible.
+			var va_local: Vector3 = gbm.vertices[edge.vertex_a]
+			var vb_local: Vector3 = gbm.vertices[edge.vertex_b]
+			var t_a: float = INF
+			var t_b: float = INF
 			if denom > 1e-9:
-				var t_mid: float = diff.dot(ray_dir) / denom
-				if t_mid > occlude_t + 0.001:
-					continue
+				t_a = (va_local - ray_origin).dot(ray_dir) / denom
+				t_b = (vb_local - ray_origin).dot(ray_dir) / denom
+			var a_occluded: bool = t_a > occlude_t + 0.001
+			var b_occluded: bool = t_b > occlude_t + 0.001
+			if a_occluded and b_occluded:
+				continue
 		var sa: Vector2 = camera.unproject_position(wa)
 		var sb: Vector2 = camera.unproject_position(wb)
 		var dist: float = point_to_segment_dist(click_pos, sa, sb)

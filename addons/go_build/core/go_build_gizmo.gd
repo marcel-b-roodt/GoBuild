@@ -88,7 +88,7 @@ const VERTEX_CUBE_HALF: float = 0.03
 ## Half-width ratio for unselected-edge ribbons (relative to VERTEX_CUBE_HALF).
 ## Unselected edges are drawn thinner than selected ones so they're visible
 ## at any angle but clearly subordinate.
-const _EDGE_UNSELECTED_RIBBON_RATIO: float = 0.5
+const _EDGE_UNSELECTED_RIBBON_RATIO: float = 0.7
 ## Offset of each planar-handle square's centre from the selection centroid along
 ## each of its two axes (local mesh units × gizmo scale).
 ## Must match [constant GoBuildGizmoPlugin.PLANE_INNER_OFFSET].
