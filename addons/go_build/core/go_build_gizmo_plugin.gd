@@ -142,12 +142,13 @@ var mat_edge_normal_depth:     StandardMaterial3D
 var mat_edge_context_depth:    StandardMaterial3D
 var mat_vertex_normal_depth:   StandardMaterial3D
 
-## When true (default), all gizmo elements are always visible on top of geometry
-## (no_depth_test) and picking ignores occlusion — the user can select any element
-## regardless of whether it is behind the mesh surface.  When false, all elements
-## are still drawn on top (always visible), but picking culls back-facing faces and
-## occludes vertices/edges behind the nearest visible face, so the user can only
-## select elements they can actually see.
+## When true (default), all gizmo elements are drawn with no_depth_test (always
+## visible on top of geometry) and picking ignores occlusion — the user can select
+## any element regardless of whether it is behind the mesh surface.
+## When false, unselected elements use depth-tested materials (occluded by the
+## mesh surface) with brighter colours so they remain visible against the surface,
+## and picking culls back-facing faces and occluded vertices/edges so only
+## elements the user can actually see are selectable.
 var xray_mode: bool = true
 
 ## When true, face normals are drawn as lines from each face centroid along its
@@ -265,11 +266,12 @@ func setup(plugin: EditorPlugin) -> void:
 	mat_normal_face   = _line_mat_nodepth(Color(0.2, 0.85, 1.0, 1.0))   # cyan
 	mat_normal_vertex = _line_mat_nodepth(Color(0.5, 0.5, 1.0, 1.0))     # lavender
 	# Depth-tested material variants — used for unselected elements when xray_mode
-	# is off.  Same colours as the no_depth_test versions but with depth test enabled
-	# so elements behind the mesh surface are occluded.
-	mat_edge_normal_depth   = _line_mat_depth(Color(0.05, 0.05, 0.05, 1.0))
-	mat_edge_context_depth  = _line_mat_depth(Color(0.4, 0.4, 0.4, 1.0))
-	mat_vertex_normal_depth = _cone_mat_depth(Color(0.05, 0.05, 0.05, 1.0))
+	# is off.  Brighter than the no_depth_test versions so they remain visible
+	# against the mesh surface even with depth testing.  Occluded elements
+	# (behind the surface) are hidden by depth, and picking also culls them.
+	mat_edge_normal_depth   = _line_mat_depth(Color(0.5, 0.5, 0.5, 1.0))
+	mat_edge_context_depth  = _line_mat_depth(Color(0.6, 0.6, 0.6, 1.0))
+	mat_vertex_normal_depth = _cone_mat_depth(Color(0.35, 0.35, 0.35, 1.0))
 	# Planar quad meshes (unit half-size 1.0 — scale at draw time by PLANE_HALF * s).
 	plane_quad_mesh_xy = _build_plane_quad_mesh(Vector3.RIGHT, Vector3.UP)   # XY plane
 	plane_quad_mesh_yz = _build_plane_quad_mesh(Vector3.UP, Vector3.BACK)    # YZ plane
