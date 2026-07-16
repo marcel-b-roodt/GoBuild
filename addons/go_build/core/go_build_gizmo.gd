@@ -85,6 +85,10 @@ const CONE_HEIGHT: float  = 0.18
 ## [b]Public[/b] so [PickingHelper] can derive a matching pick radius from the
 ## same value — both must stay in sync.
 const VERTEX_CUBE_HALF: float = 0.03
+## Half-width ratio for unselected-edge ribbons (relative to VERTEX_CUBE_HALF).
+## Unselected edges are drawn thinner than selected ones so they're visible
+## at any angle but clearly subordinate.
+const _EDGE_UNSELECTED_RIBBON_RATIO: float = 0.5
 ## Offset of each planar-handle square's centre from the selection centroid along
 ## each of its two axes (local mesh units × gizmo scale).
 ## Must match [constant GoBuildGizmoPlugin.PLANE_INNER_OFFSET].
@@ -151,6 +155,16 @@ func _redraw() -> void:
 	var gizmo_s: float = plugin.call("compute_world_gizmo_scale", node.global_position)
 	if gizmo_s < 0.01:
 		gizmo_s = 1.0   # safe fallback — method missing or returned null
+	# Camera forward in local space — used by edge ribbons to face the viewer.
+	var cam_fwd_local: Vector3 = Vector3.BACK
+	var cam: Camera3D = plugin.call("get_editor_camera")
+	if cam != null:
+		var cam_fwd_world: Vector3 = -cam.global_basis.z
+		cam_fwd_local = (node.global_transform.affine_inverse().basis) * cam_fwd_world
+		if cam_fwd_local.length_squared() < 1e-9:
+			cam_fwd_local = Vector3.BACK
+		else:
+			cam_fwd_local = cam_fwd_local.normalized()
 
 	match sel.get_mode():
 		SelectionManager.Mode.OBJECT:
@@ -159,7 +173,7 @@ func _redraw() -> void:
 		SelectionManager.Mode.VERTEX:
 			var edge_mat: Material = plugin.mat_edge_context_depth \
 					if not plugin.xray_mode else plugin.mat_edge_context
-			_draw_context_edges(gbm, edge_mat)
+			_draw_context_edges(gbm, edge_mat, cam_fwd_local, gizmo_s)
 			var vert_norm: Material = plugin.mat_vertex_normal_depth \
 					if not plugin.xray_mode else plugin.mat_vertex_normal
 			_draw_vertices(gbm, sel, vert_norm, plugin.mat_vertex_selected, gizmo_s)
@@ -167,24 +181,13 @@ func _redraw() -> void:
 		SelectionManager.Mode.EDGE:
 			var edge_norm: Material = plugin.mat_edge_normal_depth \
 					if not plugin.xray_mode else plugin.mat_edge_normal
-			# Camera forward in local space so the selected-edge ribbon faces the viewer.
-			var cam_fwd_local: Vector3 = Vector3.BACK
-			var cam: Camera3D = plugin.call("get_editor_camera")
-			if cam != null:
-				# Camera looks along -Z in Godot; the forward vector is -basis.z.
-				var cam_fwd_world: Vector3 = -cam.global_basis.z
-				cam_fwd_local = (node.global_transform.affine_inverse().basis) * cam_fwd_world
-				if cam_fwd_local.length_squared() < 1e-9:
-					cam_fwd_local = Vector3.BACK
-				else:
-					cam_fwd_local = cam_fwd_local.normalized()
 			_draw_edges(gbm, sel, edge_norm, plugin.mat_edge_selected,
 					plugin.get("mat_edge_selected_ribbon"), gizmo_s, cam_fwd_local)
 
 		SelectionManager.Mode.FACE:
 			var edge_mat: Material = plugin.mat_edge_context_depth \
 					if not plugin.xray_mode else plugin.mat_edge_context
-			_draw_context_edges(gbm, edge_mat)
+			_draw_context_edges(gbm, edge_mat, cam_fwd_local, gizmo_s)
 			_draw_face_centres(gbm, sel, plugin.mat_face_normal, plugin.mat_face_fill)
 
 	# Normal visualiser overlay (drawn in all sub-element modes when toggled on).
@@ -208,34 +211,52 @@ func _redraw() -> void:
 # Drawing sub-routines
 # ---------------------------------------------------------------------------
 
-## Draw all edges as faint lines — provides spatial context in vertex / face modes.
-func _draw_context_edges(gbm: GoBuildMesh, mat: Material) -> void:
+## Draw all edges as faint ribbons — provides spatial context in vertex / face modes.
+func _draw_context_edges(
+		gbm: GoBuildMesh,
+		mat: Material,
+		cam_forward: Vector3 = Vector3.FORWARD,
+		scale: float = 1.0,
+) -> void:
 	if gbm.edges.is_empty():
 		return
-	var lines := PackedVector3Array()
-	lines.resize(gbm.edges.size() * 2)
-	var i := 0
+	var hw: float = VERTEX_CUBE_HALF * _EDGE_UNSELECTED_RIBBON_RATIO * scale
+	var ribbon_verts := PackedVector3Array()
 	for edge: GoBuildEdge in gbm.edges:
-		lines[i]     = gbm.vertices[edge.vertex_a]
-		lines[i + 1] = gbm.vertices[edge.vertex_b]
-		i += 2
-	add_lines(lines, mat)
+		var va: Vector3 = gbm.vertices[edge.vertex_a]
+		var vb: Vector3 = gbm.vertices[edge.vertex_b]
+		var tris: PackedVector3Array = _edge_ribbon_tris(va, vb, hw, cam_forward)
+		if tris.size() == 6:
+			ribbon_verts.append_array(tris)
+	if ribbon_verts.is_empty():
+		return
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = ribbon_verts
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	add_mesh(m, mat)
 
 
 ## Draw all edges, colouring selected ones as orange flat-ribbon quads and
-## unselected ones as near-black lines.
+## unselected ones as thinner ribbon quads.
 ##
 ## Selected edges are rendered as camera-facing flat quads (two triangles
 ## per edge) with width [code]VERTEX_CUBE_HALF * 0.8 * scale[/code].  The
 ## ribbon faces the camera so it appears consistently thick from every viewing
 ## angle, rather than paper-thin when viewed edge-on.
 ##
+## Unselected edges are drawn as thinner ribbons at
+## [code]VERTEX_CUBE_HALF * _EDGE_UNSELECTED_RIBBON_RATIO * scale[/code]
+## half-width, making them visible at any viewing angle without dominating
+## the visual.
+##
 ## [param mat_selected_ribbon] — solid orange mesh material for selected edge quads.
 ## When [code]null[/code] (should not happen in practice) falls back to
 ## [param mat_selected] via add_lines.
 ## [param scale] — gizmo scale from [method GoBuildGizmoPlugin.compute_world_gizmo_scale].
 ## [param cam_forward] — camera forward direction in local space, used to orient
-## the selected-edge ribbon towards the viewer.
+## the ribbons towards the viewer.
 func _draw_edges(
 		gbm: GoBuildMesh,
 		sel: SelectionManager,
@@ -245,11 +266,12 @@ func _draw_edges(
 		scale: float = 1.0,
 		cam_forward: Vector3 = Vector3.FORWARD,
 ) -> void:
-	var lines_normal        := PackedVector3Array()
 	var lines_selected_fb   := PackedVector3Array()  # fallback: ribbon mat unavailable
-	var ribbon_verts        := PackedVector3Array()
+	var sel_ribbon_verts    := PackedVector3Array()
+	var norm_ribbon_verts   := PackedVector3Array()
 	var use_ribbon: bool    = mat_selected_ribbon != null
-	var hw: float           = VERTEX_CUBE_HALF * 0.8 * scale
+	var hw_sel: float       = VERTEX_CUBE_HALF * 0.8 * scale
+	var hw_norm: float       = VERTEX_CUBE_HALF * _EDGE_UNSELECTED_RIBBON_RATIO * scale
 
 	for idx: int in gbm.edges.size():
 		var edge: GoBuildEdge = gbm.edges[idx]
@@ -257,25 +279,29 @@ func _draw_edges(
 		var vb: Vector3 = gbm.vertices[edge.vertex_b]
 		if sel.is_edge_selected(idx):
 			if use_ribbon:
-				ribbon_verts.append_array(_edge_ribbon_tris(va, vb, hw, cam_forward))
+				sel_ribbon_verts.append_array(_edge_ribbon_tris(va, vb, hw_sel, cam_forward))
 			else:
 				lines_selected_fb.append(va)
 				lines_selected_fb.append(vb)
 		else:
-			lines_normal.append(va)
-			lines_normal.append(vb)
+			norm_ribbon_verts.append_array(_edge_ribbon_tris(va, vb, hw_norm, cam_forward))
 
-	if not lines_normal.is_empty():
-		add_lines(lines_normal, mat_normal)
-
-	if use_ribbon and not ribbon_verts.is_empty():
+	if not norm_ribbon_verts.is_empty():
 		var arrays: Array = []
 		arrays.resize(Mesh.ARRAY_MAX)
-		arrays[Mesh.ARRAY_VERTEX] = ribbon_verts
+		arrays[Mesh.ARRAY_VERTEX] = norm_ribbon_verts
+		var m := ArrayMesh.new()
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		add_mesh(m, mat_normal)
+
+	if use_ribbon and not sel_ribbon_verts.is_empty():
+		var arrays: Array = []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = sel_ribbon_verts
 		var m := ArrayMesh.new()
 		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		add_mesh(m, mat_selected_ribbon as Material)
-	elif not use_ribbon and not lines_selected_fb.is_empty():
+	elif not lines_selected_fb.is_empty():
 		add_lines(lines_selected_fb, mat_selected)
 
 
