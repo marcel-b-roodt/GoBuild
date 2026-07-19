@@ -26,6 +26,8 @@ const _SUBDIVIDE_SCRIPT_F     := \
 		preload("res://addons/go_build/mesh/operations/subdivide_operation.gd")
 const _FNORMALS_SCRIPT_F      := \
 		preload("res://addons/go_build/mesh/operations/flip_normals_operation.gd")
+const _MERGE_FACES_SCRIPT_F  := \
+		preload("res://addons/go_build/mesh/operations/merge_faces_operation.gd")
 
 const _EXTRUDE_DEFAULT_DISTANCE: float = 0.5
 const _INSET_DEFAULT_AMOUNT: float = 0.1
@@ -35,6 +37,7 @@ var _extrude_btn:   Button = null
 var _inset_btn:     Button = null
 var _subdivide_btn: Button = null
 var _flip_btn:      Button = null
+var _merge_btn:     Button = null
 
 
 func _ready() -> void:
@@ -72,6 +75,13 @@ func _ready() -> void:
 	grid.add_child(_flip_btn)
 	_register_op(_flip_btn, _cond_face_any)
 
+	_merge_btn = _op_button("Merge Faces",
+		"Merge selected adjacent faces into a single N-gon face.\n"
+		+ "Interior edges are dissolved. Requires \u22652 adjacent selected faces.")
+	_merge_btn.pressed.connect(_on_merge_pressed)
+	grid.add_child(_merge_btn)
+	_register_op(_merge_btn, _cond_face_multiple)
+
 
 # ---------------------------------------------------------------------------
 # External trigger entry points
@@ -105,6 +115,12 @@ func _cond_face_any() -> bool:
 	return _target != null \
 			and _target.selection.get_mode() == SelectionManager.Mode.FACE \
 			and not _target.selection.get_selected_faces().is_empty()
+
+
+func _cond_face_multiple() -> bool:
+	return _target != null \
+			and _target.selection.get_mode() == SelectionManager.Mode.FACE \
+			and _target.selection.get_selected_faces().size() >= 2
 
 
 # ---------------------------------------------------------------------------
@@ -222,3 +238,17 @@ func _on_flip_normals_pressed() -> void:
 	_run_op("Flip Normals",
 			func(): FlipNormalsOperation.apply(_target.go_build_mesh, faces_to_flip),
 			false)
+
+
+func _on_merge_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+		return
+	var sel_faces: Array[int] = _target.selection.get_selected_faces()
+	if sel_faces.size() < 2:
+		return
+	var faces_to_merge: Array[int] = []
+	faces_to_merge.assign(sel_faces)
+	_run_op("Merge Faces",
+			func(): MergeFacesOperation.apply(_target.go_build_mesh, faces_to_merge))

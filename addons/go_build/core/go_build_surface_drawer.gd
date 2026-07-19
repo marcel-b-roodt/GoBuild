@@ -58,10 +58,10 @@ func _ready() -> void:
 	_assign_smooth_btn = _op_button("Assign",
 		"Set selected face(s) to the smooth group shown in the Group spinner.\n"
 		+ "Faces in the same non-zero group share averaged normals (smooth shading).\n"
-		+ "Requires Face mode with \u22651 face selected.")
+		+ "Face mode: selected faces. Object mode: all faces.")
 	_assign_smooth_btn.pressed.connect(_on_assign_smooth_group_pressed)
 	surface_grid.add_child(_assign_smooth_btn)
-	_register_op(_assign_smooth_btn, _cond_face_any)
+	_register_op(_assign_smooth_btn, _cond_face_any_or_object)
 
 	# Spacer to complete the two-column row.
 	surface_grid.add_child(Control.new())
@@ -74,18 +74,18 @@ func _ready() -> void:
 	_flat_btn = _op_button("Flat",
 		"Set selected face(s) to smooth group 0 (flat shading \u2014 each face uses\n"
 		+ "its own face normal, no interpolation with neighbours).\n"
-		+ "Requires Face mode with \u22651 face selected.")
+		+ "Face mode: selected faces. Object mode: all faces.")
 	_flat_btn.pressed.connect(_on_flat_shading_pressed)
 	sg_quick_grid.add_child(_flat_btn)
-	_register_op(_flat_btn, _cond_face_any)
+	_register_op(_flat_btn, _cond_face_any_or_object)
 
 	_smooth_btn = _op_button("Smooth",
 		"Set selected face(s) to smooth group 1, enabling normal averaging with\n"
 		+ "all adjacent faces that also belong to group 1.\n"
-		+ "Requires Face mode with \u22651 face selected.")
+		+ "Face mode: selected faces. Object mode: all faces.")
 	_smooth_btn.pressed.connect(_on_smooth_shading_pressed)
 	sg_quick_grid.add_child(_smooth_btn)
-	_register_op(_smooth_btn, _cond_face_any)
+	_register_op(_smooth_btn, _cond_face_any_or_object)
 
 	# ── Auto Smooth row ──────────────────────────────────────────────────
 	var as_row := HBoxContainer.new()
@@ -143,6 +143,15 @@ func _cond_face_any() -> bool:
 			and not _target.selection.get_selected_faces().is_empty()
 
 
+func _cond_face_any_or_object() -> bool:
+	if _target == null or _target.go_build_mesh == null:
+		return false
+	if _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
+		return true
+	return _target.selection.get_mode() == SelectionManager.Mode.FACE \
+			and not _target.selection.get_selected_faces().is_empty()
+
+
 func _cond_has_mesh() -> bool:
 	return _target != null and _target.go_build_mesh != null
 
@@ -154,13 +163,18 @@ func _cond_has_mesh() -> bool:
 func _on_assign_smooth_group_pressed() -> void:
 	if _target == null or _plugin == null:
 		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
-	if sel_faces.is_empty():
-		return
 	var faces: Array[int] = []
-	faces.assign(sel_faces)
+	if _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
+		faces.resize(_target.go_build_mesh.faces.size())
+		for i: int in faces.size():
+			faces[i] = i
+	elif _target.selection.get_mode() == SelectionManager.Mode.FACE:
+		var sel: Array[int] = _target.selection.get_selected_faces()
+		if sel.is_empty():
+			return
+		faces.assign(sel)
+	else:
+		return
 	var group_id: int = int(_smooth_group_spin.value)
 	_run_op(
 		"Assign Smooth Group %d" % group_id,
@@ -172,13 +186,18 @@ func _on_assign_smooth_group_pressed() -> void:
 func _on_flat_shading_pressed() -> void:
 	if _target == null or _plugin == null:
 		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
-	if sel_faces.is_empty():
-		return
 	var faces: Array[int] = []
-	faces.assign(sel_faces)
+	if _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
+		faces.resize(_target.go_build_mesh.faces.size())
+		for i: int in faces.size():
+			faces[i] = i
+	elif _target.selection.get_mode() == SelectionManager.Mode.FACE:
+		var sel: Array[int] = _target.selection.get_selected_faces()
+		if sel.is_empty():
+			return
+		faces.assign(sel)
+	else:
+		return
 	_run_op(
 		"Flat Shading",
 		func(): SmoothGroupOperation.apply(_target.go_build_mesh, faces, 0),
@@ -189,13 +208,18 @@ func _on_flat_shading_pressed() -> void:
 func _on_smooth_shading_pressed() -> void:
 	if _target == null or _plugin == null:
 		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
-	if sel_faces.is_empty():
-		return
 	var faces: Array[int] = []
-	faces.assign(sel_faces)
+	if _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
+		faces.resize(_target.go_build_mesh.faces.size())
+		for i: int in faces.size():
+			faces[i] = i
+	elif _target.selection.get_mode() == SelectionManager.Mode.FACE:
+		var sel: Array[int] = _target.selection.get_selected_faces()
+		if sel.is_empty():
+			return
+		faces.assign(sel)
+	else:
+		return
 	_run_op(
 		"Smooth Shading",
 		func(): SmoothGroupOperation.apply(_target.go_build_mesh, faces, 1),

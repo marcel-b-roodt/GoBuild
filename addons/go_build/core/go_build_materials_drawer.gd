@@ -19,6 +19,8 @@ const _MESH_INST_SCRIPT_M := preload("res://addons/go_build/core/go_build_mesh_i
 const _DRAWER_SCRIPT_M    := preload("res://addons/go_build/core/go_build_drawer.gd")
 const _MAT_ASSIGN_SCRIPT  := \
 		preload("res://addons/go_build/mesh/operations/material_assign_operation.gd")
+const _CONSOLIDATE_SCRIPT := \
+		preload("res://addons/go_build/mesh/operations/consolidate_slots_operation.gd")
 const _PALETTE_SCRIPT     := \
 		preload("res://addons/go_build/core/go_build_material_palette.gd")
 const _SETTINGS_SCRIPT    := \
@@ -38,6 +40,7 @@ var _new_pal_btn:         Button        = null
 var _edit_pal_btn:        Button        = null
 var _delete_pal_btn:      Button        = null
 var _pal_materials_vbox:  VBoxContainer = null
+var _consolidate_btn:     Button        = null
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +118,15 @@ func _ready() -> void:
 	_pal_materials_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_content.add_child(_pal_materials_vbox)
 
+	# ── Consolidate button ──────────────────────────────────────────────
+	_consolidate_btn = _op_button("Consolidate Slots",
+			"Merge duplicate material slots and remove empty slots.\n"
+			+ "Faces are reindexed to point at the consolidated slots.\n"
+			+ "Works in any mode with a mesh selected.")
+	_consolidate_btn.pressed.connect(_on_consolidate_pressed)
+	_content.add_child(_consolidate_btn)
+	_register_op(_consolidate_btn, _cond_has_mesh)
+
 	if Engine.is_editor_hint():
 		var fs := EditorInterface.get_resource_filesystem()
 		if not fs.filesystem_changed.is_connected(refresh_palettes):
@@ -143,6 +155,10 @@ func _cond_face_any() -> bool:
 	return _target != null \
 			and _target.selection.get_mode() == SelectionManager.Mode.FACE \
 			and not _target.selection.get_selected_faces().is_empty()
+
+
+func _cond_has_mesh() -> bool:
+	return _target != null and _target.go_build_mesh != null
 
 
 func _cond_palette_selected() -> bool:
@@ -279,6 +295,18 @@ func _on_slot_remove_pressed(slot_index: int) -> void:
 	ResourceSaver.save(pal, pal.resource_path)
 	EditorInterface.get_resource_filesystem().update_file(pal.resource_path)
 	_rebuild_pal_material_list()
+
+
+func _on_consolidate_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.go_build_mesh == null:
+		return
+	_run_op(
+		"Consolidate Material Slots",
+		func(): ConsolidateSlotsOperation.apply(_target.go_build_mesh),
+		false,
+	)
 
 
 # ---------------------------------------------------------------------------

@@ -108,37 +108,37 @@ func _ready() -> void:
 		"Project selected face(s) onto their dominant axis using %.1f unit tiles.\n"
 		% _TILE
 		+ "Useful for checker or metre textures during blockout.\n"
-		+ "Requires Face mode with \u22651 face selected.")
+		+ "Face mode: selected faces. Object mode: all faces.")
 	_planar_uv_btn.pressed.connect(_on_planar_uv_pressed)
 	grid.add_child(_planar_uv_btn)
-	_register_op(_planar_uv_btn, _cond_face_any)
+	_register_op(_planar_uv_btn, _cond_face_any_or_object)
 
 	_box_uv_btn = _op_button("Box UV",
 		"Project selected face(s) using world-space box mapping (%.1f unit tiles).\n"
 		% _TILE
 		+ "Adjacent same-axis faces share UV coordinates \u2014 no seam at shared edges.\n"
-		+ "Requires Face mode with \u22651 face selected.")
+		+ "Face mode: selected faces. Object mode: all faces.")
 	_box_uv_btn.pressed.connect(_on_box_uv_pressed)
 	grid.add_child(_box_uv_btn)
-	_register_op(_box_uv_btn, _cond_face_any)
+	_register_op(_box_uv_btn, _cond_face_any_or_object)
 
 	_cylindrical_uv_btn = _op_button("Cyl UV",
 		"Project selected face(s) using cylindrical mapping around the Y axis (%.1f unit tiles).\n"
 		% _TILE
 		+ "U wraps 0-1 around the Y axis; V scales with height.\n"
-		+ "Requires Face mode with \u22651 face selected.")
+		+ "Face mode: selected faces. Object mode: all faces.")
 	_cylindrical_uv_btn.pressed.connect(_on_cylindrical_uv_pressed)
 	grid.add_child(_cylindrical_uv_btn)
-	_register_op(_cylindrical_uv_btn, _cond_face_any)
+	_register_op(_cylindrical_uv_btn, _cond_face_any_or_object)
 
 	_spherical_uv_btn = _op_button("Sphere UV",
 		"Project selected face(s) using spherical (equirectangular) mapping (%.1f unit tiles).\n"
 		% _TILE
 		+ "U = longitude (0-1 around Y axis); V = latitude (0 = north / +Y, 1 = south / -Y).\n"
-		+ "Requires Face mode with \u22651 face selected.")
+		+ "Face mode: selected faces. Object mode: all faces.")
 	_spherical_uv_btn.pressed.connect(_on_spherical_uv_pressed)
 	grid.add_child(_spherical_uv_btn)
-	_register_op(_spherical_uv_btn, _cond_face_any)
+	_register_op(_spherical_uv_btn, _cond_face_any_or_object)
 
 	# UV parameter box — lives below the buttons; shown during a live param preview.
 	_uv_param_box = GoBuildUvParamBox.new()
@@ -156,6 +156,16 @@ func _ready() -> void:
 func _cond_face_any() -> bool:
 	return _target != null \
 			and _target.selection.get_mode() == SelectionManager.Mode.FACE \
+			and not _target.selection.get_selected_faces().is_empty()
+
+
+## [code]true[/code] when Face mode with \u22651 face selected, or Object mode with a mesh.
+func _cond_face_any_or_object() -> bool:
+	if _target == null or _target.go_build_mesh == null:
+		return false
+	if _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
+		return true
+	return _target.selection.get_mode() == SelectionManager.Mode.FACE \
 			and not _target.selection.get_selected_faces().is_empty()
 
 
@@ -189,9 +199,17 @@ func _uv_start_preview(
 ) -> void:
 	if _target == null or _plugin == null:
 		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
+	var sel_faces: Array[int] = []
+	if _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
+		# Object mode: apply to all faces.
+		sel_faces.resize(_target.go_build_mesh.faces.size())
+		for i: int in sel_faces.size():
+			sel_faces[i] = i
+	elif _target.selection.get_mode() == SelectionManager.Mode.FACE:
+		var raw: Array[int] = _target.selection.get_selected_faces()
+		sel_faces.assign(raw)
+	else:
 		return
-	var sel_faces: Array[int] = _target.selection.get_selected_faces()
 	if sel_faces.is_empty():
 		return
 	# Cancel any previous preview cleanly before starting a new one.
