@@ -176,9 +176,7 @@ func _redraw() -> void:
 			var edge_mat: Material = plugin.mat_edge_context_depth \
 					if not plugin.xray_mode else plugin.mat_edge_context
 			_draw_context_edges(gbm, edge_mat, cam_fwd_local, gizmo_s)
-			var vert_norm: Material = plugin.mat_vertex_normal_depth \
-					if not plugin.xray_mode else plugin.mat_vertex_normal
-			_draw_vertices(gbm, sel, vert_norm, plugin.mat_vertex_selected, gizmo_s)
+			_draw_vertices(gbm, sel, plugin.mat_vertex_normal, plugin.mat_vertex_selected, gizmo_s)
 
 		SelectionManager.Mode.EDGE:
 			var edge_norm: Material = plugin.mat_edge_normal_depth \
