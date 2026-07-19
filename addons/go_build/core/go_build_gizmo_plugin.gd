@@ -626,10 +626,13 @@ func _point_mat(color: Color) -> StandardMaterial3D:
 
 ## Create an unshaded line material that ignores depth — always drawn on top.
 ## Used for selected-element highlights so they are never hidden by geometry.
+## Double-sided (CULL_DISABLED) because it may be used for ribbon quads that
+## need to be visible from both sides.
 func _line_mat_nodepth(color: Color) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode    = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.albedo_color    = color
+	mat.cull_mode       = BaseMaterial3D.CULL_DISABLED
 	mat.no_depth_test   = true
 	mat.render_priority = 3
 	return mat
@@ -651,10 +654,13 @@ func _face_fill_mat() -> StandardMaterial3D:
 
 ## Depth-tested line material — same as [method _line_mat_nodepth] but with
 ## depth test enabled so unselected edges are occluded by the mesh surface.
+## Double-sided (CULL_DISABLED) because it may be used for ribbon quads that
+## need to be visible from both sides.
 func _line_mat_depth(color: Color) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode    = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.albedo_color    = color
+	mat.cull_mode       = BaseMaterial3D.CULL_DISABLED
 	mat.render_priority = 0
 	return mat
 
