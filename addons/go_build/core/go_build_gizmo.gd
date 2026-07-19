@@ -87,10 +87,10 @@ const CONE_HEIGHT: float  = 0.18
 const VERTEX_CUBE_HALF: float = 0.03
 ## Half-width ratio for selected-edge ribbons (relative to VERTEX_CUBE_HALF).
 ## Selected edges are thicker than unselected ones for clear visual emphasis.
-const _EDGE_SELECTED_RIBBON_RATIO: float = 0.6
+const _EDGE_SELECTED_RIBBON_RATIO: float = 0.3
 ## Half-width ratio for unselected-edge ribbons (relative to VERTEX_CUBE_HALF).
 ## Unselected edges are drawn thinner so they're visible but subordinate.
-const _EDGE_UNSELECTED_RIBBON_RATIO: float = 0.4
+const _EDGE_UNSELECTED_RIBBON_RATIO: float = 0.13
 ## Offset of each planar-handle square's centre from the selection centroid along
 ## each of its two axes (local mesh units × gizmo scale).
 ## Must match [constant GoBuildGizmoPlugin.PLANE_INNER_OFFSET].

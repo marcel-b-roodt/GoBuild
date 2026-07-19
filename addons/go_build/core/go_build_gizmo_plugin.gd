@@ -223,7 +223,7 @@ func setup(plugin: EditorPlugin) -> void:
 	# positions are exactly ON the surface, so depth-testing makes them invisible.
 	mat_edge_normal     = _line_mat_nodepth(Color(0.05, 0.05, 0.05, 1.0))   # near-black
 	mat_edge_selected   = _line_mat_nodepth(COLOR_SELECTED)
-	mat_edge_context    = _line_mat_nodepth(Color(0.1, 0.1, 0.1, 1.0))    # near-black: context only
+	mat_edge_context    = _line_mat_nodepth(Color(0.2, 0.2, 0.2, 1.0))    # dark grey: context edges
 	# Vertex handles are now solid filled cubes — use _cone_mat (solid, no_depth_test,
 	# double-sided) instead of _line_mat_nodepth.  Near-black for unselected, orange for selected.
 	mat_vertex_normal   = _cone_mat(Color(0.05, 0.05, 0.05, 1.0))
@@ -270,7 +270,7 @@ func setup(plugin: EditorPlugin) -> void:
 	# against the mesh surface even with depth testing.  Occluded elements
 	# (behind the surface) are hidden by depth, and picking also culls them.
 	mat_edge_normal_depth   = _line_mat_depth(Color(0.05, 0.05, 0.05, 1.0))
-	mat_edge_context_depth  = _line_mat_depth(Color(0.1, 0.1, 0.1, 1.0))
+	mat_edge_context_depth  = _line_mat_depth(Color(0.2, 0.2, 0.2, 1.0))
 	mat_vertex_normal_depth = _cone_mat_depth(Color(0.05, 0.05, 0.05, 1.0))
 	# Planar quad meshes (unit half-size 1.0 — scale at draw time by PLANE_HALF * s).
 	plane_quad_mesh_xy = _build_plane_quad_mesh(Vector3.RIGHT, Vector3.UP)   # XY plane
