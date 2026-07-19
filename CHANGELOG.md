@@ -32,6 +32,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Drag-and-drop texture to UV canvas — drop a Texture2D or Material from the
   FileSystem dock onto the UV canvas to assign it to selected faces; reuses existing
   material slots or creates a new StandardMaterial3D; full undo/redo
+- Drag-and-drop material to 3D viewport — drag a Material or Texture2D from the
+  FileSystem onto a GoBuild mesh to preview per-face assignment; raycast targets the
+  face under the cursor; Ctrl hint overlay; Escape cancels; full undo/redo
 - Rip operation (V key) — split shared vertices or edges apart, creating an open
   seam; works in Vertex mode and Edge mode; `RipOperation.apply_vertices` and
   `RipOperation.apply_edges`; panel buttons, context menu entries, and V shortcut;
@@ -39,6 +42,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Normal visualiser overlay — face normals (cyan lines from face centroids) and
   vertex normals (lavender lines, area-weighted average of adjacent face normals);
   "Normals" and "Vtx N" checkboxes in General drawer; N key shortcut toggles face normals
+- X-ray off mode — backface culling and depth occlusion for vertex, edge, and face
+  picking; elements behind the mesh surface are not selectable when X-ray is off;
+  box select also respects occlusion; gizmo elements behind the mesh are hidden by
+  depth-tested materials
+- Occlusion-aware mesh switching — clicking on another GoBuild mesh now only switches
+  to it if no closer geometry blocks the click; parametric ray distance comparison
+  replaces centroid-based approximation; prevents accidental hops to meshes behind the
+  current one even in X-ray mode
+- Camera-facing prism edge gizmos — edges are drawn as 3-face prisms (0°/60°/120°
+  cross-section) instead of single flat ribbons, giving a consistent spherical
+  appearance from every viewing angle; double-sided materials ensure visibility
+
+### Changed
+- Edge gizmo thickness reduced (selected ratio 0.6, unselected 0.4, down from 0.8/0.7)
+- Context edge colour (vertex/face mode) changed from grey (0.4) to dark grey (0.2)
+  for a subtler wireframe look closer to Blender
+- Vertex handles always drawn on top (no depth test) in vertex mode regardless of
+  X-ray setting, preventing edges from drawing over vertex cubes
+- Edge ribbon materials use double-sided rendering (CULL_DISABLED) so prism quads
+  are visible from both sides
 
 ## [0.8.0] — 2026-06-29
 
