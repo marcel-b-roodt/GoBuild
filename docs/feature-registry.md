@@ -95,6 +95,9 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Shift+drag → Inset | ✅ Complete | `_should_inset_drag` + `_begin_inset_drag` in `selection_input_controller.gd`; `InsetOperation.apply` at distance=0 then `_apply_inset_drag` (screen-space delta → lerp to centroid); undo restores pre-inset state in one step |
 | Right-click context menu | ✅ Complete | `PopupMenu` in `selection_input_controller.gd`; per-mode items (Select All, Extrude, Flip Normals); Add Shape submenu in all modes; Object mode context menu enabled; Add Texture in Face mode |
 | Rip | ✅ Complete | Split shared vertices or edges apart by duplicating them and leaving an open seam; Vertex and Edge mode; `V` key; `RipOperation.apply_vertices` and `RipOperation.apply_edges`; context menu entry; panel button; 14 unit tests |
+| Merge faces | ✅ Complete | `MergeFacesOperation.apply(mesh, face_indices)`; merges adjacent selected faces into single N-gon by dissolving interior edges; BFS groups faces by adjacency; boundary ring walk preserves winding; inherits material, smooth group, and UVs from first face; panel button in Face section (requires 2+ selected faces) |
+| Consolidate material slots | ✅ Complete | `ConsolidateSlotsOperation.apply(mesh)`; merges duplicate material slots (same resource or both null) into one; removes empty slots; reindexes all face material_index values; panel button "Consolidate Slots" in Materials drawer |
+| Multi-mode operations (UV + smooth groups) | ✅ Complete | UV projection buttons (Planar, Box, Cyl, Sphere) and smooth group buttons (Flat, Smooth, Assign) now work in Object mode, applying to all faces; Face mode still requires selection |
 
 ---
 

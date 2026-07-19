@@ -53,6 +53,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Camera-facing prism edge gizmos — edges are drawn as 3-face prisms (0°/60°/120°
   cross-section) instead of single flat ribbons, giving a consistent spherical
   appearance from every viewing angle; double-sided materials ensure visibility
+- Consolidate material slots — "Consolidate Slots" button in Materials drawer merges
+  duplicate material slots (same resource or both null) and removes empty slots,
+  preventing slot proliferation from repeated face assignments
+- Merge faces — "Merge Faces" button in Face drawer dissolves interior edges of
+  adjacent selected faces, creating a single N-gon; works on any connected group
+- Multi-mode operations — UV projection and smooth group buttons now work in
+  Object mode, applying to all faces instead of requiring Face mode selection
 
 ### Changed
 - Edge gizmo thickness reduced (selected ratio 0.6, unselected 0.4, down from 0.8/0.7)
