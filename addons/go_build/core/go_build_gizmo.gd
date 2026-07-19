@@ -85,10 +85,12 @@ const CONE_HEIGHT: float  = 0.18
 ## [b]Public[/b] so [PickingHelper] can derive a matching pick radius from the
 ## same value — both must stay in sync.
 const VERTEX_CUBE_HALF: float = 0.03
+## Half-width ratio for selected-edge ribbons (relative to VERTEX_CUBE_HALF).
+## Selected edges are thicker than unselected ones for clear visual emphasis.
+const _EDGE_SELECTED_RIBBON_RATIO: float = 0.6
 ## Half-width ratio for unselected-edge ribbons (relative to VERTEX_CUBE_HALF).
-## Unselected edges are drawn thinner than selected ones so they're visible
-## but clearly subordinate.  Selected edges use 1.0 ratio.
-const _EDGE_UNSELECTED_RIBBON_RATIO: float = 0.5
+## Unselected edges are drawn thinner so they're visible but subordinate.
+const _EDGE_UNSELECTED_RIBBON_RATIO: float = 0.4
 ## Offset of each planar-handle square's centre from the selection centroid along
 ## each of its two axes (local mesh units × gizmo scale).
 ## Must match [constant GoBuildGizmoPlugin.PLANE_INNER_OFFSET].
@@ -269,7 +271,7 @@ func _draw_edges(
 	var sel_ribbon_verts    := PackedVector3Array()
 	var norm_ribbon_verts   := PackedVector3Array()
 	var use_ribbon: bool    = mat_selected_ribbon != null
-	var hw_sel: float       = VERTEX_CUBE_HALF * scale
+	var hw_sel: float       = VERTEX_CUBE_HALF * _EDGE_SELECTED_RIBBON_RATIO * scale
 	var hw_norm: float       = VERTEX_CUBE_HALF * _EDGE_UNSELECTED_RIBBON_RATIO * scale
 
 	for idx: int in gbm.edges.size():

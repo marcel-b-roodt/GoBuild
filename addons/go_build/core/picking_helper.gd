@@ -42,9 +42,9 @@ const VERTEX_CUBE_HALF: float = 0.03
 const _GIZMO_SCREEN_FACTOR: float = 0.25   # perspective cameras
 const _GIZMO_ORTHO_SCALE:   float = 0.10   # orthographic cameras
 
-## Ratio of edge ribbon half-width to vertex cube half-size.
-## MUST mirror the ratio used in GoBuildGizmo._draw_edges() for selected edges.
-const _EDGE_RIBBON_RATIO: float = 1.0
+## Ratio of selected edge ribbon half-width to vertex cube half-size.
+## MUST mirror [constant GoBuildGizmo._EDGE_SELECTED_RIBBON_RATIO].
+const _EDGE_RIBBON_RATIO: float = 0.6
 
 ## Screen-space radius (px) fallback for headless / test contexts where
 ## no camera is available.
