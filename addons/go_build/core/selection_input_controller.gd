@@ -1014,11 +1014,12 @@ func _hop_to_mesh(other: GoBuildMeshInstance) -> void:
 
 ## Return the [GoBuildMeshInstance] (other than [param edited_node]) whose face
 ## is closest to the camera at [param click_pos] and is nearer to the camera
-## than the centroid of [param face_idx] on [param edited_node].
+## than [param face_idx] on [param edited_node].
+##
+## Uses parametric ray distance for accurate depth comparison instead of
+## centroid-to-camera distance, which can be inaccurate for large faces.
 ##
 ## Returns [code]null[/code] when no closer mesh is found.
-## Used to prevent picking a face that is geometrically occluded by another
-## GoBuildMesh in the scene.
 func _find_occluding_mesh(
 		camera: Camera3D,
 		click_pos: Vector2,
@@ -1029,20 +1030,18 @@ func _find_occluding_mesh(
 	if gbm == null or face_idx < 0 or face_idx >= gbm.faces.size():
 		return null
 
-	# Approximate hit depth: world-space centroid of the hit face.
-	var face: GoBuildFace = gbm.faces[face_idx]
-	var gt: Transform3D   = edited_node.global_transform
-	var centroid: Vector3 = Vector3.ZERO
-	for vi: int in face.vertex_indices:
-		centroid += gt * gbm.vertices[vi]
-	centroid /= float(face.vertex_indices.size())
-	var hit_dist_sq: float = camera.global_position.distance_squared_to(centroid)
+	# Use the parametric ray distance of the hit face on the edited mesh
+	# as the reference depth, then check whether any other GoBuild mesh has
+	# a face intersection that is closer to the camera.
+	var edited_t: float = PickingHelper.nearest_face_distance(
+			camera, click_pos, edited_node, gbm, false)
 
-	var ray_from: Vector3  = camera.project_ray_origin(click_pos)
-	var ray_dir: Vector3   = camera.project_ray_normal(click_pos)
-	var scene_root: Node   = EditorInterface.get_edited_scene_root()
+	var scene_root: Node = EditorInterface.get_edited_scene_root()
 	if scene_root == null:
 		return null
+
+	var best_other: GoBuildMeshInstance = null
+	var best_other_t: float = INF
 
 	for node: Node in scene_root.find_children("*", "Node3D", true, false):
 		if node == edited_node or not (node is GoBuildMeshInstance):
@@ -1050,28 +1049,18 @@ func _find_occluding_mesh(
 		var mi: GoBuildMeshInstance = node as GoBuildMeshInstance
 		if mi.mesh == null or mi.go_build_mesh == null:
 			continue
-		# Quick AABB rejection — skip meshes the ray clearly misses.
 		var inv: Transform3D = mi.global_transform.affine_inverse()
-		var lf: Vector3      = inv * ray_from
-		var ld: Vector3      = inv.basis * ray_dir
+		var lf: Vector3 = inv * camera.project_ray_origin(click_pos)
+		var ld: Vector3 = inv.basis * camera.project_ray_normal(click_pos)
 		if mi.get_aabb().intersects_ray(lf, ld) == null:
 			continue
-		# Face-level intersection against potential occluder.
-		var other_idx: int = PickingHelper.find_nearest_face(
-				camera, click_pos, mi, mi.go_build_mesh, true)
-		if other_idx == -1:
-			continue
-		# Compare centroids as depth proxies.
-		var of: GoBuildFace    = mi.go_build_mesh.faces[other_idx]
-		var ogt: Transform3D   = mi.global_transform
-		var other_c: Vector3   = Vector3.ZERO
-		for vi: int in of.vertex_indices:
-			other_c += ogt * mi.go_build_mesh.vertices[vi]
-		other_c /= float(of.vertex_indices.size())
-		if camera.global_position.distance_squared_to(other_c) < hit_dist_sq:
-			return mi
+		var other_t: float = PickingHelper.nearest_face_distance(
+				camera, click_pos, mi, mi.go_build_mesh, false)
+		if other_t < edited_t and other_t < best_other_t:
+			best_other_t = other_t
+			best_other = mi
 
-	return null
+	return best_other
 
 
 # ---------------------------------------------------------------------------
@@ -1079,8 +1068,15 @@ func _find_occluding_mesh(
 # ---------------------------------------------------------------------------
 
 ## Walk the edited scene for a [GoBuildMeshInstance] other than [param exclude]
-## that the camera ray through [param click_pos] intersects.  Returns the first
-## hit (closest is not guaranteed — first in tree order) or [code]null[/code].
+## that the camera ray through [param click_pos] intersects.
+##
+## Finds the nearest face-level hit across all GoBuild meshes in the scene
+## and returns that mesh only if it is not occluded by any other GoBuild mesh
+## (including [param exclude]).  In X-ray mode the current mesh's faces still
+## block selection hops — you can see through them, but you shouldn't
+## accidentally switch to a mesh that is geometrically behind the current one.
+##
+## Returns [code]null[/code] when no unoccluded GoBuild mesh is found.
 func _find_gobuild_at(
 		camera: Camera3D,
 		click_pos: Vector2,
@@ -1091,18 +1087,47 @@ func _find_gobuild_at(
 		return null
 	var ray_from: Vector3 = camera.project_ray_origin(click_pos)
 	var ray_dir:  Vector3 = camera.project_ray_normal(click_pos)
+
+	# Collect all GoBuild meshes that the ray hits, along with their
+	# nearest face distance.  Find the overall nearest hit and verify
+	# that no closer face (on any GoBuild mesh) blocks it.
+	var best_other: GoBuildMeshInstance = null
+	var best_other_dist: float = INF
+	# Also track whether the excluded mesh has any face closer than the
+	# nearest other-mesh hit — that means the other mesh is occluded.
+	var exclude_nearest_dist: float = INF
+
 	for node: Node in scene_root.find_children("*", "Node3D", true, false):
-		if node == exclude or not (node is GoBuildMeshInstance):
+		if not (node is GoBuildMeshInstance):
 			continue
-		var mi := node as GoBuildMeshInstance
-		if mi.mesh == null:
+		var mi: GoBuildMeshInstance = node as GoBuildMeshInstance
+		if mi.mesh == null or mi.go_build_mesh == null:
 			continue
-		# Transform ray to local space for AABB test.
+		var gbm: GoBuildMesh = mi.go_build_mesh
+		# Quick AABB rejection.
 		var inv: Transform3D = mi.global_transform.affine_inverse()
 		var local_from: Vector3 = inv * ray_from
-		var local_dir:  Vector3 = inv.basis * ray_dir
-		if mi.get_aabb().intersects_ray(local_from, local_dir) != null:
-			return mi
+		var local_dir: Vector3 = inv.basis * ray_dir
+		if mi.get_aabb().intersects_ray(local_from, local_dir) == null:
+			continue
+		# Face-level intersection to get an accurate depth.
+		var face_t: float = PickingHelper.nearest_face_distance(
+				camera, click_pos, mi, gbm, false)
+		if face_t == INF:
+			continue
+		if node == exclude:
+			if face_t < exclude_nearest_dist:
+				exclude_nearest_dist = face_t
+		else:
+			if face_t < best_other_dist:
+				best_other_dist = face_t
+				best_other = mi
+
+	# The nearest other mesh is only valid if the excluded mesh doesn't
+	# have a face that's closer to the camera — i.e. the excluded mesh
+	# does not occlude the other mesh.
+	if best_other != null and best_other_dist < exclude_nearest_dist:
+		return best_other
 	return null
 
 

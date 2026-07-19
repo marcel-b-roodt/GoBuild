@@ -43,8 +43,8 @@ const _GIZMO_SCREEN_FACTOR: float = 0.25   # perspective cameras
 const _GIZMO_ORTHO_SCALE:   float = 0.10   # orthographic cameras
 
 ## Ratio of edge ribbon half-width to vertex cube half-size.
-## MUST mirror the ratio used in GoBuildGizmo._draw_edges().
-const _EDGE_RIBBON_RATIO: float = 0.8
+## MUST mirror the ratio used in GoBuildGizmo._draw_edges() for selected edges.
+const _EDGE_RIBBON_RATIO: float = 1.0
 
 ## Screen-space radius (px) fallback for headless / test contexts where
 ## no camera is available.
@@ -67,10 +67,10 @@ const _MIN_PICK_RADIUS_PX: float = 10.0
 ## the click target is noticeably larger than the drawn element.
 const _CUBE_CIRCUMSCRIBE: float = 2.0
 
-## Same multiplier for edge ribbon picking.  Slightly smaller than the cube
-## multiplier because edges are one-dimensional hit targets — the sausage-shaped
-## pick zone around the edge centreline is inherently easier to hit than a point.
-const _RIBBON_CIRCUMSCRIBE: float = 1.8
+## Same multiplier for edge ribbon picking.  The prism has 3 faces so the
+## visual extent is wider than a single flat ribbon; the multiplier can be
+## slightly smaller than for vertices.
+const _RIBBON_CIRCUMSCRIBE: float = 1.5
 
 
 ## Compute the vertex pick radius in pixels by projecting the visual cube

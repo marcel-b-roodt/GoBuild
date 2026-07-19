@@ -87,8 +87,8 @@ const CONE_HEIGHT: float  = 0.18
 const VERTEX_CUBE_HALF: float = 0.03
 ## Half-width ratio for unselected-edge ribbons (relative to VERTEX_CUBE_HALF).
 ## Unselected edges are drawn thinner than selected ones so they're visible
-## but clearly subordinate.  Selected edges use 0.8 ratio.
-const _EDGE_UNSELECTED_RIBBON_RATIO: float = 0.7
+## but clearly subordinate.  Selected edges use 1.0 ratio.
+const _EDGE_UNSELECTED_RIBBON_RATIO: float = 0.5
 ## Offset of each planar-handle square's centre from the selection centroid along
 ## each of its two axes (local mesh units × gizmo scale).
 ## Must match [constant GoBuildGizmoPlugin.PLANE_INNER_OFFSET].
@@ -211,7 +211,7 @@ func _redraw() -> void:
 # Drawing sub-routines
 # ---------------------------------------------------------------------------
 
-## Draw all edges as thin ribbons — provides spatial context in vertex / face modes.
+## Draw all edges as thin prisms — provides spatial context in vertex / face modes.
 ## Half-width is [constant _EDGE_UNSELECTED_RIBBON_RATIO] × [constant VERTEX_CUBE_HALF] × scale.
 func _draw_context_edges(
 		gbm: GoBuildMesh,
@@ -226,8 +226,8 @@ func _draw_context_edges(
 	for edge: GoBuildEdge in gbm.edges:
 		var va: Vector3 = gbm.vertices[edge.vertex_a]
 		var vb: Vector3 = gbm.vertices[edge.vertex_b]
-		var tris: PackedVector3Array = _edge_ribbon_tris(va, vb, hw, cam_forward)
-		if tris.size() == 6:
+		var tris: PackedVector3Array = _edge_prism_tris(va, vb, hw, cam_forward)
+		if not tris.is_empty():
 			ribbon_verts.append_array(tris)
 	if ribbon_verts.is_empty():
 		return
@@ -239,15 +239,15 @@ func _draw_context_edges(
 	add_mesh(m, mat)
 
 
-## Draw all edges, colouring selected ones as orange flat-ribbon quads and
-## unselected ones as thinner ribbon quads.
+## Draw all edges, colouring selected ones as orange prism quads and
+## unselected ones as thinner prism quads.
 ##
-## Selected edges are rendered as camera-facing flat quads (two triangles
-## per edge) with width [code]VERTEX_CUBE_HALF * 0.8 * scale[/code].
-## Unselected edges are drawn as thinner quads at
+## Selected edges are rendered as 3-face prisms (six triangles per edge)
+## with half-width [code]VERTEX_CUBE_HALF * scale[/code].
+## Unselected edges are drawn as thinner prisms at
 ## [code]VERTEX_CUBE_HALF * _EDGE_UNSELECTED_RIBBON_RATIO * scale[/code].
 ##
-## Both use [method _edge_ribbon_tris] so they appear consistently thick
+## Both use [method _edge_prism_tris] so they appear consistently thick
 ## from every viewing angle.
 ##
 ## [param mat_selected_ribbon] — solid orange mesh material for selected edge quads.
@@ -255,7 +255,7 @@ func _draw_context_edges(
 ## [param mat_selected] via add_lines.
 ## [param scale] — gizmo scale from [method GoBuildGizmoPlugin.compute_world_gizmo_scale].
 ## [param cam_forward] — camera forward direction in local space, used to orient
-## the ribbons towards the viewer.
+## the prism faces towards the viewer.
 func _draw_edges(
 		gbm: GoBuildMesh,
 		sel: SelectionManager,
@@ -269,7 +269,7 @@ func _draw_edges(
 	var sel_ribbon_verts    := PackedVector3Array()
 	var norm_ribbon_verts   := PackedVector3Array()
 	var use_ribbon: bool    = mat_selected_ribbon != null
-	var hw_sel: float       = VERTEX_CUBE_HALF * 0.8 * scale
+	var hw_sel: float       = VERTEX_CUBE_HALF * scale
 	var hw_norm: float       = VERTEX_CUBE_HALF * _EDGE_UNSELECTED_RIBBON_RATIO * scale
 
 	for idx: int in gbm.edges.size():
@@ -278,12 +278,12 @@ func _draw_edges(
 		var vb: Vector3 = gbm.vertices[edge.vertex_b]
 		if sel.is_edge_selected(idx):
 			if use_ribbon:
-				sel_ribbon_verts.append_array(_edge_ribbon_tris(va, vb, hw_sel, cam_forward))
+				sel_ribbon_verts.append_array(_edge_prism_tris(va, vb, hw_sel, cam_forward))
 			else:
 				lines_selected_fb.append(va)
 				lines_selected_fb.append(vb)
 		else:
-			norm_ribbon_verts.append_array(_edge_ribbon_tris(va, vb, hw_norm, cam_forward))
+			norm_ribbon_verts.append_array(_edge_prism_tris(va, vb, hw_norm, cam_forward))
 
 	if not norm_ribbon_verts.is_empty():
 		var arrays: Array = []
@@ -334,19 +334,19 @@ func _solid_cube_tris_at(pos: Vector3, half: float) -> PackedVector3Array:
 	])
 
 
-## Build 6 triangle vertices (2 triangles) forming a flat quad ribbon along
-## [param va]→[param vb] with world-space half-width [param hw].
+## Build 18 triangle vertices (6 triangles, 3 ribbon quads) forming a 3-face
+## prism along [param va]→[param vb] with world-space half-width [param hw].
 ##
-## The ribbon faces the camera by choosing its perpendicular as the cross product
-## of the edge direction and [param cam_forward] (the camera's view direction in
-## local space).  This makes the ribbon appear consistently thick from every
-## viewing angle — never paper-thin when viewed edge-on.
+## Three flat ribbon quads are oriented at 0°, 60°, and 120° rotations around
+## the edge axis, creating a hexagonal cross-section appearance.  This looks
+## more "spherical" than a single flat quad — there are always at least two
+## faces visible from any viewing angle, avoiding the flat-sided look.
 ##
-## Falls back to [constant Vector3.UP] (or [constant Vector3.RIGHT] for vertical
-## edges) when no camera forward is available.
+## The first ribbon is oriented towards [param cam_forward] so the most visible
+## face always faces the camera.
 ##
 ## Returns an empty array when the edge is degenerate (zero length).
-func _edge_ribbon_tris(
+func _edge_prism_tris(
 		va: Vector3,
 		vb: Vector3,
 		hw: float,
@@ -356,30 +356,38 @@ func _edge_ribbon_tris(
 	if d.length_squared() < 1e-9:
 		return PackedVector3Array()
 	d = d.normalized()
-	# Choose perpendicular that faces the camera: cross(edge, cam_forward).
-	# This makes the ribbon always face the viewer.
+	var up: Vector3 = Vector3.UP
+	if abs(d.dot(up)) > 0.9:
+		up = Vector3.RIGHT
 	var perp: Vector3
 	if cam_forward.length_squared() > 1e-6:
 		perp = d.cross(cam_forward.normalized())
 		if perp.length_squared() < 1e-9:
-			# Edge is parallel to camera forward — fall back to UP.
-			var up: Vector3 = Vector3.UP
-			if abs(d.dot(up)) > 0.9:
-				up = Vector3.RIGHT
 			perp = d.cross(up).normalized()
 		else:
 			perp = perp.normalized()
 	else:
-		# No camera info — fall back to world UP / RIGHT.
-		var up: Vector3 = Vector3.UP
-		if abs(d.dot(up)) > 0.9:
-			up = Vector3.RIGHT
 		perp = d.cross(up).normalized()
-	perp = perp * hw
-	return PackedVector3Array([
-		va + perp, va - perp, vb + perp,
-		va - perp, vb - perp, vb + perp,
-	])
+	perp = perp.normalized() * hw
+	var perp2: Vector3 = d.cross(perp).normalized() * hw
+	var result := PackedVector3Array()
+	var offsets: Array[Vector3] = [
+		perp,
+		perp * -0.5 + perp2 * 0.86602540378,   # cos(60°) = 0.5, sin(60°) ≈ 0.866
+		perp * -0.5 - perp2 * 0.86602540378,
+	]
+	for offset: Vector3 in offsets:
+		var pa: Vector3 = va + offset
+		var pb: Vector3 = va - offset
+		var pc: Vector3 = vb + offset
+		var pd: Vector3 = vb - offset
+		result.append(pa)
+		result.append(pb)
+		result.append(pc)
+		result.append(pb)
+		result.append(pd)
+		result.append(pc)
+	return result
 
 
 ## Draw all vertices as solid filled cube handles.
