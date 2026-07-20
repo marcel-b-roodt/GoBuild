@@ -58,8 +58,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   preventing slot proliferation from repeated face assignments
 - Merge faces — "Merge Faces" button in Face drawer dissolves interior edges of
   adjacent selected faces, creating a single N-gon; works on any connected group
+- Merge faces — "Merge Faces" button in Face drawer dissolves interior edges of
+  adjacent selected faces, creating a single N-gon; works on any connected group;
+  also available in right-click context menu (requires 2+ selected faces)
 - Multi-mode operations — UV projection and smooth group buttons now work in
-  Object mode, applying to all faces instead of requiring Face mode selection
+  Object mode, applying to all faces; UV projections in Object mode are immediate
+  commits (no param preview) since fine-tuning all-face projections is rare
 
 ### Changed
 - Edge gizmo thickness reduced (selected ratio 0.6, unselected 0.4, down from 0.8/0.7)

@@ -174,19 +174,31 @@ func _cond_face_any_or_object() -> bool:
 # ---------------------------------------------------------------------------
 
 func _on_planar_uv_pressed() -> void:
-	_uv_start_preview(GoBuildFace.UvMode.PLANAR, "Planar UV", false)
+	if _target != null and _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
+		_uv_apply_immediate(GoBuildFace.UvMode.PLANAR, "Planar UV")
+	else:
+		_uv_start_preview(GoBuildFace.UvMode.PLANAR, "Planar UV", false)
 
 
 func _on_box_uv_pressed() -> void:
-	_uv_start_preview(GoBuildFace.UvMode.BOX, "Box UV", false)
+	if _target != null and _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
+		_uv_apply_immediate(GoBuildFace.UvMode.BOX, "Box UV")
+	else:
+		_uv_start_preview(GoBuildFace.UvMode.BOX, "Box UV", false)
 
 
 func _on_cylindrical_uv_pressed() -> void:
-	_uv_start_preview(GoBuildFace.UvMode.CYLINDRICAL, "Cyl UV", true)
+	if _target != null and _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
+		_uv_apply_immediate(GoBuildFace.UvMode.CYLINDRICAL, "Cyl UV")
+	else:
+		_uv_start_preview(GoBuildFace.UvMode.CYLINDRICAL, "Cyl UV", true)
 
 
 func _on_spherical_uv_pressed() -> void:
-	_uv_start_preview(GoBuildFace.UvMode.SPHERICAL, "Sphere UV", true)
+	if _target != null and _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
+		_uv_apply_immediate(GoBuildFace.UvMode.SPHERICAL, "Sphere UV")
+	else:
+		_uv_start_preview(GoBuildFace.UvMode.SPHERICAL, "Sphere UV", true)
 
 
 ## Begin a UV param-preview for [param mode].
@@ -319,6 +331,39 @@ func _uv_project_batch(
 		GoBuildFace.UvMode.SPHERICAL:
 			SphericalProjection.apply(
 				_target.go_build_mesh, faces, scale, xform, offset, seam_rot)
+
+
+## Immediate UV projection in Object mode — applies to all faces with
+## undo/redo, no param preview.  Uses default parameters (scale=1, offset=0,
+## seam_rotation=0) and the current instance auto-UV settings.
+func _uv_apply_immediate(
+		mode: GoBuildFace.UvMode,
+		action_name: String,
+) -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.go_build_mesh == null:
+		return
+	var all_faces: Array[int] = []
+	all_faces.resize(_target.go_build_mesh.faces.size())
+	for i: int in all_faces.size():
+		all_faces[i] = i
+	var xform: Transform3D = _target.global_transform
+	var scale: float = _target.auto_uv_scale
+	var offset: Vector2 = _target.auto_uv_offset
+	var seam_rot: float = _target.auto_uv_seam_rotation
+	_run_op(
+		action_name,
+		func():
+			for fi: int in all_faces:
+				var face: GoBuildFace = _target.go_build_mesh.faces[fi]
+				face.uv_projection_mode = mode
+				face.uv_scale = scale
+				face.uv_offset = offset
+				face.uv_seam_rotation = seam_rot
+			_uv_project_batch(mode, all_faces, scale, offset, seam_rot, xform),
+		false,
+	)
 
 
 ## Return the undo/redo action name for [param mode].

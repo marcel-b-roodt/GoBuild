@@ -1777,6 +1777,8 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 				popup.add_item("Extrude", 30)
 				popup.add_item("Inset", 31)
 				popup.add_item("Subdivide", 33)
+				if sel.get_selected_faces().size() >= 2:
+					popup.add_item("Merge Faces", 38)
 				popup.add_separator()
 				popup.add_item("Flip Normals", 32)
 				popup.add_separator()
@@ -1891,6 +1893,9 @@ func _on_context_menu_pressed(
 		33:  # Subdivide
 			if _panel != null:
 				_panel.trigger_subdivide()
+		38:  # Merge Faces
+			if _panel != null:
+				_panel.trigger_merge_faces()
 		24:  # Hard edge
 			if _panel != null:
 				_panel.trigger_hard_edge()

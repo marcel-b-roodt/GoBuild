@@ -61,11 +61,12 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 			visited[fi] = true
 			group.append(fi)
 			# Find adjacent selected faces via shared edges.
-			for edge_idx: int in _face_edge_indices(mesh, fi):
+			var edge_indices: Array[int] = mesh.edges_of_face(fi)
+			for edge_idx: int in edge_indices:
 				if edge_idx < 0 or edge_idx >= mesh.edges.size():
 					continue
 				var edge: GoBuildEdge = mesh.edges[edge_idx]
-				for other_fi: int in _faces_of_edge(mesh, edge_idx):
+				for other_fi: int in edge.face_indices:
 					if selected_set.has(other_fi) and not visited.has(other_fi):
 						queue.append(other_fi)
 		if group.size() >= 2:
@@ -80,34 +81,26 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 
 	for group: Array[int] in groups:
 		# Collect all edges of all faces in the group.
-		# An edge is "interior" if both its faces are in the group.
-		# An edge is "boundary" if only one of its faces is in the group.
+		# An edge is "interior" if ALL its faces are in the group.
+		# An edge is "boundary" if any face is NOT in the group.
 		var interior_edge_set: Dictionary = {}
 		var boundary_edge_set: Dictionary = {}
 		for fi: int in group:
 			faces_to_remove[fi] = true
-			for edge_idx: int in _face_edge_indices(mesh, fi):
+			var edge_indices: Array[int] = mesh.edges_of_face(fi)
+			for edge_idx: int in edge_indices:
 				if edge_idx < 0 or edge_idx >= mesh.edges.size():
 					continue
 				if interior_edge_set.has(edge_idx):
 					continue
-				if boundary_edge_set.has(edge_idx):
-					# This edge appeared as boundary from one face, now it's
-					# shared by two faces in the group — it's interior.
-					boundary_edge_set.erase(edge_idx)
-					interior_edge_set[edge_idx] = true
-					continue
-				# Check if the other face of this edge is also in the group.
-				var both_in_group: bool = true
-				var edge_faces: Array[int] = _faces_of_edge(mesh, edge_idx)
-				if edge_faces.size() < 2:
-					both_in_group = false
-				else:
-					for ef: int in edge_faces:
-						if not selected_set.has(ef):
-							both_in_group = false
-							break
-				if both_in_group:
+				# Check if ALL faces of this edge are in the group.
+				var edge: GoBuildEdge = mesh.edges[edge_idx]
+				var all_in_group: bool = true
+				for ef: int in edge.face_indices:
+					if not selected_set.has(ef):
+						all_in_group = false
+						break
+				if all_in_group:
 					interior_edge_set[edge_idx] = true
 				else:
 					boundary_edge_set[edge_idx] = true
@@ -130,7 +123,7 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 
 		# Walk the boundary edges starting from an arbitrary edge.
 		var first_edge_idx: int = boundary_edge_set.keys()[0]
-		var ring: Array[int] = []  # vertex indices forming the boundary ring
+		var ring: Array[int] = []
 		var current_edge_idx: int = first_edge_idx
 		var current_vert: int = mesh.edges[current_edge_idx].vertex_a
 		var start_vert: int = current_vert
@@ -140,8 +133,7 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 		while max_iter > 0:
 			max_iter -= 1
 			ring.append(current_vert)
-			# Find the next boundary edge that is NOT the one we came from
-			# and starts from current_vert.
+			# Find the next boundary edge from current_vert that isn't the one we came from.
 			var next_edge_idx: int = -1
 			var edges_from_vert = vert_to_boundary_edges.get(current_vert, [])
 			for eidx: int in edges_from_vert:
@@ -167,7 +159,9 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 
 		# Create a merged face from the boundary ring.
 		var merged_face: GoBuildFace = GoBuildFace.new()
-		merged_face.vertex_indices = ring
+		merged_face.vertex_indices = []
+		for vi: int in ring:
+			merged_face.vertex_indices.append(vi)
 		# Inherit material_index and smooth_group from the first face in the group.
 		var first_face: GoBuildFace = mesh.faces[group[0]]
 		merged_face.material_index = first_face.material_index
@@ -201,40 +195,3 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 		mesh.faces.append(f)
 
 	mesh.rebuild_edges()
-
-
-## Return the edge indices associated with a face.
-static func _face_edge_indices(mesh: GoBuildMesh, face_idx: int) -> Array[int]:
-	var result: Array[int] = []
-	if mesh._face_to_edges.is_empty():
-		return result
-	if face_idx >= mesh._face_to_edges.size():
-		return result
-	var edges: Array[int] = mesh._face_to_edges[face_idx]
-	result.assign(edges)
-	return result
-
-
-## Return the face indices of both faces sharing an edge.
-static func _faces_of_edge(mesh: GoBuildMesh, edge_idx: int) -> Array[int]:
-	var result: Array[int] = []
-	if edge_idx < 0 or edge_idx >= mesh.edges.size():
-		return result
-	# Use the adjacency cache if available.
-	if not mesh._face_to_edges.is_empty():
-		for fi: int in mesh.faces.size():
-			if mesh._face_to_edges[fi].has(edge_idx):
-				result.append(fi)
-		return result
-	# Fallback: scan face vertex pairs.
-	var edge: GoBuildEdge = mesh.edges[edge_idx]
-	for fi: int in mesh.faces.size():
-		var face: GoBuildFace = mesh.faces[fi]
-		for j: int in face.vertex_indices.size():
-			var v0: int = face.vertex_indices[j]
-			var v1: int = face.vertex_indices[(j + 1) % face.vertex_indices.size()]
-			if (v0 == edge.vertex_a and v1 == edge.vertex_b) \
-					or (v0 == edge.vertex_b and v1 == edge.vertex_a):
-				result.append(fi)
-				break
-	return result

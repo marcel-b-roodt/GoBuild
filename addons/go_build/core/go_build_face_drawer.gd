@@ -107,6 +107,11 @@ func trigger_flip_normals() -> void:
 	_on_flip_normals_pressed()
 
 
+## Equivalent to pressing the Merge Faces button.
+func trigger_merge_faces() -> void:
+	_on_merge_pressed()
+
+
 # ---------------------------------------------------------------------------
 # Conditions
 # ---------------------------------------------------------------------------
