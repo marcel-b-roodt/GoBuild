@@ -319,12 +319,13 @@ func trigger_rip() -> void:
 			if _edge_drawer != null:
 				_edge_drawer.trigger_rip()
 
-	func trigger_subdivide() -> void:
-		if _face_drawer != null: _face_drawer.trigger_subdivide()
+
+func trigger_subdivide() -> void:
+	if _face_drawer != null: _face_drawer.trigger_subdivide()
 
 
-	func trigger_merge_faces() -> void:
-		if _face_drawer != null: _face_drawer.trigger_merge_faces()
+func trigger_merge_faces() -> void:
+	if _face_drawer != null: _face_drawer.trigger_merge_faces()
 
 func trigger_inset() -> void:
 	if _face_drawer != null: _face_drawer.trigger_inset()
