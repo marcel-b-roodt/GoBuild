@@ -5,6 +5,11 @@
 ## group (interior edges are dissolved).  UVs, smooth groups, and material
 ## indices are inherited from the first face in each group.
 ##
+## The boundary ring is walked in winding-consistent order: after building the
+## ring, its Newell normal is compared to the average outward normal of the
+## constituent faces.  If they point in opposite directions, the ring is
+## reversed so that the merged face has the correct CCW winding (outward normal).
+##
 ## Faces that are not adjacent to any other selected face are left unchanged.
 ##
 ## The operation is pure data — it does not bake or trigger any side-effects.
@@ -26,8 +31,10 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 ## are left unchanged.
 ##
 ## After merging:
-## - Interior edges (shared by two selected faces) are removed.
+## - Interior edges (shared by two selected faces) are dissolved.
 ## - Boundary edges (shared with an unselected face or a mesh boundary) are kept.
+## - The merged face's winding order is corrected so its Newell normal matches
+##   the average outward normal of the original faces.
 ## - [method GoBuildMesh.rebuild_edges] is called at the end.
 static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 	if mesh == null or face_indices.size() < 2:
@@ -40,12 +47,10 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 	if valid.size() < 2:
 		return
 
-	# Build a set of selected face indices for fast lookup.
 	var selected_set: Dictionary = {}
 	for fi: int in valid:
 		selected_set[fi] = true
 
-	# Group selected faces by adjacency (BFS via shared edges).
 	var visited: Dictionary = {}
 	var groups: Array = []
 
@@ -60,7 +65,6 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 				continue
 			visited[fi] = true
 			group.append(fi)
-			# Find adjacent selected faces via shared edges.
 			var edge_indices: Array[int] = mesh.edges_of_face(fi)
 			for edge_idx: int in edge_indices:
 				if edge_idx < 0 or edge_idx >= mesh.edges.size():
@@ -75,14 +79,10 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 	if groups.is_empty():
 		return
 
-	# For each group, build the boundary vertex ring and create a merged face.
 	var faces_to_remove: Dictionary = {}
 	var new_faces: Array[GoBuildFace] = []
 
 	for group: Array[int] in groups:
-		# Collect all edges of all faces in the group.
-		# An edge is "interior" if ALL its faces are in the group.
-		# An edge is "boundary" if any face is NOT in the group.
 		var interior_edge_set: Dictionary = {}
 		var boundary_edge_set: Dictionary = {}
 		for fi: int in group:
@@ -93,7 +93,6 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 					continue
 				if interior_edge_set.has(edge_idx):
 					continue
-				# Check if ALL faces of this edge are in the group.
 				var edge: GoBuildEdge = mesh.edges[edge_idx]
 				var all_in_group: bool = true
 				for ef: int in edge.face_indices:
@@ -105,10 +104,16 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 				else:
 					boundary_edge_set[edge_idx] = true
 
-		# The boundary edges form the outer ring of the merged face.
-		# Walk them in order to produce a vertex ring.
 		if boundary_edge_set.is_empty():
 			continue
+
+		# Compute the average outward normal of the constituent faces.
+		# This is the reference direction that the merged face's normal must match.
+		var avg_normal := Vector3.ZERO
+		for fi: int in group:
+			avg_normal += mesh.compute_face_normal(mesh.faces[fi])
+		if avg_normal.length_squared() > 1e-8:
+			avg_normal = avg_normal.normalized()
 
 		# Build a mapping: vertex → list of boundary edges incident to it.
 		var vert_to_boundary_edges: Dictionary = {}
@@ -128,12 +133,10 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 		var current_vert: int = mesh.edges[current_edge_idx].vertex_a
 		var start_vert: int = current_vert
 
-		# Safety: limit iterations to avoid infinite loops.
 		var max_iter: int = boundary_edge_set.size() + 2
 		while max_iter > 0:
 			max_iter -= 1
 			ring.append(current_vert)
-			# Find the next boundary edge from current_vert that isn't the one we came from.
 			var next_edge_idx: int = -1
 			var edges_from_vert = vert_to_boundary_edges.get(current_vert, [])
 			for eidx: int in edges_from_vert:
@@ -157,17 +160,21 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 		if ring.size() < 3:
 			continue
 
-		# Create a merged face from the boundary ring.
+		# Fix winding: compute the Newell normal of the ring and compare it
+		# against the average outward normal of the original faces.  If the ring
+		# normal points inward (dot product < 0), reverse the ring so the merged
+		# face has CCW winding when viewed from outside.
+		var ring_normal := _compute_ring_normal(mesh, ring)
+		if ring_normal.dot(avg_normal) < 0.0:
+			ring.reverse()
+
 		var merged_face: GoBuildFace = GoBuildFace.new()
 		merged_face.vertex_indices = []
 		for vi: int in ring:
 			merged_face.vertex_indices.append(vi)
-		# Inherit material_index and smooth_group from the first face in the group.
 		var first_face: GoBuildFace = mesh.faces[group[0]]
 		merged_face.material_index = first_face.material_index
 		merged_face.smooth_group = first_face.smooth_group
-		# Compute UVs for the merged face using the first vertex's UV
-		# from the face that contains it.
 		var uv_map: Dictionary = {}
 		for fi: int in group:
 			var face: GoBuildFace = mesh.faces[fi]
@@ -182,7 +189,6 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 				merged_face.uvs.append(Vector2.ZERO)
 		new_faces.append(merged_face)
 
-	# Remove merged faces (in reverse order to preserve indices).
 	var remove_list: Array[int] = []
 	for fi: int in faces_to_remove:
 		remove_list.append(fi)
@@ -190,8 +196,22 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 	for i: int in range(remove_list.size() - 1, -1, -1):
 		mesh.faces.remove_at(remove_list[i])
 
-	# Append new merged faces.
 	for f: GoBuildFace in new_faces:
 		mesh.faces.append(f)
 
 	mesh.rebuild_edges()
+
+
+## Compute the Newell normal of a vertex ring (CCW from outside = outward).
+static func _compute_ring_normal(mesh: GoBuildMesh, ring: Array[int]) -> Vector3:
+	var n := Vector3.ZERO
+	var vc: int = ring.size()
+	for i in vc:
+		var cur: Vector3 = mesh.vertices[ring[i]]
+		var nxt: Vector3 = mesh.vertices[ring[(i + 1) % vc]]
+		n.x += (cur.y - nxt.y) * (cur.z + nxt.z)
+		n.y += (cur.z - nxt.z) * (cur.x + nxt.x)
+		n.z += (cur.x - nxt.x) * (cur.y + nxt.y)
+	if n.length_squared() < 1e-8:
+		return Vector3.UP
+	return n.normalized()

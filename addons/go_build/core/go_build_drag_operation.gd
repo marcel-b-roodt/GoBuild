@@ -167,7 +167,10 @@ static func create_for_gizmo_handle(
 	var use_basis: Basis = node.global_transform.basis
 	if transform_space == 1:  # TransformSpace.WORLD
 		use_basis = Basis()
-	if handle_id >= UNIFORM_SCALE_HANDLE_ID:
+	if not inset_centroids.is_empty():
+		op.delta_mode = DeltaMode.INSET
+		op.snap_step = snap_step_scale
+	elif handle_id >= UNIFORM_SCALE_HANDLE_ID:
 		op.delta_mode = DeltaMode.SCALE_UNIFORM
 	elif handle_id >= VIEW_PLANE_HANDLE_ID:
 		op.delta_mode = DeltaMode.VIEWPORT_PLANE_PROJECT
@@ -190,9 +193,6 @@ static func create_for_gizmo_handle(
 		op.world_axis = (use_basis * local_axis).normalized()
 		op.axis_index = axis_idx
 		op.snap_step = snap_step_rotate
-	elif not inset_centroids.is_empty():
-		op.delta_mode = DeltaMode.INSET
-		op.snap_step = snap_step_scale
 	else:
 		var axis_idx: int = handle_id - AXIS_HANDLE_OFFSET
 		op.delta_mode = DeltaMode.AXIS_PROJECT

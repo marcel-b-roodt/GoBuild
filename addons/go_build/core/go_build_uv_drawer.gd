@@ -96,7 +96,7 @@ func trigger_spherical_uv() -> void:
 # ---------------------------------------------------------------------------
 
 func _ready() -> void:
-	_setup_drawer("Face UV")
+	_setup_drawer("Face UV", true)
 
 	var grid := GridContainer.new()
 	grid.columns = 2

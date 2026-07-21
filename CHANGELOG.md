@@ -57,15 +57,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   duplicate material slots (same resource or both null) and removes empty slots,
   preventing slot proliferation from repeated face assignments
 - Merge faces — "Merge Faces" button in Face drawer dissolves interior edges of
-  adjacent selected faces, creating a single N-gon; works on any connected group
-- Merge faces — "Merge Faces" button in Face drawer dissolves interior edges of
   adjacent selected faces, creating a single N-gon; works on any connected group;
-  also available in right-click context menu (requires 2+ selected faces)
+  also available in right-click context menu (requires 2+ selected faces);
+  winding-corrected: ring normal is checked against the average face normal and
+  reversed if inward, preventing flipped normals
 - Multi-mode operations — UV projection and smooth group buttons now work in
   Object mode, applying to all faces; UV projections in Object mode are immediate
   commits (no param preview) since fine-tuning all-face projections is rare
 
 ### Changed
+- UV and Surface drawers now auto-open in Object mode (alongside Create Shape),
+  making Object mode operations discoverable without manual drawer expansion;
+  both drawers also default to open on initial panel load
 - Edge gizmo thickness reduced (selected ratio 0.6, unselected 0.4, down from 0.8/0.7)
 - Context edge colour (vertex/face mode) changed from grey (0.4) to dark grey (0.2)
   for a subtler wireframe look closer to Blender
@@ -73,6 +76,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   X-ray setting, preventing edges from drawing over vertex cubes
 - Edge ribbon materials use double-sided rendering (CULL_DISABLED) so prism quads
   are visible from both sides
+
+### Fixed
+- Inset drag (Shift + Scale gizmo) was broken since the unified drag pipeline
+  refactor — `GoBuildDragOperation.create_for_gizmo_handle` classified inset
+  drags as SCALE_AXIS because the handle-ID check came before the inset-centroids
+  check; moved inset-centroids check to the top of the elif chain
+- Merge faces could produce inward-facing normals when the boundary ring walk
+  happened to traverse the ring clockwise; now computes the Newell normal of the
+  ring and compares it to the average outward normal of the original faces, reversing
+  the ring if they disagree
 
 ## [0.8.0] — 2026-06-29
 

@@ -30,7 +30,7 @@ var _auto_smooth_btn:        Button  = null
 
 
 func _ready() -> void:
-	_setup_drawer("Surface")
+	_setup_drawer("Surface", true)
 
 	# ── Smooth Group row ─────────────────────────────────────────────────
 	var surface_grid := GridContainer.new()
