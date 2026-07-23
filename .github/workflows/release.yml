@@ -67,15 +67,23 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           ZIP_NAME="GoBuild-v${VERSION}.zip"
 
-          # Package only the addon contents + root docs
+          # Copy root-level docs into the addon folder so they are visible
+          # inside the addon directory when installed via the Asset Library.
+          # GitHub still renders the root copies; these are for the zip only.
+          cp README.md addons/go_build/README.md
+          cp CHANGELOG.md addons/go_build/CHANGELOG.md
+          cp LICENSE.md addons/go_build/LICENSE.md
+
+          # Package only the addon contents (docs are now inside addons/go_build/).
+          # Root-level copies are NOT included — they would duplicate the files.
           zip -r "$ZIP_NAME" \
             addons/go_build \
-            README.md \
-            CHANGELOG.md \
-            LICENSE.md \
             --exclude "*.import" \
             --exclude ".godot/*" \
             --exclude "*.uid"
+
+          # Clean up the copies so they don't end up in the working tree.
+          rm addons/go_build/README.md addons/go_build/CHANGELOG.md addons/go_build/LICENSE.md
 
           echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
         id: package
