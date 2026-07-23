@@ -19,6 +19,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [0.9.0] — 2026-07-23
+
 ### Added
 - UV Select Island — double-click a face in the UV canvas to flood-fill select all
   UV-connected faces in its island; Shift+double-click adds the island to the current
