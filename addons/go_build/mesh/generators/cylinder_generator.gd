@@ -121,6 +121,6 @@ static func generate(
 				]
 				mesh.faces.append(face)
 
-	WeldOperation.apply_weld_by_threshold(mesh)
+	mesh.finalize()
 	return mesh
 

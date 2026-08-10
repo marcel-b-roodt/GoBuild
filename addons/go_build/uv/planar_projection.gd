@@ -10,6 +10,7 @@ extends RefCounted
 # Self-preloads — dependency order:
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _UV_UTILS_SCRIPT := preload("res://addons/go_build/uv/uv_projection_utils.gd")
 
 
 ## Reproject [param face_indices] onto their dominant axis planes.
@@ -51,7 +52,7 @@ static func _apply_to_face(
 	var min_v: float = INF
 	for i: int in vc:
 		var point: Vector3 = mesh.vertices[face.vertex_indices[i]]
-		var uv: Vector2 = _project_point(point, normal)
+		var uv: Vector2 = UVProjectionUtils.project_to_dominant_axis(point, normal)
 		projected[i] = uv
 		min_u = minf(min_u, uv.x)
 		min_v = minf(min_v, uv.y)
@@ -63,18 +64,3 @@ static func _apply_to_face(
 			(uv.x - min_u) / units_per_tile,
 			(uv.y - min_v) / units_per_tile,
 		) + offset
-
-
-## Project [param point] into a canonical 2D basis chosen from the dominant
-## component of [param normal]. Sign flips keep opposite-facing sides from
-## mirroring unpredictably.
-static func _project_point(point: Vector3, normal: Vector3) -> Vector2:
-	var ax: float = absf(normal.x)
-	var ay: float = absf(normal.y)
-	var az: float = absf(normal.z)
-
-	if ay >= ax and ay >= az:
-		return Vector2(point.x, -point.z if normal.y >= 0.0 else point.z)
-	if ax >= ay and ax >= az:
-		return Vector2(point.z if normal.x >= 0.0 else -point.z, point.y)
-	return Vector2(point.x if normal.z >= 0.0 else -point.x, point.y)

@@ -33,18 +33,16 @@ const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh
 const VERTEX_PICK_RADIUS_PX: float = 12.0
 
 ## Half-size of the vertex cube widget in local mesh space.
-## MUST mirror [constant GoBuildGizmo.VERTEX_CUBE_HALF] — kept in sync by
-## convention.  Any change to the draw constant must be reflected here.
-const VERTEX_CUBE_HALF: float = 0.03
+## Centralised in [constant GoBuildConstants.VERTEX_CUBE_HALF].
+const VERTEX_CUBE_HALF: float = GoBuildConstants.VERTEX_CUBE_HALF
 
-## Gizmo scale factors — mirror [constant GoBuildGizmoPlugin.GIZMO_SCREEN_FACTOR]
-## and [constant GoBuildGizmoPlugin.GIZMO_ORTHO_SCALE].  Same sync rule applies.
-const _GIZMO_SCREEN_FACTOR: float = 0.25   # perspective cameras
-const _GIZMO_ORTHO_SCALE:   float = 0.10   # orthographic cameras
+## Gizmo scale factors — centralised in [GoBuildConstants].
+const _GIZMO_SCREEN_FACTOR: float = GoBuildConstants.GIZMO_SCREEN_FACTOR
+const _GIZMO_ORTHO_SCALE:   float = GoBuildConstants.GIZMO_ORTHO_SCALE
 
-## Ratio of selected edge ribbon half-width to vertex cube half-size.
-## MUST mirror [constant GoBuildGizmo._EDGE_SELECTED_RIBBON_RATIO].
-const _EDGE_RIBBON_RATIO: float = 0.6
+## Ratio of edge pick half-width to vertex cube half-size.
+## Centralised in [constant GoBuildConstants.EDGE_PICK_RIBBON_RATIO].
+const _EDGE_RIBBON_RATIO: float = GoBuildConstants.EDGE_PICK_RIBBON_RATIO
 
 ## Screen-space radius (px) fallback for headless / test contexts where
 ## no camera is available.

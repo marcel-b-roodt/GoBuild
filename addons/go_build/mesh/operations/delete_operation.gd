@@ -108,40 +108,4 @@ static func _delete_faces_by_set(mesh: GoBuildMesh, face_set: Dictionary) -> voi
 		if not face_set.has(fi):
 			new_faces.append(mesh.faces[fi])
 	mesh.faces = new_faces
-	_compact_vertices(mesh)
-
-
-## Remove unreferenced vertices and remap [member GoBuildFace.vertex_indices] accordingly.
-##
-## After faces are deleted, some vertices may no longer be referenced by any
-## remaining face. This method:
-##   1. Finds all vertex indices still referenced by [member GoBuildMesh.faces].
-##   2. Builds a remap table [code]old_vi → new_vi[/code].
-##   3. Rebuilds [member GoBuildMesh.vertices] with only the referenced vertices,
-##      preserving their relative order.
-##   4. Updates every [member GoBuildFace.vertex_indices] using the remap table.
-static func _compact_vertices(mesh: GoBuildMesh) -> void:
-	# Collect the set of vertex indices that are still referenced by a face.
-	var used: Dictionary = {}
-	for face: GoBuildFace in mesh.faces:
-		for vi: int in face.vertex_indices:
-			used[vi] = true
-
-	# Sort used indices so the new array preserves ascending relative order.
-	var old_indices: Array = used.keys()
-	old_indices.sort()
-
-	# Build the remap table and the new (compacted) vertex array.
-	var remap: Dictionary = {}
-	var new_verts: Array[Vector3] = []
-	for new_vi: int in old_indices.size():
-		var old_vi: int = old_indices[new_vi]
-		remap[old_vi] = new_vi
-		new_verts.append(mesh.vertices[old_vi])
-
-	# Apply the remap to every face.
-	for face: GoBuildFace in mesh.faces:
-		for k: int in face.vertex_indices.size():
-			face.vertex_indices[k] = remap[face.vertex_indices[k]]
-
-	mesh.vertices = new_verts
+	mesh.compact_vertices()

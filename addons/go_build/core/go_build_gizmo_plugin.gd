@@ -73,11 +73,11 @@ const SCALE_CUBE_HALF: float = 0.07
 const VIEW_PLANE_HALF: float = 0.07
 
 ## Scale factor for perspective cameras.
-## Calibrated so that the base sizes (ARROW_LENGTH = 0.8 etc.) look correct
-## at roughly 5 units from the gizmo centroid with the default 75° FOV.
-const GIZMO_SCREEN_FACTOR: float = 0.25
-## Scale factor for orthographic cameras (fraction of camera.size).
-const GIZMO_ORTHO_SCALE: float = 0.10
+## Centralised in [constant GoBuildConstants.GIZMO_SCREEN_FACTOR].
+const GIZMO_SCREEN_FACTOR: float = GoBuildConstants.GIZMO_SCREEN_FACTOR
+## Scale factor for orthographic cameras.
+## Centralised in [constant GoBuildConstants.GIZMO_ORTHO_SCALE].
+const GIZMO_ORTHO_SCALE: float = GoBuildConstants.GIZMO_ORTHO_SCALE
 
 # ── Colour palette ────────────────────────────────────────────────────────
 const COLOR_UNSELECTED  := Color(0.85, 0.85, 0.85, 1.0)

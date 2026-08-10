@@ -26,6 +26,7 @@ extends RefCounted
 # Self-preloads — dependency order:
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _UV_UTILS_SCRIPT := preload("res://addons/go_build/uv/uv_projection_utils.gd")
 
 
 ## Reproject [param face_indices] using spherical (equirectangular) mapping.
@@ -81,13 +82,7 @@ static func _apply_to_face(
 
 	# Seam correction: shift U by ±1 when a vertex is more than 0.5 away from
 	# vertex 0 so the face doesn't smear across the full texture width.
-	var u0: float = face.uvs[0].x
-	for i: int in range(1, vc):
-		var delta: float = face.uvs[i].x - u0
-		if delta > 0.5:
-			face.uvs[i] = Vector2(face.uvs[i].x - 1.0, face.uvs[i].y)
-		elif delta < -0.5:
-			face.uvs[i] = Vector2(face.uvs[i].x + 1.0, face.uvs[i].y)
+	UVProjectionUtils.correct_seam(face)
 
 	# Apply UV offset.
 	if offset != Vector2.ZERO:

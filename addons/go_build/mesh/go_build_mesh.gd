@@ -11,12 +11,13 @@ class_name GoBuildMesh
 extends Resource
 
 # Self-preloads — dependency order.
-# GoBuildFace and GoBuildEdge are referenced as type annotations throughout this
-# script (Array[GoBuildFace], Array[GoBuildEdge], func params, typed locals).
-# Without explicit preloads, Godot's alphabetical scan may parse this file before
-# those classes are registered, causing "Could not find script" errors.
+# GoBuildFace, GoBuildEdge, WeldOperation, and Triangulate are referenced as
+# type annotations (params, typed locals, Array[]). Without explicit preloads,
+# Godot's alphabetical scan may parse this file before those classes register,
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
+const _WELD_SCRIPT := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
+const _TRIANGULATE_SCRIPT := preload("res://addons/go_build/mesh/triangulate.gd")
 
 ## All vertex positions. Faces reference these by index.
 @export var vertices: Array[Vector3] = []
@@ -227,10 +228,9 @@ func build_vertex_position_buffers() -> Array[PackedByteArray]:
 			if face.material_index != mat_idx:
 				continue
 			var vc: int = face.vertex_indices.size()
-			# Fan triangulation in the same winding order as _build_surface.
-			for tri in range(vc - 2):
-				var local_idx: Array[int] = [0, tri + 2, tri + 1]
-				for li in local_idx:
+			var local_tris: Array = Triangulate.fan(vc)
+			for tri: Array in local_tris:
+				for li: int in tri:
 					verts.append(vertices[face.vertex_indices[li]])
 		result.append(verts.to_byte_array())
 
@@ -272,14 +272,13 @@ func _build_surface(
 		var vc: int = face.vertex_indices.size()
 
 		# Fan triangulation from vertex 0.
-		# Winding is reversed ([0, tri+2, tri+1]) so triangles are CW from
-		# outside, which is the front-facing convention in Godot 4's Vulkan
-		# renderer.  face.vertex_indices deliberately remains CCW-from-outside
-		# so that compute_face_normal() (Newell) returns the correct outward
-		# normal.
-		for tri in range(vc - 2):
-			var local_idx: Array[int] = [0, tri + 2, tri + 1]
-			for li in local_idx:
+		# Triangulate.fan returns CW-from-outside indices ([0, tri+2, tri+1])
+		# which is the front-facing convention in Godot 4's Vulkan renderer.
+		# face.vertex_indices deliberately remains CCW-from-outside so that
+		# compute_face_normal() (Newell) returns the correct outward normal.
+		var local_tris: Array = Triangulate.fan(vc)
+		for tri: Array in local_tris:
+			for li: int in tri:
 				var vi: int = face.vertex_indices[li]
 				verts.append(vertices[vi])
 
@@ -628,6 +627,66 @@ func face_neighbours_of(face_idx: int, vi: int) -> Array[int]:
 		return [-1, -1]
 	var vc: int = vis.size()
 	return [vis[(k - 1 + vc) % vc], vis[(k + 1) % vc]]
+
+
+## Remove unreferenced vertices and remap [member GoBuildFace.vertex_indices]
+## accordingly. After faces are deleted, some vertices may no longer be
+## referenced by any face. This method:
+##   1. Finds all vertex indices still referenced by [member faces].
+##   2. Builds a remap table [code]old_vi → new_vi[/code].
+##   3. Rebuilds [member vertices] with only the referenced vertices,
+##      preserving their relative order.
+##   4. Updates every [member GoBuildFace.vertex_indices] using the remap table.
+##
+## Returns the remap [Dictionary] mapping old vertex indices to new ones,
+## useful for callers that need to track where specific vertices moved.
+func compact_vertices() -> Dictionary:
+	var used: Dictionary = {}
+	for face: GoBuildFace in faces:
+		for vi: int in face.vertex_indices:
+			used[vi] = true
+
+	var old_indices: Array = used.keys()
+	old_indices.sort()
+
+	var remap: Dictionary = {}
+	var new_verts: Array[Vector3] = []
+	for new_vi: int in old_indices.size():
+		var old_vi: int = old_indices[new_vi]
+		remap[old_vi] = new_vi
+		new_verts.append(vertices[old_vi])
+
+	for face: GoBuildFace in faces:
+		for k: int in face.vertex_indices.size():
+			face.vertex_indices[k] = remap[face.vertex_indices[k]]
+
+	vertices = new_verts
+	return remap
+
+
+## Finalise the mesh after construction: weld coincident vertices and rebuild
+## the edge list.  All generators should call this (or
+## [code]WeldOperation.apply_weld_by_threshold[/code]) as the last step before
+## returning the mesh.  This is a convenience wrapper for the common pattern.
+func finalize() -> void:
+	WeldOperation.apply_weld_by_threshold(self)
+
+
+## Compute the Newell normal of a raw vertex index ring (CCW from outside =
+## outward). This is the same algorithm as [method compute_face_normal] but
+## accepts a raw [Array][int] of vertex indices instead of a [GoBuildFace].
+func compute_ring_normal(ring: Array[int]) -> Vector3:
+	var n := Vector3.ZERO
+	var vc: int = ring.size()
+	for i in vc:
+		var cur: Vector3 = vertices[ring[i]]
+		var nxt: Vector3 = vertices[ring[(i + 1) % vc]]
+		n.x += (cur.y - nxt.y) * (cur.z + nxt.z)
+		n.y += (cur.z - nxt.z) * (cur.x + nxt.x)
+		n.z += (cur.x - nxt.x) * (cur.y + nxt.y)
+	if n.length_squared() < 1e-8:
+		return Vector3.UP
+	return n.normalized()
 
 
 ## Return all distinct ring-neighbours of [param vi] across all faces that

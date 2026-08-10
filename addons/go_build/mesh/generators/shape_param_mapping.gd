@@ -42,6 +42,8 @@ static func build_params(
 			return _staircase_params(w, d, h, extra)
 		"Arch":
 			return _arch_params(w, d, h, extra)
+		"Polygon":
+			return _polygon_params(h, extra)
 		_:
 			return {"width": w, "height": h, "depth": d}
 
@@ -146,6 +148,13 @@ static func _arch_params(w: float, d: float, h: float, extra: Dictionary) -> Dic
 	return p
 
 
+static func _polygon_params(h: float, extra: Dictionary) -> Dictionary:
+	var p: Dictionary = {"height": h}
+	p["cap_bottom"] = bool(extra.get("cap_bottom", true))
+	p["cap_top"] = bool(extra.get("cap_top", true))
+	return p
+
+
 static func constrain_uniform(
 		shape_name: String,
 		drawn_width: float,
@@ -177,7 +186,15 @@ static func constrain_uniform(
 
 
 static func needs_height_step(shape_name: String) -> bool:
-	return shape_name != "Plane"
+	if shape_name == "Plane":
+		return false
+	if shape_name == "Polygon":
+		return true
+	return true
+
+
+static func needs_polygon_step(shape_name: String) -> bool:
+	return shape_name == "Polygon"
 
 
 static func is_radial(shape_name: String) -> bool:

@@ -16,6 +16,7 @@ const _CONE_SCRIPT := preload("res://addons/go_build/mesh/generators/cone_genera
 const _TORUS_SCRIPT := preload("res://addons/go_build/mesh/generators/torus_generator.gd")
 const _STAIR_SCRIPT := preload("res://addons/go_build/mesh/generators/staircase_generator.gd")
 const _ARCH_SCRIPT := preload("res://addons/go_build/mesh/generators/arch_generator.gd")
+const _POLYGON_SCRIPT := preload("res://addons/go_build/mesh/generators/polygon_generator.gd")
 
 
 ## All registered primitive shape names, in display order.
@@ -24,7 +25,7 @@ const _ARCH_SCRIPT := preload("res://addons/go_build/mesh/generators/arch_genera
 static func all_shapes() -> Array[String]:
 	return [
 		"Cube", "Plane", "Cylinder", "Sphere",
-		"Cone", "Torus", "Staircase", "Arch",
+		"Cone", "Torus", "Staircase", "Arch", "Polygon",
 	]
 
 
@@ -85,6 +86,8 @@ static func default_params(shape_name: String) -> Dictionary:
 				"segments": 8,
 				"depth": 0.2,
 			}
+		"Polygon":
+			return {"height": 1.0, "cap_bottom": true, "cap_top": true}
 		"Cube":
 			return {"width": 1.0, "height": 1.0, "depth": 1.0}
 		"Plane":
@@ -197,6 +200,8 @@ static func default_non_drawable_params(shape_name: String) -> Dictionary:
 			return {"steps": 4}
 		"Arch":
 			return {"angle_degrees": 180.0, "segments": 8, "thickness": 0.2}
+		"Polygon":
+			return {"cap_bottom": true, "cap_top": true}
 		_:
 			return {}
 
@@ -253,6 +258,11 @@ static func non_drawable_param_specs(shape_name: String) -> Array[Dictionary]:
 					"label": "Thickness", "min": 0.01, "max": 99.0, "step": 0.01,
 				},
 			]
+		"Polygon":
+			return [
+				{"type": "bool", "key": "cap_bottom", "label": "Cap Bottom"},
+				{"type": "bool", "key": "cap_top", "label": "Cap Top"},
+			]
 		_:
 			return []
 
@@ -296,6 +306,8 @@ static func normalise_params(shape_name: String, raw_params: Dictionary) -> Dict
 			p["angle_degrees"] = clampf(float(p.get("angle_degrees", 180.0)), 1.0, 360.0)
 			p["segments"] = maxi(int(p.get("segments", 8)), 1)
 			p["depth"] = maxf(float(p.get("depth", 0.2)), 0.01)
+		"Polygon":
+			p["height"] = maxf(float(p.get("height", 1.0)), 0.01)
 	return p
 
 
@@ -355,6 +367,16 @@ static func build_mesh(shape_name: String, params: Dictionary) -> GoBuildMesh:
 				float(p.get("angle_degrees", 180.0)),
 				int(p.get("segments", 8)),
 				float(p.get("depth", 0.2)),
+			)
+		"Polygon":
+			var poly_normal: Vector3 = p.get("override_normal", Vector3.ZERO) as Vector3
+			return PolygonGenerator.generate(
+				p.get("polygon_points", []) as Array[Vector3],
+				float(p.get("height", 1.0)),
+				bool(p.get("cap_bottom", true)),
+				bool(p.get("cap_top", true)),
+				0,
+				poly_normal,
 			)
 		_:
 			return CubeGenerator.generate()

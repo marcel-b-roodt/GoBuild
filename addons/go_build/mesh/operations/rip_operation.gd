@@ -203,7 +203,7 @@ static func apply_vertices(
 					face.vertex_indices[k] = remap[old_vi]
 
 	_remove_degenerate_faces(mesh)
-	var compact_remap: Dictionary = _compact_vertices(mesh)
+	var compact_remap: Dictionary = mesh.compact_vertices()
 	for i: int in new_vertex_indices.size():
 		new_vertex_indices[i] = compact_remap.get(new_vertex_indices[i], new_vertex_indices[i])
 	mesh.rebuild_edges()
@@ -369,29 +369,3 @@ static func _remove_degenerate_faces(mesh: GoBuildMesh) -> void:
 		if seen.size() >= 3:
 			new_faces.append(face)
 	mesh.faces = new_faces
-
-
-## Remove unreferenced vertices and remap face indices.
-## Returns a Dictionary mapping old vertex indices to new ones.
-static func _compact_vertices(mesh: GoBuildMesh) -> Dictionary:
-	var used: Dictionary = {}
-	for face: GoBuildFace in mesh.faces:
-		for vi: int in face.vertex_indices:
-			used[vi] = true
-
-	var old_indices: Array = used.keys()
-	old_indices.sort()
-
-	var remap: Dictionary = {}
-	var new_verts: Array[Vector3] = []
-	for new_vi: int in old_indices.size():
-		var old_vi: int = old_indices[new_vi]
-		remap[old_vi] = new_vi
-		new_verts.append(mesh.vertices[old_vi])
-
-	for face: GoBuildFace in mesh.faces:
-		for k: int in face.vertex_indices.size():
-			face.vertex_indices[k] = remap[face.vertex_indices[k]]
-
-	mesh.vertices = new_verts
-	return remap

@@ -84,10 +84,11 @@ const CONE_HEIGHT: float  = 0.18
 ##
 ## [b]Public[/b] so [PickingHelper] can derive a matching pick radius from the
 ## same value — both must stay in sync.
-const VERTEX_CUBE_HALF: float = 0.03
+## Centralised in [constant GoBuildConstants.VERTEX_CUBE_HALF].
+const VERTEX_CUBE_HALF: float = GoBuildConstants.VERTEX_CUBE_HALF
 ## Half-width ratio for selected-edge ribbons (relative to VERTEX_CUBE_HALF).
-## Selected edges are thicker than unselected ones for clear visual emphasis.
-const _EDGE_SELECTED_RIBBON_RATIO: float = 0.3
+## Centralised in [constant GoBuildConstants.EDGE_SELECTED_RIBBON_RATIO].
+const _EDGE_SELECTED_RIBBON_RATIO: float = GoBuildConstants.EDGE_SELECTED_RIBBON_RATIO
 ## Half-width ratio for unselected-edge ribbons (relative to VERTEX_CUBE_HALF).
 ## Unselected edges are drawn thinner so they're visible but subordinate.
 const _EDGE_UNSELECTED_RIBBON_RATIO: float = 0.13

@@ -164,7 +164,7 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 		# against the average outward normal of the original faces.  If the ring
 		# normal points inward (dot product < 0), reverse the ring so the merged
 		# face has CCW winding when viewed from outside.
-		var ring_normal := _compute_ring_normal(mesh, ring)
+		var ring_normal := mesh.compute_ring_normal(ring)
 		if ring_normal.dot(avg_normal) < 0.0:
 			ring.reverse()
 
@@ -202,16 +202,6 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 	mesh.rebuild_edges()
 
 
-## Compute the Newell normal of a vertex ring (CCW from outside = outward).
-static func _compute_ring_normal(mesh: GoBuildMesh, ring: Array[int]) -> Vector3:
-	var n := Vector3.ZERO
-	var vc: int = ring.size()
-	for i in vc:
-		var cur: Vector3 = mesh.vertices[ring[i]]
-		var nxt: Vector3 = mesh.vertices[ring[(i + 1) % vc]]
-		n.x += (cur.y - nxt.y) * (cur.z + nxt.z)
-		n.y += (cur.z - nxt.z) * (cur.x + nxt.x)
-		n.z += (cur.x - nxt.x) * (cur.y + nxt.y)
-	if n.length_squared() < 1e-8:
-		return Vector3.UP
-	return n.normalized()
+# ---------------------------------------------------------------------------
+# Public entry point — merge selected faces
+# ---------------------------------------------------------------------------

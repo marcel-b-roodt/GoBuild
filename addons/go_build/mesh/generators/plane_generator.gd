@@ -42,6 +42,6 @@ static func generate(
 		subdivisions_z + 1,
 		material_index)
 
-	WeldOperation.apply_weld_by_threshold(mesh)
+	mesh.finalize()
 	return mesh
 

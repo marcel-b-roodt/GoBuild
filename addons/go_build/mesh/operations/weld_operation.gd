@@ -143,7 +143,7 @@ static func _apply_remap_and_clean(mesh: GoBuildMesh, remap: Dictionary) -> void
 			new_faces.append(face)
 	mesh.faces = new_faces
 
-	_compact_vertices(mesh)
+	mesh.compact_vertices()
 	mesh.rebuild_edges()
 
 
@@ -153,31 +153,6 @@ static func _has_enough_distinct_verts(face: GoBuildFace) -> bool:
 	for vi: int in face.vertex_indices:
 		seen[vi] = true
 	return seen.size() >= 3
-
-
-## Remove unreferenced vertices and remap [member GoBuildFace.vertex_indices].
-## Identical to the compact step in DeleteOperation.
-static func _compact_vertices(mesh: GoBuildMesh) -> void:
-	var used: Dictionary = {}
-	for face: GoBuildFace in mesh.faces:
-		for vi: int in face.vertex_indices:
-			used[vi] = true
-
-	var old_indices: Array = used.keys()
-	old_indices.sort()
-
-	var remap: Dictionary = {}
-	var new_verts: Array[Vector3] = []
-	for new_vi: int in old_indices.size():
-		var old_vi: int = old_indices[new_vi]
-		remap[old_vi] = new_vi
-		new_verts.append(mesh.vertices[old_vi])
-
-	for face: GoBuildFace in mesh.faces:
-		for k: int in face.vertex_indices.size():
-			face.vertex_indices[k] = remap[face.vertex_indices[k]]
-
-	mesh.vertices = new_verts
 
 
 # ---------------------------------------------------------------------------

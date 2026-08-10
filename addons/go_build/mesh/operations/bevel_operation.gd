@@ -72,7 +72,7 @@ static func apply(
 	_update_faces(mesh, vertex_plan, width, caps_needed)
 	_add_bevel_strips(mesh, valid, vertex_plan, edge_hint_normals)
 	_add_endpoint_caps(mesh, caps_needed)
-	_compact_vertices(mesh)
+	mesh.compact_vertices()
 	mesh.rebuild_edges()
 
 
@@ -591,27 +591,3 @@ static func _plan_idx_not_toward(
 	var d1: float = mesh.vertices[e1.slide_nbr].distance_squared_to(
 			mesh.vertices[not_toward])
 	return e0.idx if d0 >= d1 else e1.idx
-
-
-## Remove every vertex not referenced by any face and remap face indices.
-static func _compact_vertices(mesh: GoBuildMesh) -> void:
-	var used: Dictionary = {}
-	for face: GoBuildFace in mesh.faces:
-		for vi: int in face.vertex_indices:
-			used[vi] = true
-
-	var old_indices: Array = used.keys()
-	old_indices.sort()
-
-	var remap: Dictionary = {}
-	var new_verts: Array[Vector3] = []
-	for new_vi: int in old_indices.size():
-		var old_vi: int = old_indices[new_vi]
-		remap[old_vi] = new_vi
-		new_verts.append(mesh.vertices[old_vi])
-
-	for face: GoBuildFace in mesh.faces:
-		for k: int in face.vertex_indices.size():
-			face.vertex_indices[k] = remap[face.vertex_indices[k]]
-
-	mesh.vertices = new_verts

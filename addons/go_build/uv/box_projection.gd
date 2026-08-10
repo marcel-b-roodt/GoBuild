@@ -17,6 +17,7 @@ extends RefCounted
 # Self-preloads — dependency order:
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _UV_UTILS_SCRIPT := preload("res://addons/go_build/uv/uv_projection_utils.gd")
 
 
 ## Reproject [param face_indices] using box (triplanar) mapping.
@@ -62,19 +63,4 @@ static func _apply_to_face(
 	face.uvs.resize(vc)
 	for i: int in vc:
 		var point: Vector3 = transform * mesh.vertices[face.vertex_indices[i]]
-		face.uvs[i] = _project_point(point, normal) / units_per_tile + offset
-
-
-## Project [param point] onto its dominant-axis plane using world-space
-## coordinates.  Sign conventions match [PlanarProjection._project_point]
-## so opposite-facing faces use consistent UV orientations.
-static func _project_point(point: Vector3, normal: Vector3) -> Vector2:
-	var ax: float = absf(normal.x)
-	var ay: float = absf(normal.y)
-	var az: float = absf(normal.z)
-
-	if ay >= ax and ay >= az:
-		return Vector2(point.x, -point.z if normal.y >= 0.0 else point.z)
-	if ax >= ay and ax >= az:
-		return Vector2(point.z if normal.x >= 0.0 else -point.z, point.y)
-	return Vector2(point.x if normal.z >= 0.0 else -point.x, point.y)
+		face.uvs[i] = UVProjectionUtils.project_to_dominant_axis(point, normal) / units_per_tile + offset

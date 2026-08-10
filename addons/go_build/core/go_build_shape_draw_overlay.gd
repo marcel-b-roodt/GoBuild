@@ -8,7 +8,7 @@
 class_name ShapeDrawOverlay
 extends RefCounted
 
-enum DrawState { IDLE, POSITION, BASE, HEIGHT }
+enum DrawState { IDLE, POSITION, BASE, HEIGHT, POLYGON }
 
 const _MAPPING_SCRIPT := \
 		preload("res://addons/go_build/mesh/generators/shape_param_mapping.gd")
@@ -33,6 +33,8 @@ static func state_label(
 		DrawState.HEIGHT:
 			var parts2: Array[String] = ["Set Height", "Shift: Uniform", "Ctrl: Snap"]
 			return "Create %s — %s" % [shape_name, " | ".join(parts2)]
+		DrawState.POLYGON:
+			return "Create %s — Click vertices, close loop or Enter to finish" % shape_name
 	return ""
 
 
@@ -45,6 +47,10 @@ static func dims_label(
 ) -> String:
 	if state == DrawState.IDLE or state == DrawState.POSITION:
 		return ""
+	if state == DrawState.POLYGON:
+		if drawn_height < 0.001:
+			return ""
+		return "H: %sm" % _fmt(drawn_height)
 	if drawn_width < 0.001 and drawn_depth < 0.001:
 		return ""
 	var w: float = drawn_width

@@ -1,10 +1,14 @@
 ## Interactive shape draw controller — 3-click primitive insertion.
 ##
-## Manages the [DrawState] finite state machine (IDLE → POSITION → BASE → HEIGHT
-## → commit), raycasts against the scene to find placement surfaces, spawns a
-## wireframe ghost that updates in real-time, applies grid snap, and finally
-## commits the shape via the canonical [code]insert_shape()[/code] path on
-## [GoBuildCreateDrawer].
+## Manages the [DrawState] finite state machine (IDLE → POSITION → BASE/POLYGON
+## → HEIGHT → commit), raycasts against the scene to find placement surfaces,
+## spawns a wireframe ghost that updates in real-time, applies grid snap, and
+## finally commits the shape via the canonical [code]insert_shape()[/code] path
+## on [GoBuildCreateDrawer].
+##
+## For polygon shapes, the flow is IDLE → POSITION → POLYGON → HEIGHT → commit.
+## During POLYGON state, each left-click adds a vertex; clicking near the first
+## vertex or pressing Enter closes the polygon and advances to HEIGHT.
 ##
 ## Owned by [GoBuildPlugin]; activated when the user clicks a shape button or
 ## uses the "Add Shape" context menu.
@@ -12,7 +16,7 @@
 class_name GoBuildShapeDrawController
 extends RefCounted
 
-enum DrawState { IDLE, POSITION, BASE, HEIGHT }
+enum DrawState { IDLE, POSITION, BASE, HEIGHT, POLYGON }
 
 enum ParentMode { CHILD, SIBLING, ROOT }
 
@@ -50,10 +54,13 @@ var _ghost: GoBuildMeshInstance = null
 var _ghost_edges: MeshInstance3D = null
 var _ghost_aabb: MeshInstance3D = null
 var _crosshair: MeshInstance3D = null
+var _polygon_vertex_markers: Array[MeshInstance3D] = []
 var _ghost_material: StandardMaterial3D = null
 var _ghost_edge_material: StandardMaterial3D = null
 var _crosshair_material: StandardMaterial3D = null
 var _ghost_aabb_material: StandardMaterial3D = null
+var _first_vertex_material: StandardMaterial3D = null
+var _vertex_material: StandardMaterial3D = null
 
 var _ghost_dirty: bool = false
 var _last_drawn_key: String = ""
@@ -72,6 +79,9 @@ var _drawn_depth: float = 0.0
 var _drawn_height: float = 0.0
 var _drag_dir_x: float = 1.0
 var _drag_dir_z: float = 1.0
+
+var _polygon_points: Array[Vector3] = []
+var _polygon_close_threshold: float = 0.3
 
 var _snap_step: float = -1.0
 var _last_camera: Camera3D = null
@@ -203,6 +213,7 @@ func start_at_position(
 func cancel() -> void:
 	_release_mouse_capture()
 	_remove_ghost()
+	_clear_polygon_vertex_markers()
 	_state = DrawState.IDLE
 	_shape_name = ""
 	_extra_params = {}
@@ -211,6 +222,7 @@ func cancel() -> void:
 	_drawn_height = 0.0
 	_drag_dir_x = 1.0
 	_drag_dir_z = 1.0
+	_polygon_points.clear()
 	_anchor_world = Vector3.ZERO
 	_hit_normal = Vector3.UP
 	_hit_parent = null
@@ -241,6 +253,10 @@ func handle_input(camera: Camera3D, event: InputEvent) -> int:
 		if key.keycode == KEY_ESCAPE and key.pressed and not key.echo:
 			cancel()
 			return 1
+		if key.keycode == KEY_ENTER and key.pressed and not key.echo:
+			if _state == DrawState.POLYGON and _polygon_points.size() >= 3:
+				_close_polygon_and_advance()
+				return 1
 	return 0
 
 
@@ -284,6 +300,8 @@ func _handle_mouse_motion(camera: Camera3D, event: InputEventMouseMotion) -> voi
 			_update_height(camera, screen_pos, Input.is_key_pressed(KEY_SHIFT),
 					Input.is_key_pressed(KEY_CTRL))
 			_ghost_dirty = true
+		DrawState.POLYGON:
+			_ghost_dirty = true
 
 
 func _handle_mouse_button(camera: Camera3D, event: InputEventMouseButton) -> bool:
@@ -297,14 +315,21 @@ func _handle_mouse_button(camera: Camera3D, event: InputEventMouseButton) -> boo
 			if event.pressed:
 				_anchor_world = _current_hit_pos(camera, event.position)
 				_update_placement(camera, event.position)
-				_state = DrawState.BASE
-				_drawn_width = 0.0
-				_drawn_depth = 0.0
-				_drawn_height = 0.0
-				_drag_dir_x = 1.0
-				_drag_dir_z = 1.0
-				_hide_ghost()
-				_capture_mouse(event.position)
+				if _MAPPING_SCRIPT.needs_polygon_step(_shape_name):
+					_state = DrawState.POLYGON
+					_polygon_points.clear()
+					_polygon_points.append(_anchor_world)
+					_drawn_height = 0.0
+					_hide_ghost()
+				else:
+					_state = DrawState.BASE
+					_drawn_width = 0.0
+					_drawn_depth = 0.0
+					_drawn_height = 0.0
+					_drag_dir_x = 1.0
+					_drag_dir_z = 1.0
+					_hide_ghost()
+					_capture_mouse(event.position)
 				return true
 		DrawState.BASE:
 			if not event.pressed:
@@ -317,11 +342,41 @@ func _handle_mouse_button(camera: Camera3D, event: InputEventMouseButton) -> boo
 				_last_topology_key = ""
 				_last_edge_count = -1
 				return true
+		DrawState.POLYGON:
+			if event.pressed:
+				var hit: Vector3 = _current_hit_pos(camera, event.position)
+				if _polygon_points.size() >= 3:
+					var dist: float = hit.distance_to(_polygon_points[0])
+					var screen_dist: float = camera.unproject_position(hit).distance_to(
+						camera.unproject_position(_polygon_points[0]))
+					if screen_dist < _polygon_close_threshold * 80.0:
+						_close_polygon_and_advance()
+						return true
+				_polygon_points.append(hit)
+				_ghost_dirty = true
+				return true
 		DrawState.HEIGHT:
 			if event.pressed:
 				_commit_shape()
 				return true
 	return false
+
+
+func _close_polygon_and_advance() -> void:
+	if _polygon_points.size() < 3:
+		return
+	# Set anchor to the centroid of the polygon for height projection.
+	var centroid: Vector3 = Vector3.ZERO
+	for p: Vector3 in _polygon_points:
+		centroid += p
+	centroid /= float(_polygon_points.size())
+	_anchor_world = centroid
+	_state = DrawState.HEIGHT
+	_drawn_height = 0.0
+	_last_drawn_key = ""
+	_last_topology_key = ""
+	_last_edge_count = -1
+	_capture_mouse(_last_screen_pos)
 
 
 func _capture_mouse(initial_pos: Vector2 = Vector2.ZERO) -> void:
@@ -454,7 +509,7 @@ func _update_height(
 		ctrl_held: bool,
 ) -> void:
 	var h: float = _project_height(camera, screen_pos)
-	if shift_held:
+	if not _MAPPING_SCRIPT.needs_polygon_step(_shape_name) and shift_held:
 		var m: float = maxf(_drawn_width, _drawn_depth)
 		h = m
 	if ctrl_held:
@@ -537,6 +592,14 @@ func _ensure_ghost_material() -> void:
 	_ghost_aabb_material.albedo_color = Color(1.0, 0.84, 0.0, 0.6)
 	_ghost_aabb_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_ghost_aabb_material.no_depth_test = true
+	_first_vertex_material = StandardMaterial3D.new()
+	_first_vertex_material.albedo_color = Color(0.2, 1.0, 0.4, 1.0)
+	_first_vertex_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_first_vertex_material.no_depth_test = true
+	_vertex_material = StandardMaterial3D.new()
+	_vertex_material.albedo_color = Color(0.55, 0.92, 1.0, 1.0)
+	_vertex_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_vertex_material.no_depth_test = true
 
 
 ## Call from the plugin's _process to flush pending ghost updates.
@@ -598,6 +661,12 @@ func _refresh_ghost() -> void:
 		return
 	if _state == DrawState.POSITION:
 		_update_crosshair()
+		return
+	if _state == DrawState.POLYGON:
+		_refresh_polygon_ghost()
+		return
+	if _MAPPING_SCRIPT.needs_polygon_step(_shape_name) and _state == DrawState.HEIGHT:
+		_refresh_polygon_height_ghost()
 		return
 	if _state == DrawState.BASE and _drawn_width < _MIN_DIM and _drawn_depth < _MIN_DIM:
 		_hide_ghost()
@@ -848,6 +917,7 @@ func _remove_ghost() -> void:
 			parent.remove_child(_crosshair)
 		_crosshair.queue_free()
 	_crosshair = null
+	_clear_polygon_vertex_markers()
 
 
 func _hide_ghost() -> void:
@@ -859,6 +929,160 @@ func _hide_ghost() -> void:
 		_ghost_aabb.visible = false
 	if _crosshair != null and is_instance_valid(_crosshair):
 		_crosshair.visible = false
+	for marker: MeshInstance3D in _polygon_vertex_markers:
+		if is_instance_valid(marker):
+			marker.visible = false
+
+
+# ---------------------------------------------------------------------------
+# Polygon ghost preview
+# ---------------------------------------------------------------------------
+
+func _refresh_polygon_ghost() -> void:
+	if _polygon_points.size() < 1:
+		_hide_ghost()
+		_clear_polygon_vertex_markers()
+		return
+	_ensure_ghost()
+	# Build edge lines: placed edges + preview edge to cursor + closing preview
+	var line_positions: PackedVector3Array = []
+	if _polygon_points.size() >= 2:
+		for i: int in _polygon_points.size() - 1:
+			line_positions.append(_polygon_points[i])
+			line_positions.append(_polygon_points[i + 1])
+		line_positions.append(_polygon_points[_polygon_points.size() - 1])
+		line_positions.append(_polygon_points[0])
+	# Preview: line from last vertex to cursor position
+	if _polygon_points.size() >= 1 and _last_camera != null:
+		var cursor_pos: Vector3 = _current_hit_pos(_last_camera, _last_screen_pos)
+		line_positions.append(_polygon_points[_polygon_points.size() - 1])
+		line_positions.append(cursor_pos)
+		# Preview closing line from cursor to first vertex (when ≥ 2 points placed)
+		if _polygon_points.size() >= 2:
+			line_positions.append(cursor_pos)
+			line_positions.append(_polygon_points[0])
+	if line_positions.size() > 0:
+		var line_arrays: Array = []
+		line_arrays.resize(Mesh.ARRAY_MAX)
+		line_arrays[Mesh.ARRAY_VERTEX] = line_positions
+		var line_mesh := ArrayMesh.new()
+		line_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, line_arrays)
+		if _ghost_edges == null or not is_instance_valid(_ghost_edges):
+			_ghost_edges = MeshInstance3D.new()
+			_ghost_edges.name = "DrawGhostEdges"
+			_ghost_edges.material_override = _ghost_edge_material
+			_ghost_edges.owner = null
+			_ghost_edges.visible = false
+			_scene_root.add_child(_ghost_edges, true)
+		_ghost_edges.mesh = line_mesh
+		_ghost_edges.global_position = Vector3.ZERO
+		_ghost_edges.visible = true
+	# Show vertex markers
+	_update_polygon_vertex_markers()
+	if _ghost != null and is_instance_valid(_ghost):
+		_ghost.visible = false
+	if _ghost_aabb != null and is_instance_valid(_ghost_aabb):
+		_ghost_aabb.visible = false
+
+
+func _update_polygon_vertex_markers() -> void:
+	_ensure_ghost_material()
+	# Remove excess markers
+	while _polygon_vertex_markers.size() > _polygon_points.size():
+		var marker: MeshInstance3D = _polygon_vertex_markers.pop_back()
+		if is_instance_valid(marker):
+			marker.get_parent().remove_child(marker)
+			marker.queue_free()
+	# Create or update markers
+	var s: float = 0.04
+	var first_s: float = 0.06
+	for i: int in _polygon_points.size():
+		var is_first: bool = (i == 0)
+		var size: float = first_s if is_first else s
+		if i >= _polygon_vertex_markers.size():
+			var box_mesh := ArrayMesh.new()
+			var positions := PackedVector3Array([
+				Vector3(-size, -size, -size), Vector3(size, -size, -size),
+				Vector3(size, size, -size), Vector3(-size, size, -size),
+				Vector3(-size, -size, size), Vector3(size, -size, size),
+				Vector3(size, size, size), Vector3(-size, size, size),
+			])
+			var indices := PackedInt32Array([
+				0,1,2, 0,2,3, 4,6,5, 4,7,6,
+				0,4,5, 0,5,1, 1,5,6, 1,6,2,
+				3,2,6, 3,6,7, 0,3,7, 0,7,4,
+			])
+			var arrays: Array = []
+			arrays.resize(Mesh.ARRAY_MAX)
+			arrays[Mesh.ARRAY_VERTEX] = positions
+			arrays[Mesh.ARRAY_INDEX] = indices
+			box_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+			var marker := MeshInstance3D.new()
+			marker.name = "PolygonVertex%d" % i
+			marker.mesh = box_mesh
+			marker.material_override = _first_vertex_material if is_first else _vertex_material
+			marker.owner = null
+			_scene_root.add_child(marker, true)
+			_polygon_vertex_markers.append(marker)
+		else:
+			var marker: MeshInstance3D = _polygon_vertex_markers[i]
+			if is_instance_valid(marker):
+				marker.material_override = _first_vertex_material if is_first else _vertex_material
+				marker.global_position = _polygon_points[i]
+				marker.visible = true
+
+
+func _clear_polygon_vertex_markers() -> void:
+	for marker: MeshInstance3D in _polygon_vertex_markers:
+		if is_instance_valid(marker):
+			marker.get_parent().remove_child(marker)
+			marker.queue_free()
+	_polygon_vertex_markers.clear()
+
+
+func get_polygon_points() -> Array[Vector3]:
+	return _polygon_points
+
+
+func _refresh_polygon_height_ghost() -> void:
+	if _polygon_points.size() < 3 or _drawn_height < _MIN_DIM:
+		_hide_ghost()
+		return
+	_ensure_ghost()
+	var params: Dictionary = {
+		"polygon_points": _polygon_points.duplicate(),
+		"height": _drawn_height,
+		"cap_bottom": _extra_params.get("cap_bottom", true),
+		"cap_top": _extra_params.get("cap_top", true),
+	}
+	params = _CATALOG_SCRIPT.normalise_params(_shape_name, params)
+	# Pass the surface normal so the extrusion goes away from the surface,
+	# not into it (critical for polygons drawn on slopes).
+	# For open-space placement, fall back to Vector3.UP.
+	var poly_normal: Vector3 = Vector3.UP
+	if _align_to_surface and not _surface_basis.is_equal_approx(Basis.IDENTITY):
+		poly_normal = _surface_basis.y
+	params["override_normal"] = poly_normal
+	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh(_shape_name, params)
+	if mesh == null:
+		_hide_ghost()
+		return
+	_ghost.go_build_mesh = mesh
+	_ghost.bake_in_place()
+	# Polygon geometry is in world space; node stays at origin.
+	_ghost.global_position = Vector3.ZERO
+	_ghost.global_basis = Basis.IDENTITY
+	_ghost.visible = true
+	_refresh_ghost_edges(mesh)
+	if _ghost_edges != null and is_instance_valid(_ghost_edges):
+		_ghost_edges.global_transform = _ghost.global_transform
+		_ghost_edges.visible = true
+	# Hide polygon vertex markers during height drag
+	for marker: MeshInstance3D in _polygon_vertex_markers:
+		if is_instance_valid(marker):
+			marker.visible = true
+	if _ghost_aabb != null and is_instance_valid(_ghost_aabb):
+		_ghost_aabb.visible = false
 
 
 # ---------------------------------------------------------------------------
@@ -869,15 +1093,31 @@ func _commit_shape() -> void:
 	if _shape_name.is_empty() or _plugin == null:
 		cancel()
 		return
-	if _drawn_width < _MIN_DIM and _drawn_depth < _MIN_DIM \
-			and _drawn_height < _MIN_DIM and _MAPPING_SCRIPT.needs_height_step(_shape_name):
-		cancel()
-		return
 	_release_mouse_capture()
-	var params: Dictionary = _MAPPING_SCRIPT.build_params(
-		_shape_name, _drawn_width, _drawn_depth, _drawn_height, _extra_params)
+	var params: Dictionary
+	var is_polygon: bool = _MAPPING_SCRIPT.needs_polygon_step(_shape_name)
+	if is_polygon:
+		if _polygon_points.size() < 3:
+			cancel()
+			return
+		params = _MAPPING_SCRIPT.build_params(
+			_shape_name, 0.0, 0.0, _drawn_height, _extra_params)
+		params["polygon_points"] = _polygon_points.duplicate()
+		# Pass the surface normal so the extrusion goes away from the surface.
+		# For open-space placement, fall back to Vector3.UP.
+		var poly_normal: Vector3 = Vector3.UP
+		if _align_to_surface and not _surface_basis.is_equal_approx(Basis.IDENTITY):
+			poly_normal = _surface_basis.y
+		params["override_normal"] = poly_normal
+	else:
+		if _drawn_width < _MIN_DIM and _drawn_depth < _MIN_DIM \
+				and _drawn_height < _MIN_DIM and _MAPPING_SCRIPT.needs_height_step(_shape_name):
+			cancel()
+			return
+		params = _MAPPING_SCRIPT.build_params(
+			_shape_name, _drawn_width, _drawn_depth, _drawn_height, _extra_params)
 	var ellipsoid_scale: Vector3 = Vector3.ONE
-	if _MAPPING_SCRIPT.needs_ellipsoid_scale(_shape_name):
+	if not is_polygon and _MAPPING_SCRIPT.needs_ellipsoid_scale(_shape_name):
 		ellipsoid_scale = _MAPPING_SCRIPT.ellipsoid_scale(params)
 		params = _MAPPING_SCRIPT.clean_drawn_params(params)
 	var node_name: String = _CATALOG_SCRIPT.node_name(_shape_name)
@@ -888,35 +1128,48 @@ func _commit_shape() -> void:
 	if scene_root == null:
 		cancel()
 		return
-	var aabb: AABB = node.go_build_mesh.compute_aabb()
-	var scaled_aabb: AABB = AABB(
-		aabb.position * ellipsoid_scale,
-		aabb.size * ellipsoid_scale)
-	var draw_offset: Vector3 = _compute_draw_offset(scaled_aabb)
-	var anchor: Vector3 = _anchor_world
-	var center_offset: Vector3 = _compute_center_offset(scaled_aabb)
-	var world_pos: Vector3 = anchor + draw_offset + center_offset
+	var world_pos: Vector3
 	var world_basis: Basis = _surface_basis
+	if is_polygon:
+		# Polygon points are already in world space; the mesh geometry
+		# is authored at those world positions. The node origin stays at
+		# zero so the vertex positions line up exactly with the preview.
+		world_pos = Vector3.ZERO
+		world_basis = Basis.IDENTITY
+	else:
+		var aabb: AABB = node.go_build_mesh.compute_aabb()
+		var scaled_aabb: AABB = AABB(
+			aabb.position * ellipsoid_scale,
+			aabb.size * ellipsoid_scale)
+		var draw_offset: Vector3 = _compute_draw_offset(scaled_aabb)
+		var anchor: Vector3 = _anchor_world
+		var center_offset: Vector3 = _compute_center_offset(scaled_aabb)
+		world_pos = anchor + draw_offset + center_offset
 	var parent: Node = scene_root
 	var local_pos: Vector3 = world_pos
 	var local_basis: Basis = world_basis
-	match _parent_mode:
-		ParentMode.CHILD:
-			if _hit_did_hit and _hit_parent != null and is_instance_valid(_hit_parent):
-				parent = _hit_parent
-				var inv: Transform3D = _hit_parent.global_transform.affine_inverse()
-				local_pos = inv * world_pos
-				local_basis = inv.basis * world_basis
-		ParentMode.SIBLING:
-			if _hit_did_hit and _hit_parent != null and is_instance_valid(_hit_parent):
-				var sibling_parent: Node = _hit_parent.get_parent()
-				if sibling_parent != null:
-					parent = sibling_parent
-					var inv: Transform3D = sibling_parent.global_transform.affine_inverse()
+	if is_polygon:
+		# Polygon geometry is in world space; always parent to scene root
+		# so the node's identity transform aligns with the world-space vertices.
+		pass
+	else:
+		match _parent_mode:
+			ParentMode.CHILD:
+				if _hit_did_hit and _hit_parent != null and is_instance_valid(_hit_parent):
+					parent = _hit_parent
+					var inv: Transform3D = _hit_parent.global_transform.affine_inverse()
 					local_pos = inv * world_pos
 					local_basis = inv.basis * world_basis
-		ParentMode.ROOT:
-			pass
+			ParentMode.SIBLING:
+				if _hit_did_hit and _hit_parent != null and is_instance_valid(_hit_parent):
+					var sibling_parent: Node = _hit_parent.get_parent()
+					if sibling_parent != null:
+						parent = sibling_parent
+						var inv: Transform3D = sibling_parent.global_transform.affine_inverse()
+						local_pos = inv * world_pos
+						local_basis = inv.basis * world_basis
+			ParentMode.ROOT:
+				pass
 	if not ellipsoid_scale.is_equal_approx(Vector3.ONE):
 		local_basis = local_basis * Basis.from_scale(ellipsoid_scale)
 	var default_mat: Material = load("res://addons/go_build/go_build_material.tres")

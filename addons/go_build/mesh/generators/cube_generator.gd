@@ -84,6 +84,6 @@ static func generate(
 		Vector3(-hw,  hh,  hd), Vector3(-hw,  hh, -hd),
 		s, s, material_index)
 
-	WeldOperation.apply_weld_by_threshold(mesh)
+	mesh.finalize()
 	return mesh
 

@@ -33,6 +33,9 @@ var _mode: Mode = Mode.OBJECT
 var _selected_vertices: Array[int] = []
 var _selected_edges:    Array[int] = []
 var _selected_faces:    Array[int] = []
+var _vertex_set: Dictionary = {}
+var _edge_set: Dictionary = {}
+var _face_set: Dictionary = {}
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +53,9 @@ func set_mode(new_mode: Mode) -> void:
 	_selected_vertices.clear()
 	_selected_edges.clear()
 	_selected_faces.clear()
+	_vertex_set.clear()
+	_edge_set.clear()
+	_face_set.clear()
 	mode_changed.emit(_mode)
 	selection_changed.emit()
 
@@ -65,24 +71,25 @@ func get_mode() -> Mode:
 
 ## Add [param index] to the vertex selection. No-op if already selected.
 func select_vertex(index: int) -> void:
-	if _selected_vertices.has(index):
+	if _vertex_set.has(index):
 		return
+	_vertex_set[index] = true
 	_selected_vertices.append(index)
 	selection_changed.emit()
 
 
 ## Remove [param index] from the vertex selection. No-op if not selected.
 func deselect_vertex(index: int) -> void:
-	var i: int = _selected_vertices.find(index)
-	if i == -1:
+	if not _vertex_set.has(index):
 		return
-	_selected_vertices.remove_at(i)
+	_vertex_set.erase(index)
+	_selected_vertices.remove_at(_selected_vertices.find(index))
 	selection_changed.emit()
 
 
 ## Toggle the vertex at [param index] in / out of the selection.
 func toggle_vertex(index: int) -> void:
-	if _selected_vertices.has(index):
+	if _vertex_set.has(index):
 		deselect_vertex(index)
 	else:
 		select_vertex(index)
@@ -90,7 +97,7 @@ func toggle_vertex(index: int) -> void:
 
 ## Returns [code]true[/code] if vertex [param index] is currently selected.
 func is_vertex_selected(index: int) -> bool:
-	return _selected_vertices.has(index)
+	return _vertex_set.has(index)
 
 
 ## Returns a copy of the selected vertex indices.
@@ -106,24 +113,25 @@ func get_selected_vertices() -> Array[int]:
 
 ## Add [param index] to the edge selection. No-op if already selected.
 func select_edge(index: int) -> void:
-	if _selected_edges.has(index):
+	if _edge_set.has(index):
 		return
+	_edge_set[index] = true
 	_selected_edges.append(index)
 	selection_changed.emit()
 
 
 ## Remove [param index] from the edge selection. No-op if not selected.
 func deselect_edge(index: int) -> void:
-	var i: int = _selected_edges.find(index)
-	if i == -1:
+	if not _edge_set.has(index):
 		return
-	_selected_edges.remove_at(i)
+	_edge_set.erase(index)
+	_selected_edges.remove_at(_selected_edges.find(index))
 	selection_changed.emit()
 
 
 ## Toggle the edge at [param index] in / out of the selection.
 func toggle_edge(index: int) -> void:
-	if _selected_edges.has(index):
+	if _edge_set.has(index):
 		deselect_edge(index)
 	else:
 		select_edge(index)
@@ -131,7 +139,7 @@ func toggle_edge(index: int) -> void:
 
 ## Returns [code]true[/code] if edge [param index] is currently selected.
 func is_edge_selected(index: int) -> bool:
-	return _selected_edges.has(index)
+	return _edge_set.has(index)
 
 
 ## Returns a copy of the selected edge indices.
@@ -147,24 +155,25 @@ func get_selected_edges() -> Array[int]:
 
 ## Add [param index] to the face selection. No-op if already selected.
 func select_face(index: int) -> void:
-	if _selected_faces.has(index):
+	if _face_set.has(index):
 		return
+	_face_set[index] = true
 	_selected_faces.append(index)
 	selection_changed.emit()
 
 
 ## Remove [param index] from the face selection. No-op if not selected.
 func deselect_face(index: int) -> void:
-	var i: int = _selected_faces.find(index)
-	if i == -1:
+	if not _face_set.has(index):
 		return
-	_selected_faces.remove_at(i)
+	_face_set.erase(index)
+	_selected_faces.remove_at(_selected_faces.find(index))
 	selection_changed.emit()
 
 
 ## Toggle the face at [param index] in / out of the selection.
 func toggle_face(index: int) -> void:
-	if _selected_faces.has(index):
+	if _face_set.has(index):
 		deselect_face(index)
 	else:
 		select_face(index)
@@ -172,7 +181,7 @@ func toggle_face(index: int) -> void:
 
 ## Returns [code]true[/code] if face [param index] is currently selected.
 func is_face_selected(index: int) -> bool:
-	return _selected_faces.has(index)
+	return _face_set.has(index)
 
 
 ## Returns a copy of the selected face indices.
@@ -191,6 +200,9 @@ func clear() -> void:
 	_selected_vertices.clear()
 	_selected_edges.clear()
 	_selected_faces.clear()
+	_vertex_set.clear()
+	_edge_set.clear()
+	_face_set.clear()
 	selection_changed.emit()
 
 
@@ -206,19 +218,28 @@ func is_empty() -> bool:
 ## Replace the current vertex selection with [param indices] (bulk assign).
 func set_selected_vertices(indices: Array[int]) -> void:
 	_selected_vertices.clear()
+	_vertex_set.clear()
 	_selected_vertices.assign(indices)
+	for vi: int in indices:
+		_vertex_set[vi] = true
 	selection_changed.emit()
 
 
 ## Replace the current edge selection with [param indices] (bulk assign).
 func set_selected_edges(indices: Array[int]) -> void:
 	_selected_edges.clear()
+	_edge_set.clear()
 	_selected_edges.assign(indices)
+	for ei: int in indices:
+		_edge_set[ei] = true
 	selection_changed.emit()
 
 
 ## Replace the current face selection with [param indices] (bulk assign).
 func set_selected_faces(indices: Array[int]) -> void:
 	_selected_faces.clear()
+	_face_set.clear()
 	_selected_faces.assign(indices)
+	for fi: int in indices:
+		_face_set[fi] = true
 	selection_changed.emit()
