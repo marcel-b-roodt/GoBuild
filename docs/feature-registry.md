@@ -37,7 +37,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Generator parameter preview (pre-commit) | ✅ Complete | Panel-native live preview + Accept/Cancel for Cylinder/Cone/Sphere/Staircase/Torus/Arch with configurable counts (sides/segments/steps/rings) and size params; defaults/schema/build dispatch moved into `ShapeCreationCatalog`; final commit inserts a normal node via undo/redo |
 | Shape placement at cursor | ✅ Complete | Right-click context menu "Add Shape" submenu in all modes; raycasts against GoBuild meshes for child placement with bottom-offset; Y-plane fallback for miss case; Create drawer places at viewport centre; preview shapes start positioned at cursor |
 | Interactive shape draw (3-click insertion) | ✅ Complete | 3-click viewport drawing: POSITION → BASE (drag width/depth) → HEIGHT (drag along normal); wireframe ghost; live dimension labels; Shift constrains to uniform; Ctrl snaps to grid; non-drawable structural params shown in compact panel strip; ellipsoid support for Sphere; bake_in_place for responsive preview |
-| Polygon draw tool | 🔧 In Progress | Draw arbitrary polygon outlines in the viewport; click to place vertices, close loop on first vertex or Enter; then drag height to extrude into a prism; first vertex highlighted with distinct gizmo colour; inherits existing create-shape pipeline; `PolygonGenerator` creates prism from arbitrary vertex list |
+| Polygon draw tool | ✅ Complete | Draw arbitrary convex/concave polygon outlines in the viewport; click to place vertices, close loop on first vertex or Enter; then drag height to extrude into a prism; first vertex highlighted green, rest cyan; inherits existing create-shape pipeline; `PolygonGenerator` creates prism from arbitrary vertex list; ear-clip triangulation for concave caps; `Triangulate` utility with `fan()` and `ear_clip()` extracted as reusable helpers; node positioned at centroid of drawn points |
 
 ---
 
@@ -196,6 +196,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | GitHub Actions CI | ✅ Complete | `ci.yml` — GdUnit4 headless on push/PR |
 | GitHub Actions release workflow | ✅ Complete | `release.yml` — tag `vX.Y.Z` → draft GitHub Release |
 | Code deduplication pass 1 | ✅ Complete | `_compact_vertices` extracted to `GoBuildMesh.compact_vertices()` (was duplicated in weld, delete, bevel, rip operations); `compute_ring_normal` added to `GoBuildMesh` (was duplicated in `MergeFacesOperation`); both return remap dict for callers that need it |
+| Code deduplication pass 2 | ✅ Complete | `UVProjectionUtils` (project_to_dominant_axis, correct_seam) extracted from planar/box/cylindrical/spherical projections; `UvTopology` (build_uv_vertex_map, uv_key) extracted from uv_island_select and uv_pack_islands; `GoBuildConstants` centralises gizmo/picking constants; `SelectionManager` O(1) Dictionary membership; `GoBuildMesh.finalize()` convenience wrapper; `Triangulate` utility with `fan()` and `ear_clip()` extracted from bake pipeline and polygon generator |
 | Godot Asset Library listing | 📋 Planned | Submitted at v1.0 |
 | Documentation site | 📋 Planned | GitHub Pages or similar |
 
