@@ -22,6 +22,12 @@ const _TRIANGULATE_SCRIPT := preload("res://addons/go_build/mesh/triangulate.gd"
 ## All vertex positions. Faces reference these by index.
 @export var vertices: Array[Vector3] = []
 
+## Per-vertex colours. Parallel to [member vertices] — same size.
+## Default is white [code](1, 1, 1, 1)[/code] meaning no tinting.
+## When non-empty and [code]size() == vertices.size()[/code], the bake pipeline
+## emits an [code]ARRAY_COLOR[/code] channel in the [ArrayMesh].
+@export var vertex_colors: Array[Color] = []
+
 ## All faces. Each [GoBuildFace] references vertex positions by index.
 @export var faces: Array[GoBuildFace] = []
 
@@ -262,6 +268,8 @@ func _build_surface(
 	var norms  := PackedVector3Array()
 	var uvs_p  := PackedVector2Array()
 	var uv2s_p := PackedVector2Array()
+	var colors_p := PackedColorArray()
+	var has_colors: bool = vertex_colors.size() == vertices.size()
 
 	for fi in faces.size():
 		var face: GoBuildFace = faces[fi]
@@ -297,6 +305,10 @@ func _build_surface(
 				# UV1 (lightmap) — default Vector2.ZERO if not set.
 				uv2s_p.append(face.uv2s[li] if li < face.uv2s.size() else Vector2.ZERO)
 
+				# Vertex colour — white if not set.
+				if has_colors:
+					colors_p.append(vertex_colors[vi])
+
 	if verts.is_empty():
 		return []
 
@@ -304,8 +316,10 @@ func _build_surface(
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX]   = verts
 	arrays[Mesh.ARRAY_NORMAL]   = norms
-	arrays[Mesh.ARRAY_TEX_UV]   = uvs_p
-	arrays[Mesh.ARRAY_TEX_UV2]  = uv2s_p
+	arrays[Mesh.ARRAY_TEX_UV]  = uvs_p
+	arrays[Mesh.ARRAY_TEX_UV2] = uv2s_p
+	if has_colors:
+		arrays[Mesh.ARRAY_COLOR] = colors_p
 	return arrays
 
 
@@ -651,24 +665,37 @@ func compact_vertices() -> Dictionary:
 
 	var remap: Dictionary = {}
 	var new_verts: Array[Vector3] = []
+	var new_colors: Array[Color] = []
+	var has_colors: bool = vertex_colors.size() == vertices.size()
 	for new_vi: int in old_indices.size():
 		var old_vi: int = old_indices[new_vi]
 		remap[old_vi] = new_vi
 		new_verts.append(vertices[old_vi])
+		if has_colors:
+			new_colors.append(vertex_colors[old_vi])
 
 	for face: GoBuildFace in faces:
 		for k: int in face.vertex_indices.size():
 			face.vertex_indices[k] = remap[face.vertex_indices[k]]
 
 	vertices = new_verts
+	if has_colors:
+		vertex_colors = new_colors
+	else:
+		vertex_colors.clear()
 	return remap
 
 
-## Finalise the mesh after construction: weld coincident vertices and rebuild
-## the edge list.  All generators should call this (or
-## [code]WeldOperation.apply_weld_by_threshold[/code]) as the last step before
-## returning the mesh.  This is a convenience wrapper for the common pattern.
+## Finalise the mesh after construction: fill default vertex colours if empty,
+## weld coincident vertices, and rebuild the edge list.  All generators should
+## call this (or [code]WeldOperation.apply_weld_by_threshold[/code]) as the last
+## step before returning the mesh.  This is a convenience wrapper.
 func finalize() -> void:
+	# ponytail: ensure vertex_colors is populated before weld merges vertices,
+	# otherwise weld can't average colours of merged groups.
+	if vertex_colors.is_empty() and not vertices.is_empty():
+		vertex_colors.resize(vertices.size())
+		vertex_colors.fill(Color.WHITE)
 	WeldOperation.apply_weld_by_threshold(self)
 
 
@@ -763,11 +790,15 @@ func take_snapshot() -> Dictionary:
 	var pairs_copy: Array[Vector2i] = []
 	pairs_copy.assign(hard_edge_pairs)
 
+	var colors_copy: Array[Color] = []
+	colors_copy.assign(vertex_colors)
+
 	return {
 		"vertices": verts_copy,
 		"faces": faces_copy,
 		"material_slots": slots_copy,
 		"hard_edge_pairs": pairs_copy,
+		"vertex_colors": colors_copy,
 	}
 
 
@@ -794,5 +825,9 @@ func restore_snapshot(snapshot: Dictionary) -> void:
 		fresh_faces.append(nf)
 	faces.assign(fresh_faces)
 	material_slots.assign(snapshot["material_slots"])
+	if snapshot.has("vertex_colors"):
+		vertex_colors.assign(snapshot["vertex_colors"])
+	else:
+		vertex_colors.clear()
 	rebuild_edges()
 

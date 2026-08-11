@@ -92,6 +92,8 @@ static func apply_weld_by_threshold(mesh: GoBuildMesh, threshold: float = 0.0001
 		(groups[root] as Array).append(i)
 
 	# For groups larger than 1: move canonical to centroid, build remap.
+	# Also average vertex colours if present.
+	var has_colors: bool = mesh.vertex_colors.size() == mesh.vertices.size()
 	var remap: Dictionary = {}
 	for root: int in groups:
 		var members: Array = groups[root]
@@ -106,6 +108,11 @@ static func apply_weld_by_threshold(mesh: GoBuildMesh, threshold: float = 0.0001
 			centroid += mesh.vertices[vi]
 		centroid /= float(sorted_m.size())
 		mesh.vertices[canonical] = centroid
+		if has_colors:
+			var avg_color := Color.TRANSPARENT
+			for vi: int in sorted_m:
+				avg_color += mesh.vertex_colors[vi]
+			mesh.vertex_colors[canonical] = avg_color / float(sorted_m.size())
 		for i: int in range(1, sorted_m.size()):
 			remap[sorted_m[i]] = canonical
 

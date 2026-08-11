@@ -1069,8 +1069,8 @@ func _refresh_polygon_height_ghost() -> void:
 		return
 	_ghost.go_build_mesh = mesh
 	_ghost.bake_in_place()
-	# Polygon geometry is in world space; node stays at origin.
-	_ghost.global_position = Vector3.ZERO
+	# Polygon mesh is centered at origin; position the ghost at the centroid.
+	_ghost.global_position = _anchor_world
 	_ghost.global_basis = Basis.IDENTITY
 	_ghost.visible = true
 	_refresh_ghost_edges(mesh)
@@ -1131,10 +1131,9 @@ func _commit_shape() -> void:
 	var world_pos: Vector3
 	var world_basis: Basis = _surface_basis
 	if is_polygon:
-		# Polygon points are already in world space; the mesh geometry
-		# is authored at those world positions. The node origin stays at
-		# zero so the vertex positions line up exactly with the preview.
-		world_pos = Vector3.ZERO
+		# Polygon mesh is centered at origin; position the node at the
+		# centroid of the drawn points (already computed in the mesh AABB).
+		world_pos = _anchor_world
 		world_basis = Basis.IDENTITY
 	else:
 		var aabb: AABB = node.go_build_mesh.compute_aabb()
@@ -1148,28 +1147,23 @@ func _commit_shape() -> void:
 	var parent: Node = scene_root
 	var local_pos: Vector3 = world_pos
 	var local_basis: Basis = world_basis
-	if is_polygon:
-		# Polygon geometry is in world space; always parent to scene root
-		# so the node's identity transform aligns with the world-space vertices.
-		pass
-	else:
-		match _parent_mode:
-			ParentMode.CHILD:
-				if _hit_did_hit and _hit_parent != null and is_instance_valid(_hit_parent):
-					parent = _hit_parent
-					var inv: Transform3D = _hit_parent.global_transform.affine_inverse()
+	match _parent_mode:
+		ParentMode.CHILD:
+			if _hit_did_hit and _hit_parent != null and is_instance_valid(_hit_parent):
+				parent = _hit_parent
+				var inv: Transform3D = _hit_parent.global_transform.affine_inverse()
+				local_pos = inv * world_pos
+				local_basis = inv.basis * world_basis
+		ParentMode.SIBLING:
+			if _hit_did_hit and _hit_parent != null and is_instance_valid(_hit_parent):
+				var sibling_parent: Node = _hit_parent.get_parent()
+				if sibling_parent != null:
+					parent = sibling_parent
+					var inv: Transform3D = sibling_parent.global_transform.affine_inverse()
 					local_pos = inv * world_pos
 					local_basis = inv.basis * world_basis
-			ParentMode.SIBLING:
-				if _hit_did_hit and _hit_parent != null and is_instance_valid(_hit_parent):
-					var sibling_parent: Node = _hit_parent.get_parent()
-					if sibling_parent != null:
-						parent = sibling_parent
-						var inv: Transform3D = sibling_parent.global_transform.affine_inverse()
-						local_pos = inv * world_pos
-						local_basis = inv.basis * world_basis
-			ParentMode.ROOT:
-				pass
+		ParentMode.ROOT:
+			pass
 	if not ellipsoid_scale.is_equal_approx(Vector3.ONE):
 		local_basis = local_basis * Basis.from_scale(ellipsoid_scale)
 	var default_mat: Material = load("res://addons/go_build/go_build_material.tres")

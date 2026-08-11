@@ -74,13 +74,19 @@ static func generate(
 
 	var offset: Vector3 = normal * height
 
+	# ── Compute centroid for local-space centering ─────────────────────────
+	var centroid: Vector3 = Vector3.ZERO
+	for p: Vector3 in points:
+		centroid += p
+	centroid /= float(n)
+
 	# ── Base vertices (indices 0 .. n-1) ──────────────────────────────────
 	for p: Vector3 in points:
-		mesh.vertices.append(p)
+		mesh.vertices.append(p - centroid)
 
 	# ── Top-ring vertices (indices n .. 2n-1) ─────────────────────────────
 	for p: Vector3 in points:
-		mesh.vertices.append(p + offset)
+		mesh.vertices.append(p - centroid + offset)
 
 	# ── Side faces ────────────────────────────────────────────────────────
 	# Winding [bottom_a, bottom_b, top_b, top_a] is CCW from outside.
