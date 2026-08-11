@@ -28,6 +28,8 @@ const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizm
 const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
 const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_panel.gd")
 const _UV_PANEL_SCRIPT      := preload("res://addons/go_build/uv/go_build_uv_panel.gd")
+const _VC_PAINTER_SCRIPT   := preload(
+		"res://addons/go_build/vertex_paint/go_build_vertex_painter.gd")
 const _CONTROLLER_SCRIPT    := preload(
 		"res://addons/go_build/core/selection_input_controller.gd")
 const _TOOL_PINNER_SCRIPT   := preload(
@@ -78,6 +80,7 @@ const _TRANSFORM_SPACE_LABELS: Array[String] = ["Local", "World"]
 var _panel: GoBuildPanel                         = null
 var _panel_scroll: ScrollContainer               = null
 var _uv_panel: GoBuildUvPanel                    = null
+var _vc_painter: GoBuildVertexPainter            = null
 var _project_settings: GoBuildProjectSettings    = null
 var _edited_node: GoBuildMeshInstance            = null
 var _gizmo_plugin: GoBuildGizmoPlugin            = null
@@ -169,6 +172,11 @@ func _enter_tree() -> void:
 	add_control_to_dock(DOCK_SLOT_BOTTOM, _uv_panel)
 	_uv_panel.set_plugin(self)
 	_panel.set_uv_panel(_uv_panel)
+
+	_vc_painter = _VC_PAINTER_SCRIPT.new()
+	_vc_painter.name = "GoBuild Vertex Paint"
+	add_control_to_dock(DOCK_SLOT_RIGHT_BL, _vc_painter)
+	_vc_painter.set_plugin(self)
 
 	_gizmo_plugin = _GIZMO_PLUGIN_SCRIPT.new()
 	_gizmo_plugin.setup(self)
@@ -336,6 +344,11 @@ func _exit_tree() -> void:
 		_uv_panel.queue_free()
 		_uv_panel = null
 
+	if _vc_painter:
+		remove_control_from_docks(_vc_painter)
+		_vc_painter.queue_free()
+		_vc_painter = null
+
 	_project_settings = null
 	_disconnect_node_signals()
 	_cleanup_drag_state()
@@ -365,11 +378,15 @@ func _reset_panel_layout() -> void:
 		remove_control_from_docks(_panel_scroll)
 	if _uv_panel != null and is_instance_valid(_uv_panel):
 		remove_control_from_docks(_uv_panel)
+	if _vc_painter != null and is_instance_valid(_vc_painter):
+		remove_control_from_docks(_vc_painter)
 	# Re-add to default slots.
 	if _panel_scroll != null and is_instance_valid(_panel_scroll):
 		add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel_scroll)
 	if _uv_panel != null and is_instance_valid(_uv_panel):
 		add_control_to_dock(DOCK_SLOT_BOTTOM, _uv_panel)
+	if _vc_painter != null and is_instance_valid(_vc_painter):
+		add_control_to_dock(DOCK_SLOT_RIGHT_BL, _vc_painter)
 
 
 ## Cancel any active material-drop preview and reset drag state.
@@ -719,6 +736,8 @@ func _edit(object: Object) -> void:
 		_panel.set_target(_edited_node)
 	if _uv_panel:
 		_uv_panel.set_target(_edited_node)
+	if _vc_painter:
+		_vc_painter.set_target(_edited_node)
 	_refresh_panel_context()
 
 
@@ -756,6 +775,8 @@ func _make_visible(visible: bool) -> void:
 			_panel.update_context("")
 		if _uv_panel:
 			_uv_panel.set_target(null)
+		if _vc_painter:
+			_vc_painter.set_target(null)
 
 
 # ---------------------------------------------------------------------------
@@ -1283,6 +1304,8 @@ func _on_selection_changed() -> void:
 	update_overlays()
 	if _uv_panel:
 		_uv_panel.refresh()
+	if _vc_painter:
+		_vc_painter.refresh()
 
 
 func _on_mesh_changed() -> void:
@@ -1353,6 +1376,8 @@ func _on_edited_node_removed() -> void:
 		_panel.set_target(null)
 	if _uv_panel:
 		_uv_panel.set_target(null)
+	if _vc_painter:
+		_vc_painter.set_target(null)
 	update_overlays()
 
 

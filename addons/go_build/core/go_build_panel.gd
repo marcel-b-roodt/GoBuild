@@ -33,8 +33,6 @@ const _MATERIALS_DRAWER_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_materials_drawer.gd")
 const _GENERAL_DRAWER_SCRIPT   := \
 		preload("res://addons/go_build/core/go_build_general_drawer.gd")
-const _VC_DRAWER_SCRIPT        := \
-		preload("res://addons/go_build/core/go_build_vertex_color_drawer.gd")
 const _SHAPE_CATALOG_SCRIPT    := \
 	preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
 const _SEL_HELPERS_SCRIPT      := preload("res://addons/go_build/core/selection_helpers.gd")
@@ -60,7 +58,6 @@ var _uv_drawer:       GoBuildUvDrawer       = null
 var _surface_drawer:  GoBuildSurfaceDrawer  = null
 var _materials_drawer: GoBuildMaterialsDrawer = null
 var _general_drawer:  GoBuildGeneralDrawer  = null
-var _vc_drawer:       GoBuildVertexColorDrawer = null
 var _uv_panel:        GoBuildUvPanel        = null
 
 
@@ -71,8 +68,7 @@ var _uv_panel:        GoBuildUvPanel        = null
 func set_plugin(plugin: EditorPlugin) -> void:
 	_plugin = plugin
 	for drawer in [_create_drawer, _vertex_drawer, _edge_drawer, _face_drawer,
-			_uv_drawer, _surface_drawer, _materials_drawer, _general_drawer,
-			_vc_drawer]:
+			_uv_drawer, _surface_drawer, _materials_drawer, _general_drawer]:
 		if drawer != null:
 			drawer.set_plugin(plugin)
 
@@ -181,9 +177,6 @@ func _ready() -> void:
 	_general_drawer = GoBuildGeneralDrawer.new()
 	add_child(_general_drawer)
 
-	_vc_drawer = GoBuildVertexColorDrawer.new()
-	add_child(_vc_drawer)
-
 	_sync_legacy_handles()
 
 	add_child(HSeparator.new())
@@ -234,8 +227,7 @@ func set_target(target: GoBuildMeshInstance) -> void:
 	_target = target
 	_sync_legacy_handles()
 	for drawer in [_create_drawer, _vertex_drawer, _edge_drawer, _face_drawer,
-			_uv_drawer, _surface_drawer, _materials_drawer, _general_drawer,
-			_vc_drawer]:
+			_uv_drawer, _surface_drawer, _materials_drawer, _general_drawer]:
 		if drawer != null:
 			drawer.set_target(target)
 
@@ -649,8 +641,7 @@ func _sync_mode_buttons(active_mode: SelectionManager.Mode) -> void:
 ## Called on mode change, selection change, and mesh change.
 func _update_ops_buttons() -> void:
 	for drawer in [_create_drawer, _vertex_drawer, _edge_drawer, _face_drawer,
-			_uv_drawer, _surface_drawer, _materials_drawer, _general_drawer,
-			_vc_drawer]:
+			_uv_drawer, _surface_drawer, _materials_drawer, _general_drawer]:
 		if drawer != null:
 			drawer.refresh_buttons()
 
