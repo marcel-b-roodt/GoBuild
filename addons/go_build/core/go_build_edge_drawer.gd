@@ -30,6 +30,8 @@ const _HARD_EDGE_SCRIPT_E     := \
 		preload("res://addons/go_build/mesh/operations/hard_edge_operation.gd")
 const _RIP_SCRIPT_E            := \
 		preload("res://addons/go_build/mesh/operations/rip_operation.gd")
+const _DISSOLVE_SCRIPT_E      := \
+		preload("res://addons/go_build/mesh/operations/dissolve_operation.gd")
 
 const _EDGE_EXTRUDE_DEFAULT_WIDTH: float = 0.5
 const _BEVEL_DEFAULT_WIDTH: float = 0.01
@@ -42,6 +44,7 @@ var _loop_cut_btn:     Button = null
 var _hard_edge_btn:    Button = null
 var _soft_edge_btn:    Button = null
 var _rip_btn:          Button = null
+var _dissolve_btn:     Button = null
 
 
 func _ready() -> void:
@@ -103,6 +106,13 @@ func _ready() -> void:
 	grid.add_child(_rip_btn)
 	_register_op(_rip_btn, _cond_edge_any)
 
+	_dissolve_btn = _op_button("Dissolve",
+		"Dissolve selected edge(s), merging the two adjacent faces into one.\n"
+		+ "Requires Edge mode with \u22651 interior edge selected.")
+	_dissolve_btn.pressed.connect(_on_dissolve_pressed)
+	grid.add_child(_dissolve_btn)
+	_register_op(_dissolve_btn, _cond_edge_any)
+
 
 # ---------------------------------------------------------------------------
 # External trigger entry points
@@ -141,6 +151,11 @@ func trigger_soft_edge() -> void:
 ## Equivalent to pressing the Rip button.
 func trigger_rip() -> void:
 	_on_rip_pressed()
+
+
+## Equivalent to pressing the Dissolve button.
+func trigger_dissolve() -> void:
+	_on_dissolve_pressed()
 
 
 # ---------------------------------------------------------------------------
@@ -417,3 +432,18 @@ func _on_rip_pressed() -> void:
 			target_ref.update_gizmos()
 		)
 	_plugin.call("begin_param_preview", preview)
+
+
+func _on_dissolve_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.EDGE:
+		return
+	var sel_edges: Array[int] = _target.selection.get_selected_edges()
+	if sel_edges.is_empty():
+		return
+	var edges: Array[int] = []
+	edges.assign(sel_edges)
+	_run_op("Dissolve Edges",
+			func(): DissolveOperation.dissolve_edges(_target.go_build_mesh, edges),
+			false)

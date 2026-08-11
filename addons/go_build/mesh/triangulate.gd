@@ -48,6 +48,24 @@ static func ear_clip(points: Array[Vector3], normal: Vector3) -> Array:
 		return [[0, 1, 2]]
 
 	var projected: Array[Vector2] = _project_to_2d(points, normal)
+
+	# Compute signed area of the projected polygon.
+	# If negative, the 2D winding is CW — flip it so ear-clip finds ears.
+	var signed_area: float = 0.0
+	for i: int in n:
+		var j: int = (i + 1) % n
+		signed_area += projected[i].x * projected[j].y
+		signed_area -= projected[j].x * projected[i].y
+	signed_area *= 0.5
+
+	if signed_area < 0.0:
+		# CW winding in 2D — reverse the projected points.
+		var reversed: Array[Vector2] = []
+		reversed.resize(n)
+		for i: int in n:
+			reversed[i] = projected[n - 1 - i]
+		projected = reversed
+
 	var indices: Array[int] = []
 	indices.resize(n)
 	for i: int in n:

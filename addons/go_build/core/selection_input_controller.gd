@@ -1757,6 +1757,7 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 					popup.add_item("Merge at Center  (M)", 11)
 				popup.add_item("Weld (Merge by Distance)", 12)
 				popup.add_item("Rip  (V)", 13)
+				popup.add_item("Dissolve", 14)
 				popup.add_item("Delete", 10)
 		SelectionManager.Mode.EDGE:
 			if not sel.get_selected_edges().is_empty():
@@ -1766,6 +1767,7 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 				popup.add_item("Bridge/Fill  (F)", 22)
 				popup.add_item("Extrude Edge", 21)
 				popup.add_item("Rip  (V)", 26)
+				popup.add_item("Dissolve", 27)
 				popup.add_separator()
 				popup.add_item("Hard Edge", 24)
 				popup.add_item("Soft Edge", 25)
@@ -1777,8 +1779,9 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 				popup.add_item("Extrude", 30)
 				popup.add_item("Inset", 31)
 				popup.add_item("Subdivide", 33)
+				popup.add_item("Triangulate", 39)
 				if sel.get_selected_faces().size() >= 2:
-					popup.add_item("Merge Faces", 38)
+					popup.add_item("Dissolve", 38)
 				popup.add_separator()
 				popup.add_item("Flip Normals", 32)
 				popup.add_separator()
@@ -1884,6 +1887,9 @@ func _on_context_menu_pressed(
 		13:  # Rip
 			if _panel != null:
 				_panel.trigger_rip()
+		14:  # Dissolve vertex
+			if _panel != null:
+				_panel.trigger_dissolve()
 		22:  # Bridge/Fill
 			if _panel != null:
 				_panel.trigger_bridge()
@@ -1893,9 +1899,12 @@ func _on_context_menu_pressed(
 		33:  # Subdivide
 			if _panel != null:
 				_panel.trigger_subdivide()
-		38:  # Merge Faces
+		38:  # Dissolve faces
 			if _panel != null:
-				_panel.trigger_merge_faces()
+				_panel.trigger_dissolve()
+		39:  # Triangulate
+			if _panel != null:
+				_panel.trigger_triangulate()
 		24:  # Hard edge
 			if _panel != null:
 				_panel.trigger_hard_edge()
@@ -1905,6 +1914,9 @@ func _on_context_menu_pressed(
 		26:  # Rip (edge mode)
 			if _panel != null:
 				_panel.trigger_rip()
+		27:  # Dissolve edge
+			if _panel != null:
+				_panel.trigger_dissolve()
 		34:  # Flat shading
 			if _panel != null:
 				_panel.trigger_flat()

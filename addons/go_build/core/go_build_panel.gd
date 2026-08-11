@@ -320,12 +320,28 @@ func trigger_rip() -> void:
 				_edge_drawer.trigger_rip()
 
 
+func trigger_dissolve() -> void:
+	if _target == null:
+		return
+	match _target.selection.get_mode():
+		SelectionManager.Mode.VERTEX:
+			if _vertex_drawer != null:
+				_vertex_drawer.trigger_dissolve()
+		SelectionManager.Mode.EDGE:
+			if _edge_drawer != null:
+				_edge_drawer.trigger_dissolve()
+		SelectionManager.Mode.FACE:
+			if _face_drawer != null:
+				_face_drawer.trigger_dissolve()
+
+
+func trigger_triangulate() -> void:
+	if _face_drawer != null: _face_drawer.trigger_triangulate()
+
+
 func trigger_subdivide() -> void:
 	if _face_drawer != null: _face_drawer.trigger_subdivide()
 
-
-func trigger_merge_faces() -> void:
-	if _face_drawer != null: _face_drawer.trigger_merge_faces()
 
 func trigger_inset() -> void:
 	if _face_drawer != null: _face_drawer.trigger_inset()

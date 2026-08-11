@@ -785,6 +785,8 @@ func _auto_switch_bg_to_selection() -> void:
 	if selected.is_empty():
 		return
 	var gbm: GoBuildMesh = _target.go_build_mesh
+	if selected[0] >= gbm.faces.size():
+		return
 	var first_face: GoBuildFace = gbm.faces[selected[0]]
 	var mat_idx: int = first_face.material_index
 	if mat_idx < gbm.material_slots.size():

@@ -20,12 +20,14 @@ const _MESH_INST_SCRIPT_V  := preload("res://addons/go_build/core/go_build_mesh_
 const _DRAWER_SCRIPT       := preload("res://addons/go_build/core/go_build_drawer.gd")
 const _WELD_SCRIPT         := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
 const _RIP_SCRIPT          := preload("res://addons/go_build/mesh/operations/rip_operation.gd")
+const _DISSOLVE_SCRIPT_V  := preload("res://addons/go_build/mesh/operations/dissolve_operation.gd")
 const _PARAM_PREVIEW_SCRIPT_V := preload("res://addons/go_build/core/go_build_param_preview.gd")
 
 # Buttons — exposed for tests.
 var _merge_btn: Button = null
 var _weld_btn:  Button = null
 var _rip_btn:   Button = null
+var _dissolve_btn: Button = null
 
 
 func _ready() -> void:
@@ -56,6 +58,13 @@ func _ready() -> void:
 	grid.add_child(_rip_btn)
 	_register_op(_rip_btn, _cond_vertex_rip)
 
+	_dissolve_btn = _op_button("Dissolve",
+		"Dissolve selected vertices, merging adjacent faces to fill the gap.\n"
+		+ "Requires Vertex mode with \u22651 vertex selected.")
+	_dissolve_btn.pressed.connect(_on_dissolve_pressed)
+	grid.add_child(_dissolve_btn)
+	_register_op(_dissolve_btn, _cond_vertex_any)
+
 
 # ---------------------------------------------------------------------------
 # External trigger entry points
@@ -74,6 +83,11 @@ func trigger_weld() -> void:
 ## Equivalent to pressing the Rip button.
 func trigger_rip() -> void:
 	_on_rip_pressed()
+
+
+## Equivalent to pressing the Dissolve button.
+func trigger_dissolve() -> void:
+	_on_dissolve_pressed()
 
 
 # ---------------------------------------------------------------------------
@@ -221,3 +235,17 @@ func _on_rip_pressed() -> void:
 			target_ref.update_gizmos()
 		)
 	_plugin.call("begin_param_preview", preview)
+
+
+func _on_dissolve_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	if _target.selection.get_mode() != SelectionManager.Mode.VERTEX:
+		return
+	var sel_verts: Array[int] = _target.selection.get_selected_vertices()
+	if sel_verts.is_empty():
+		return
+	var to_dissolve: Array[int] = []
+	to_dissolve.assign(sel_verts)
+	_run_op("Dissolve Vertices",
+			func(): DissolveOperation.dissolve_vertices(_target.go_build_mesh, to_dissolve))
