@@ -140,7 +140,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 |---|---|---|
 | Smooth groups | ✅ Complete | `SmoothGroupOperation.apply(mesh, faces, group_id)`; group 0 = flat-shaded, non-zero IDs average normals at shared vertices; panel Surface section with Group SpinBox (0-31) + Assign, Flat, Smooth buttons; 9 unit tests |
 | Hard/soft edge toggle | ✅ Complete | `HardEdgeOperation.apply(mesh, edges, hard)`; `GoBuildEdge.is_hard` (derived); `GoBuildMesh.hard_edge_pairs @export`; BFS `_compute_face_regions()` replaces smooth-group-keyed normals; panel Hard/Soft buttons in Edge section; 11 unit tests incl. bake seam |
-| Vertex color paint | 📋 Planned | Per-vertex RGBA brush |
+| Vertex color paint | 🔧 In Progress | `VertexColorOperation`: fill_faces, fill_all, set_vertices with blend modes (Mix/Add/Subtract/Multiply) and channel masking (R/G/B/A); `GoBuildVertexColorDrawer` panel UI with colour picker, channel toggles, blend mode dropdown, Fill/Fill All buttons; data model (`vertex_colors: Array[Color]`) and bake (`ARRAY_COLOR`) already complete
 | Normal visualiser overlay | ✅ Complete | Face normals as cyan lines from face centroids; vertex normals as lavender lines from vertices (area-weighted average of adjacent face normals); toggled via "Normals" / "Vtx N" checkboxes in General drawer or N key shortcut; `_draw_face_normals` and `_draw_vertex_normals` in `GoBuildGizmo._redraw()` |
 
 ---
