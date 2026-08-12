@@ -52,6 +52,14 @@ static func apply_merge(mesh: GoBuildMesh, vertex_indices: Array[int]) -> void:
 	var canonical: int = valid[0]
 	mesh.vertices[canonical] = centroid
 
+	# Average vertex colours across the merge group.
+	var has_colors: bool = mesh.vertex_colors.size() == mesh.vertices.size()
+	if has_colors:
+		var avg_color := Color.TRANSPARENT
+		for vi: int in valid:
+			avg_color += mesh.vertex_colors[vi]
+		mesh.vertex_colors[canonical] = avg_color / float(valid.size())
+
 	# Build remap: every other index in the group → canonical.
 	var remap: Dictionary = {}
 	for i: int in range(1, valid.size()):
