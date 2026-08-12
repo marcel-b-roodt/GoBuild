@@ -4,3 +4,4 @@
 
 [resource]
 albedo_texture = ExtResource("1_ot1av")
+vertex_color_use_as_albedo = true

@@ -177,8 +177,10 @@ func _ready() -> void:
 	_fill_selected_btn = Button.new()
 	_fill_selected_btn.text = "Fill Selected"
 	_fill_selected_btn.tooltip_text = (
-		"Paint all vertices of selected faces with the current colour,\n"
-		+ "channels, and blend mode.  Requires Face mode with a selection."
+		"Paint selected faces/vertices with the current colour,\n"
+		+ "channels, and blend mode.\n"
+		+ "Face mode: selected faces.  Vertex mode: selected vertices.\n"
+		+ "Object mode: all faces."
 	)
 	_fill_selected_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_fill_selected_btn.add_theme_font_size_override("font_size", 11)
@@ -258,7 +260,7 @@ func get_brush_strength() -> float:
 
 func _refresh_buttons() -> void:
 	if _fill_selected_btn != null:
-		_fill_selected_btn.disabled = not _cond_face_selected()
+		_fill_selected_btn.disabled = not _cond_selection_or_object()
 	if _fill_all_btn != null:
 		_fill_all_btn.disabled = not _cond_has_mesh()
 	if _eyedropper_btn != null:
@@ -274,10 +276,17 @@ func refresh() -> void:
 # Conditions
 # ---------------------------------------------------------------------------
 
-func _cond_face_selected() -> bool:
-	return _target != null \
-		and _target.selection.get_mode() == SelectionManager.Mode.FACE \
-		and not _target.selection.get_selected_faces().is_empty()
+func _cond_selection_or_object() -> bool:
+	if _target == null or _target.go_build_mesh == null:
+		return false
+	var mode: int = _target.selection.get_mode()
+	if mode == SelectionManager.Mode.FACE:
+		return not _target.selection.get_selected_faces().is_empty()
+	if mode == SelectionManager.Mode.VERTEX:
+		return not _target.selection.get_selected_vertices().is_empty()
+	if mode == SelectionManager.Mode.OBJECT:
+		return true
+	return false
 
 
 func _cond_has_mesh() -> bool:
@@ -291,22 +300,42 @@ func _cond_has_mesh() -> bool:
 func _on_fill_selected_pressed() -> void:
 	if _target == null or _plugin == null or _target.go_build_mesh == null:
 		return
-	if _target.selection.get_mode() != SelectionManager.Mode.FACE:
-		return
-	var sel: Array[int] = _target.selection.get_selected_faces()
-	if sel.is_empty():
-		return
-	var faces: Array[int] = []
-	faces.assign(sel)
+	var mode: int = _target.selection.get_mode()
 	var color: Color = get_paint_color()
 	var blend: int = get_blend_mode()
 	var mask: int = get_channel_mask()
-	_target.apply_operation(
-		"Fill Vertex Color",
-		func(): VertexColorOperation.fill_faces(
-			_target.go_build_mesh, faces, color, blend, mask),
-		_plugin.get_undo_redo(),
-	)
+
+	if mode == SelectionManager.Mode.FACE:
+		var sel: Array[int] = _target.selection.get_selected_faces()
+		if sel.is_empty():
+			return
+		var faces: Array[int] = []
+		faces.assign(sel)
+		_target.apply_operation(
+			"Fill Vertex Color",
+			func(): VertexColorOperation.fill_faces(
+				_target.go_build_mesh, faces, color, blend, mask),
+			_plugin.get_undo_redo(),
+		)
+	elif mode == SelectionManager.Mode.VERTEX:
+		var sel: Array[int] = _target.selection.get_selected_vertices()
+		if sel.is_empty():
+			return
+		var verts: Array[int] = []
+		verts.assign(sel)
+		_target.apply_operation(
+			"Paint Vertex Color",
+			func(): VertexColorOperation.set_vertices(
+				_target.go_build_mesh, verts, color, blend, mask),
+			_plugin.get_undo_redo(),
+		)
+	elif mode == SelectionManager.Mode.OBJECT:
+		_target.apply_operation(
+			"Fill All Vertex Colors",
+			func(): VertexColorOperation.fill_all(
+				_target.go_build_mesh, color, blend, mask),
+			_plugin.get_undo_redo(),
+		)
 	_target.update_gizmos()
 
 
