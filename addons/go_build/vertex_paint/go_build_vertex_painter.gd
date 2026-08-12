@@ -36,6 +36,13 @@ var _strength_spin: SpinBox = null
 var _fill_selected_btn: Button = null
 var _fill_all_btn: Button = null
 var _eyedropper_btn: Button = null
+var _view_r_btn: Button = null
+var _view_g_btn: Button = null
+var _view_b_btn: Button = null
+var _view_a_btn: Button = null
+
+## Which channel is being visualised (0=R, 1=G, 2=B, 3=A, -1=none).
+var _view_channel: int = -1
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +220,55 @@ func _ready() -> void:
 
 	add_child(fill_grid)
 
+	# ── Channel visualiser ────────────────────────────────────────────────
+	add_child(HSeparator.new())
+
+	var viz_label := Label.new()
+	viz_label.text = "── Channel View ──"
+	viz_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	viz_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	viz_label.add_theme_font_size_override("font_size", 11)
+	add_child(viz_label)
+
+	var viz_row := HBoxContainer.new()
+	_view_r_btn = Button.new()
+	_view_r_btn.text = "R"
+	_view_r_btn.tooltip_text = "View red channel as greyscale"
+	_view_r_btn.toggle_mode = true
+	_view_r_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_view_r_btn.add_theme_font_size_override("font_size", 11)
+	_view_r_btn.pressed.connect(_on_view_channel.bind(0))
+	viz_row.add_child(_view_r_btn)
+
+	_view_g_btn = Button.new()
+	_view_g_btn.text = "G"
+	_view_g_btn.tooltip_text = "View green channel as greyscale"
+	_view_g_btn.toggle_mode = true
+	_view_g_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_view_g_btn.add_theme_font_size_override("font_size", 11)
+	_view_g_btn.pressed.connect(_on_view_channel.bind(1))
+	viz_row.add_child(_view_g_btn)
+
+	_view_b_btn = Button.new()
+	_view_b_btn.text = "B"
+	_view_b_btn.tooltip_text = "View blue channel as greyscale"
+	_view_b_btn.toggle_mode = true
+	_view_b_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_view_b_btn.add_theme_font_size_override("font_size", 11)
+	_view_b_btn.pressed.connect(_on_view_channel.bind(2))
+	viz_row.add_child(_view_b_btn)
+
+	_view_a_btn = Button.new()
+	_view_a_btn.text = "A"
+	_view_a_btn.tooltip_text = "View alpha channel as greyscale"
+	_view_a_btn.toggle_mode = true
+	_view_a_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_view_a_btn.add_theme_font_size_override("font_size", 11)
+	_view_a_btn.pressed.connect(_on_view_channel.bind(3))
+	viz_row.add_child(_view_a_btn)
+
+	add_child(viz_row)
+
 
 # ---------------------------------------------------------------------------
 # Public helpers
@@ -335,8 +391,80 @@ func _on_fill_selected_pressed() -> void:
 			func(): VertexColorOperation.fill_all(
 				_target.go_build_mesh, color, blend, mask),
 			_plugin.get_undo_redo(),
-		)
+	)
 	_target.update_gizmos()
+
+
+# ---------------------------------------------------------------------------
+# Channel visualiser
+# ---------------------------------------------------------------------------
+
+## Toggle channel visualisation.  Clicking the active channel again turns it off.
+## When a channel view is active, all vertex colours are replaced by a
+## greyscale representation of that channel, and the material is set to
+## unlit so the channel value is clearly visible.
+func _on_view_channel(channel: int) -> void:
+	if _view_channel == channel:
+		_view_channel = -1
+	else:
+		_view_channel = channel
+	_update_view_buttons()
+	_apply_channel_view()
+
+
+func _update_view_buttons() -> void:
+	_view_r_btn.button_pressed = (_view_channel == 0)
+	_view_g_btn.button_pressed = (_view_channel == 1)
+	_view_b_btn.button_pressed = (_view_channel == 2)
+	_view_a_btn.button_pressed = (_view_channel == 3)
+
+
+## Apply or remove the channel view material override.
+## When active, creates a temporary mesh where the selected channel maps to
+## greyscale.  When inactive, restores the original mesh via rebake.
+func _apply_channel_view() -> void:
+	if _target == null or _target.go_build_mesh == null:
+		return
+	var gbm: GoBuildMesh = _target.go_build_mesh
+	var am: ArrayMesh = _target.mesh as ArrayMesh
+	if am == null:
+		return
+
+	if _view_channel == -1:
+		_target.bake()
+		return
+
+	# Ensure vertex colours are populated.
+	VertexColorOperation._ensure_colors(gbm)
+
+	# Create a view mesh where vertex colours map the selected channel to greyscale.
+	var view_mesh := GoBuildMesh.new()
+	view_mesh.vertices = gbm.vertices
+	view_mesh.faces = gbm.faces
+	view_mesh.edges = gbm.edges
+	view_mesh.vertex_colors.clear()
+	view_mesh.vertex_colors.resize(gbm.vertices.size())
+	for i: int in gbm.vertices.size():
+		var c: Color = gbm.vertex_colors[i] if gbm.vertex_colors.size() > i else Color.WHITE
+		var v: float
+		match _view_channel:
+			0: v = c.r
+			1: v = c.g
+			2: v = c.b
+			3: v = c.a
+			_: v = c.r
+		view_mesh.vertex_colors[i] = Color(v, v, v, 1.0)
+	view_mesh.material_slots = gbm.material_slots
+
+	# Bake and display with an unlit material so greyscale is clearly visible.
+	var baked: ArrayMesh = view_mesh.bake()
+	var unlit := StandardMaterial3D.new()
+	unlit.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	unlit.vertex_color_use_as_albedo = true
+	unlit.albedo_color = Color.WHITE
+	for si: int in baked.get_surface_count():
+		baked.surface_set_material(si, unlit)
+	_target.mesh = baked
 
 
 func _on_fill_all_pressed() -> void:

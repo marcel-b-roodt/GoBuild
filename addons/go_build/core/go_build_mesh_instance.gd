@@ -88,6 +88,7 @@ func bake() -> void:
 		mesh = null
 		return
 	mesh = go_build_mesh.bake()
+	_ensure_vertex_alpha_materials()
 	if _edit_cull_override:
 		_apply_cull_overrides()
 	mesh_changed.emit()
@@ -336,12 +337,17 @@ func _apply_cull_overrides() -> void:
 	var am := mesh as ArrayMesh
 	if am == null:
 		return
+	var has_alpha: bool = go_build_mesh != null \
+		and go_build_mesh.vertex_colors.size() == go_build_mesh.vertices.size() \
+		and _any_alpha_below_one(go_build_mesh)
 	for i: int in am.get_surface_count():
 		var orig: Material = am.surface_get_material(i)
 		if orig is BaseMaterial3D:
 			var dup: BaseMaterial3D = (orig as BaseMaterial3D).duplicate()
 			dup.cull_mode = BaseMaterial3D.CULL_DISABLED
 			dup.vertex_color_use_as_albedo = true
+			if has_alpha:
+				dup.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			set_surface_override_material(i, dup)
 		else:
 			var mat := StandardMaterial3D.new()
@@ -352,6 +358,15 @@ func _apply_cull_overrides() -> void:
 			set_surface_override_material(i, mat)
 
 
+## Check if any vertex colour has alpha below 1.0.
+## Used to decide whether to enable transparency on the material override.
+func _any_alpha_below_one(gbm: GoBuildMesh) -> bool:
+	for c: Color in gbm.vertex_colors:
+		if c.a < 0.999:
+			return true
+	return false
+
+
 ## Clear all surface override materials set by [method _apply_cull_overrides].
 func _clear_cull_overrides() -> void:
 	var am := mesh as ArrayMesh
@@ -359,4 +374,31 @@ func _clear_cull_overrides() -> void:
 		return
 	for i: int in am.get_surface_count():
 		set_surface_override_material(i, null)
+
+
+## Ensure material slots have vertex colour and transparency settings
+## consistent with whether [member GoBuildMesh.vertex_colors] has any alpha < 1.0.
+## When alpha is present, all [BaseMaterial3D] slots get transparency enabled.
+func _ensure_vertex_alpha_materials() -> void:
+	if go_build_mesh == null:
+		return
+	var has_colors: bool = go_build_mesh.vertex_colors.size() == go_build_mesh.vertices.size()
+	if not has_colors:
+		return
+	var has_alpha: bool = _any_alpha_below_one(go_build_mesh)
+	for mat: Material in go_build_mesh.material_slots:
+		if mat is BaseMaterial3D:
+			var bmat: BaseMaterial3D = mat as BaseMaterial3D
+			bmat.vertex_color_use_as_albedo = true
+			if has_alpha:
+				bmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+
+
+## Check if any vertex colour has alpha below 1.0.
+## Used to decide whether to enable transparency on the material override.
+func _any_alpha_below_one(gbm: GoBuildMesh) -> bool:
+	for c: Color in gbm.vertex_colors:
+		if c.a < 0.999:
+			return true
+	return false
 
