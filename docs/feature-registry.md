@@ -201,6 +201,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Code deduplication pass 2 | ✅ Complete | `UVProjectionUtils` (project_to_dominant_axis, correct_seam) extracted from planar/box/cylindrical/spherical projections; `UvTopology` (build_uv_vertex_map, uv_key) extracted from uv_island_select and uv_pack_islands; `GoBuildConstants` centralises gizmo/picking constants; `SelectionManager` O(1) Dictionary membership; `GoBuildMesh.finalize()` convenience wrapper; `Triangulate` utility with `fan()` and `ear_clip()` extracted from bake pipeline and polygon generator |
 | Godot Asset Library listing | 📋 Planned | Submitted at v1.0 |
 | Documentation site | 📋 Planned | GitHub Pages or similar |
+| Mesh import (ArrayMesh → GoBuildMesh) | ✅ Complete | `MeshImport.from_array_mesh`: reads vertex positions, UVs, UV2s, vertex colours from each surface; per-triangle faces; material slots; `reverse_winding` flag for re-importing GoBuild-baked meshes; indexed and non-indexed meshes; edges rebuilt on import |
 
 ---
 
