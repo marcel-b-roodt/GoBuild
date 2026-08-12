@@ -64,6 +64,8 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 				var mid: Vector3 = (mesh.vertices[va] + mesh.vertices[vb]) * 0.5
 				edge_mids[key] = mesh.vertices.size()
 				mesh.vertices.append(mid)
+				if not mesh.vertex_colors.is_empty():
+					mesh.vertex_colors.append(mesh.vertex_colors[va].lerp(mesh.vertex_colors[vb], 0.5))
 
 	# ── Phase 2: build replacement quad sets for each selected face ──────────
 	#
@@ -81,6 +83,11 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 		centroid /= float(vc)
 		var c_idx: int = mesh.vertices.size()
 		mesh.vertices.append(centroid)
+		if not mesh.vertex_colors.is_empty():
+			var avg_color := Color.BLACK
+			for vi: int in face.vertex_indices:
+				avg_color += mesh.vertex_colors[vi]
+			mesh.vertex_colors.append(avg_color / float(vc))
 
 		var new_quads: Array[GoBuildFace] = []
 		for k: int in vc:

@@ -82,6 +82,8 @@ static func _extrude_single_face(mesh: GoBuildMesh, face_index: int, distance: f
 	for k: int in vc:
 		var orig_pos: Vector3 = mesh.vertices[face.vertex_indices[k]]
 		mesh.vertices.append(orig_pos + offset)
+		if not mesh.vertex_colors.is_empty():
+			mesh.vertex_colors.append(mesh.vertex_colors[face.vertex_indices[k]])
 		new_indices[k] = mesh.vertices.size() - 1
 
 	# ── 2. Create side faces ────────────────────────────────────────────────

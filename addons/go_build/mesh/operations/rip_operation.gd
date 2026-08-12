@@ -155,6 +155,8 @@ static func apply_vertices(
 					% [vi, str(toward_faces.keys()), str(away_faces.keys())])
 			var dup_vi: int = mesh.vertices.size()
 			mesh.vertices.append(mesh.vertices[vi])
+			if not mesh.vertex_colors.is_empty():
+				mesh.vertex_colors.append(mesh.vertex_colors[vi])
 			new_vertex_indices.append(dup_vi)
 			remap[vi] = dup_vi
 
@@ -187,6 +189,8 @@ static func apply_vertices(
 					% [vi, str(has_selected), str(has_unselected)])
 			var dup_vi: int = mesh.vertices.size()
 			mesh.vertices.append(mesh.vertices[vi])
+			if not mesh.vertex_colors.is_empty():
+				mesh.vertex_colors.append(mesh.vertex_colors[vi])
 			new_vertex_indices.append(dup_vi)
 			remap[vi] = dup_vi
 

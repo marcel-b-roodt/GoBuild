@@ -427,6 +427,26 @@ func rebuild_edges() -> void:
 					(_vertex_to_edges[vb] as Array).append(ei)
 
 	rebuild_coincident_groups()
+	_sync_vertex_colors()
+
+
+# ---------------------------------------------------------------------------
+# Vertex colour maintenance
+# ---------------------------------------------------------------------------
+
+## Ensure [member vertex_colors] is parallel to [member vertices].
+## If colours exist but are shorter, pad with white.  If longer, truncate.
+## Called automatically by [method rebuild_edges] so every operation that
+## mutates vertices and calls rebuild_edges stays in sync.
+func _sync_vertex_colors() -> void:
+	if vertex_colors.is_empty():
+		return
+	var n: int = vertices.size()
+	if vertex_colors.size() < n:
+		for i: int in range(vertex_colors.size(), n):
+			vertex_colors.append(Color.WHITE)
+	elif vertex_colors.size() > n:
+		vertex_colors.resize(n)
 
 
 # ---------------------------------------------------------------------------

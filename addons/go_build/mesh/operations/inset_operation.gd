@@ -72,6 +72,8 @@ static func _inset_single_face(
 	for k: int in vc:
 		var outer_pos: Vector3 = mesh.vertices[face.vertex_indices[k]]
 		mesh.vertices.append(lerp(outer_pos, centroid, amount))
+		if not mesh.vertex_colors.is_empty():
+			mesh.vertex_colors.append(mesh.vertex_colors[face.vertex_indices[k]])
 		inner_indices[k]              = mesh.vertices.size() - 1
 		inner_centroids[inner_indices[k]] = centroid   # for drag animation
 

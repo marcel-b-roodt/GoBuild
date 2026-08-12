@@ -117,8 +117,12 @@ static func _extrude_single_edge(
 	# ── 1. Duplicate the two endpoints ─────────────────────────────────────
 	var na: int = mesh.vertices.size()
 	mesh.vertices.append(mesh.vertices[va] + offset)
+	if not mesh.vertex_colors.is_empty():
+		mesh.vertex_colors.append(mesh.vertex_colors[va])
 	var nb: int = mesh.vertices.size()
 	mesh.vertices.append(mesh.vertices[vb] + offset)
+	if not mesh.vertex_colors.is_empty():
+		mesh.vertex_colors.append(mesh.vertex_colors[vb])
 
 	# ── 2. Add the new quad face ────────────────────────────────────────────
 	# Winding [va, vb, nb, na] is CCW from outside — identical to the side-face

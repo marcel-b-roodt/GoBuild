@@ -303,6 +303,8 @@ static func _cut_ring(
 		if not cut_verts.has(key_entry):
 			cut_verts[key_entry] = mesh.vertices.size()
 			mesh.vertices.append(mesh.vertices[va].lerp(mesh.vertices[vb], t))
+			if not mesh.vertex_colors.is_empty():
+				mesh.vertex_colors.append(mesh.vertex_colors[va].lerp(mesh.vertex_colors[vb], t))
 		var m_entry: int = cut_verts[key_entry]
 
 		# Far-edge cut: lerp(opp_va→opp_vb, t).
@@ -310,6 +312,8 @@ static func _cut_ring(
 		if not cut_verts.has(key_far):
 			cut_verts[key_far] = mesh.vertices.size()
 			mesh.vertices.append(mesh.vertices[ova].lerp(mesh.vertices[ovb], t))
+			if not mesh.vertex_colors.is_empty():
+				mesh.vertex_colors.append(mesh.vertex_colors[ova].lerp(mesh.vertex_colors[ovb], t))
 		var m_far: int = cut_verts[key_far]
 
 		# Determine winding.
