@@ -20,6 +20,9 @@ const _SHAPE_PLACEMENT_SCRIPT_CR := \
 		preload("res://addons/go_build/core/shape_placement.gd")
 const _DRAW_CTRL_SCRIPT_CR := \
 		preload("res://addons/go_build/core/go_build_shape_draw_controller.gd")
+const _MESH_IMPORT_SCRIPT_CR := \
+		preload("res://addons/go_build/mesh/mesh_import.gd")
+const _DEFAULT_MAT := preload("res://addons/go_build/go_build_material.tres")
 
 var _align_to_surface_cb: CheckBox = null
 var _parent_mode_option: OptionButton = null
@@ -69,6 +72,21 @@ func _ready() -> void:
 	_param_strip = VBoxContainer.new()
 	_param_strip.visible = false
 	_content.add_child(_param_strip)
+
+	# ── Import from MeshInstance3D ────────────────────────────────────────
+	_content.add_child(HSeparator.new())
+	var import_btn := Button.new()
+	import_btn.text = "Import Mesh"
+	import_btn.tooltip_text = (
+		"Convert the selected MeshInstance3D's mesh into a new\n"
+		+ "GoBuildMeshInstance. Works with any imported GLTF/OBJ mesh.\n"
+		+ "The original node is kept unchanged."
+	)
+	import_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	import_btn.add_theme_font_size_override("font_size", 11)
+	import_btn.pressed.connect(_on_import_mesh_pressed)
+	_content.add_child(import_btn)
+	_register_op(import_btn, _cond_has_mesh_instance)
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +257,7 @@ func insert_shape(
 		node.position = local_pos
 	if not local_basis.is_equal_approx(Basis.IDENTITY):
 		node.basis = local_basis
-	var default_mat: Material = load("res://addons/go_build/go_build_material.tres")
+	var default_mat: Material = _DEFAULT_MAT
 	if default_mat != null and node.go_build_mesh != null:
 		node.go_build_mesh.material_slots = [default_mat]
 
@@ -304,3 +322,69 @@ func start_shape_draw_at(
 			screen_pos, edited_node)
 	draw_ctrl.set_parent_mode(parent_mode)
 	_show_param_strip(shape_name, draw_ctrl)
+
+
+# ---------------------------------------------------------------------------
+# Import from MeshInstance3D
+# ---------------------------------------------------------------------------
+
+func _cond_has_mesh_instance() -> bool:
+	if _plugin == null:
+		return false
+	var sel: EditorSelection = EditorInterface.get_selection()
+	if sel.get_selected_nodes().is_empty():
+		return false
+	var first: Node = sel.get_selected_nodes()[0]
+	return first is MeshInstance3D and not (first is GoBuildMeshInstance)
+
+
+func _on_import_mesh_pressed() -> void:
+	if not Engine.is_editor_hint():
+		return
+	if _plugin == null:
+		return
+	var sel: EditorSelection = EditorInterface.get_selection()
+	if sel.get_selected_nodes().is_empty():
+		return
+	var source: Node = sel.get_selected_nodes()[0]
+	if not source is MeshInstance3D:
+		return
+	if source is GoBuildMeshInstance:
+		return
+	var src_mi: MeshInstance3D = source as MeshInstance3D
+	var src_mesh: Mesh = src_mi.mesh
+	if src_mesh == null:
+		push_warning("GoBuild: selected MeshInstance3D has no mesh resource")
+		return
+	if not src_mesh is ArrayMesh:
+		push_warning("GoBuild: mesh must be an ArrayMesh (imported GLTF/OBJ or generated)")
+		return
+	var go_mesh: GoBuildMesh = MeshImport.from_array_mesh(src_mesh as ArrayMesh)
+	if go_mesh.faces.is_empty():
+		push_warning("GoBuild: imported mesh has no geometry")
+		return
+
+	var scene_root: Node = EditorInterface.get_edited_scene_root()
+	if scene_root == null:
+		return
+	var node := GoBuildMeshInstance.new()
+	node.name = src_mi.name + "_GoBuild"
+	node.go_build_mesh = go_mesh
+	node.global_transform = src_mi.global_transform
+	var default_mat: Material = _DEFAULT_MAT
+	if default_mat != null:
+		node.go_build_mesh.material_slots = [default_mat]
+	var parent: Node = src_mi.get_parent()
+	if parent == null:
+		parent = scene_root
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	ur.create_action("Import Mesh to GoBuild")
+	ur.add_do_method(parent, "add_child", node, true)
+	ur.add_do_method(node, "set_owner", scene_root)
+	ur.add_undo_method(parent, "remove_child", node)
+	ur.add_undo_reference(node)
+	ur.commit_action()
+
+	var es: EditorSelection = EditorInterface.get_selection()
+	es.clear()
+	es.add_node(node)
