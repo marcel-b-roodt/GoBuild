@@ -30,6 +30,8 @@ const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_pane
 const _UV_PANEL_SCRIPT      := preload("res://addons/go_build/uv/go_build_uv_panel.gd")
 const _VC_PAINTER_SCRIPT   := preload(
 		"res://addons/go_build/vertex_paint/go_build_vertex_painter.gd")
+const _PAINT_BRUSH_SCRIPT := preload(
+		"res://addons/go_build/vertex_paint/go_build_vertex_paint_brush.gd")
 const _CONTROLLER_SCRIPT    := preload(
 		"res://addons/go_build/core/selection_input_controller.gd")
 const _TOOL_PINNER_SCRIPT   := preload(
@@ -81,6 +83,7 @@ var _panel: GoBuildPanel                         = null
 var _panel_scroll: ScrollContainer               = null
 var _uv_panel: GoBuildUvPanel                    = null
 var _vc_painter: GoBuildVertexPainter            = null
+var _paint_brush: GoBuildVertexPaintBrush        = null
 var _project_settings: GoBuildProjectSettings    = null
 var _edited_node: GoBuildMeshInstance            = null
 var _gizmo_plugin: GoBuildGizmoPlugin            = null
@@ -177,6 +180,9 @@ func _enter_tree() -> void:
 	_vc_painter.name = "GoBuild Vertex Paint"
 	add_control_to_dock(DOCK_SLOT_RIGHT_BL, _vc_painter)
 	_vc_painter.set_plugin(self)
+
+	_paint_brush = _PAINT_BRUSH_SCRIPT.new()
+	_paint_brush.setup(self, _vc_painter)
 
 	_gizmo_plugin = _GIZMO_PLUGIN_SCRIPT.new()
 	_gizmo_plugin.setup(self)
@@ -791,6 +797,11 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 				_hide_draw_param_strip()
 			update_overlays()
 			return result
+	# Vertex paint brush intercepts LMB when paint mode is active.
+	if _paint_brush != null and _vc_painter != null and _vc_painter.is_paint_mode():
+		var brush_result: int = _handle_paint_brush(camera, event)
+		if brush_result != 0:
+			return brush_result
 	if _edited_node == null:
 		return 0
 	var key_result: int = _handle_keyboard(event)
@@ -822,6 +833,7 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 		_draw_mode_hint(overlay)
 	_draw_selection_dims(overlay)
 	_draw_shape_draw_overlay(overlay)
+	_draw_brush_cursor_overlay(overlay)
 
 
 func _draw_shape_draw_overlay(overlay: Control) -> void:
@@ -850,6 +862,89 @@ func _draw_shape_draw_overlay(overlay: Control) -> void:
 				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2, Color(0.0, 0.0, 0.0, 0.55))
 		overlay.draw_string(font2, pos2, dims_text,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2, Color(0.65, 1.0, 0.65, 0.90))
+
+
+# ---------------------------------------------------------------------------
+# Brush cursor overlay
+# ---------------------------------------------------------------------------
+
+## Draw the brush cursor circle at the hit point showing the brush radius.
+func _draw_brush_cursor_overlay(overlay: Control) -> void:
+	if _vc_painter == null or not _vc_painter.is_paint_mode():
+		return
+	if _paint_brush == null:
+		return
+	var world_pos: Vector3 = _paint_brush.get_cursor_world_pos()
+	var screen_pos: Vector2 = _paint_brush.get_cursor_screen_pos()
+	if world_pos == Vector3.INF or screen_pos == Vector2.INF:
+		return
+	if _edited_node == null:
+		return
+	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if vp == null:
+		return
+	var camera: Camera3D = vp.get_camera_3d()
+	if camera == null:
+		return
+	var radius: float = _vc_painter.get_brush_radius()
+	var avg_scale: float = (_edited_node.scale.x + _edited_node.scale.y + _edited_node.scale.z) / 3.0
+	var local_radius: float = radius / avg_scale if avg_scale > 0.001 else radius
+	var local_hit: Vector3 = _edited_node.to_local(world_pos)
+	var offset_local: Vector3 = local_hit + Vector3(local_radius, 0.0, 0.0)
+	var offset_world: Vector3 = _edited_node.to_global(offset_local)
+	var center_screen: Vector2 = camera.unproject_position(world_pos)
+	var offset_screen: Vector2 = camera.unproject_position(offset_world)
+	var screen_radius: float = (offset_screen - center_screen).length()
+	screen_radius = clampf(screen_radius, 4.0, 400.0)
+	var color: Color = Color(1.0, 1.0, 1.0, 0.7)
+	overlay.draw_arc(screen_pos, screen_radius, 0.0, TAU, 64, color, 1.5, true)
+	# Paint mode info label.
+	_draw_paint_mode_info(overlay)
+
+
+## Draw the paint mode info overlay (bottom-left of viewport).
+func _draw_paint_mode_info(overlay: Control) -> void:
+	if _vc_painter == null or not _vc_painter.is_paint_mode():
+		return
+	var font: Font = ThemeDB.fallback_font
+	var fsize: int = 12
+	var m: float = 8.0
+	var blend_names: Dictionary = {
+		0: "Mix", 1: "Add", 2: "Subtract", 3: "Multiply",
+	}
+	var blend_id: int = _vc_painter.get_blend_mode()
+	var blend_name: String = blend_names.get(blend_id, "Mix")
+	var radius_str: String = "R: %.2f" % _vc_painter.get_brush_radius()
+	var strength_str: String = "S: %.0f%%" % (_vc_painter.get_brush_strength() * 100.0)
+	var line1: String = "Paint | %s | %s | %s" % [blend_name, radius_str, strength_str]
+	var line2: String = "F=Size  S=Strength  A=Blend  Ctrl=Picker"
+	var y: float = overlay.size.y - m - 18.0 - 18.0
+	overlay.draw_string(font, Vector2(m + 1.0, y + 1.0), line1,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+	overlay.draw_string(font, Vector2(m, y), line1,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 1.0, 0.65, 0.90))
+	overlay.draw_string(font, Vector2(m + 1.0, y + 18.0 + 1.0), line2,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+	overlay.draw_string(font, Vector2(m, y + 18.0), line2,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 0.85, 1.0, 0.75))
+
+
+# ---------------------------------------------------------------------------
+# Vertex paint brush input handling — delegates to GoBuildVertexPaintBrush
+# ---------------------------------------------------------------------------
+
+## Handle mouse events for the vertex paint brush.
+## Returns non-zero if the event was consumed.
+func _handle_paint_brush(camera: Camera3D, event: InputEvent) -> int:
+	if _edited_node == null or _paint_brush == null or _vc_painter == null:
+		return 0
+	if not _vc_painter.is_paint_mode():
+		_paint_brush.clear_cursor()
+		return 0
+	var result: int = _paint_brush.handle_input(camera, event, _edited_node)
+	if result != 0:
+		update_overlays()
+	return result
 
 
 func _draw_material_drag_hint(overlay: Control) -> void:

@@ -36,6 +36,7 @@ var _strength_spin: SpinBox = null
 var _fill_selected_btn: Button = null
 var _fill_all_btn: Button = null
 var _eyedropper_btn: Button = null
+var _paint_toggle: Button = null
 var _view_r_btn: Button = null
 var _view_g_btn: Button = null
 var _view_b_btn: Button = null
@@ -71,7 +72,18 @@ func _ready() -> void:
 	header.add_theme_font_size_override("font_size", 11)
 	add_child(header)
 
-	# ── Colour picker ───────────────────────────────────────────────────
+	# ── Paint mode toggle ──────────────────────────────────────────────
+	_paint_toggle = Button.new()
+	_paint_toggle.text = "Paint"
+	_paint_toggle.tooltip_text = "Toggle paint mode — LMB paints in viewport when active"
+	_paint_toggle.toggle_mode = true
+	_paint_toggle.button_pressed = false
+	_paint_toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_paint_toggle.add_theme_font_size_override("font_size", 12)
+	_paint_toggle.pressed.connect(_on_paint_toggled)
+	add_child(_paint_toggle)
+
+	add_child(HSeparator.new())
 	var color_row := HBoxContainer.new()
 	var color_label := Label.new()
 	color_label.text = "Color:"
@@ -209,7 +221,7 @@ func _ready() -> void:
 
 	_eyedropper_btn = Button.new()
 	_eyedropper_btn.text = "Eyedropper"
-	_eyedropper_btn.tooltip_text = "Sample colour from a vertex (future: Ctrl+click in viewport)"
+	_eyedropper_btn.tooltip_text = "Sample colour from a vertex (Ctrl+click in viewport)"
 	_eyedropper_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_eyedropper_btn.add_theme_font_size_override("font_size", 11)
 	_eyedropper_btn.disabled = true
@@ -305,9 +317,46 @@ func get_brush_radius() -> float:
 	return _radius_spin.value
 
 
+## Set brush radius (used by F-drag resize).
+func set_brush_radius(v: float) -> void:
+	_radius_spin.value = v
+
+
 ## Current brush strength.
 func get_brush_strength() -> float:
 	return _strength_spin.value
+
+
+## Set brush strength (used by S-drag resize).
+func set_brush_strength(v: float) -> void:
+	_strength_spin.value = v
+
+
+## Set the colour picker to [param c] (used by eyedropper).
+func set_paint_color(c: Color) -> void:
+	_color_picker.color = c
+
+
+## Set the blend mode dropdown to [param id].
+func set_blend_mode(id: int) -> void:
+	if _blend_mode != null:
+		_blend_mode.select(id)
+
+
+## Whether paint mode is active (LMB paints in viewport).
+func is_paint_mode() -> bool:
+	return _paint_toggle != null and _paint_toggle.button_pressed
+
+
+## Toggle paint mode on or off programmatically.
+func set_paint_mode(enabled: bool) -> void:
+	if _paint_toggle != null:
+		_paint_toggle.button_pressed = enabled
+
+
+func _on_paint_toggled() -> void:
+	# ponytail: could update viewport overlay hint here in future.
+	pass
 
 
 # ---------------------------------------------------------------------------

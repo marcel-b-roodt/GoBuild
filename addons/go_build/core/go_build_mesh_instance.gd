@@ -393,12 +393,3 @@ func _ensure_vertex_alpha_materials() -> void:
 			if has_alpha:
 				bmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
-
-## Check if any vertex colour has alpha below 1.0.
-## Used to decide whether to enable transparency on the material override.
-func _any_alpha_below_one(gbm: GoBuildMesh) -> bool:
-	for c: Color in gbm.vertex_colors:
-		if c.a < 0.999:
-			return true
-	return false
-

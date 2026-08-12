@@ -465,6 +465,48 @@ static func nearest_face_distance(
 	return best_t
 
 
+## Return the world-space hit point on the nearest face along the camera ray
+## through [param click_pos], or [constant Vector3.INF] if no face is hit.
+##
+## When [param cull_backfaces] is true, backfaces are skipped (same rule as
+## [method find_nearest_face]).
+##
+## This is a convenience wrapper around [method nearest_face_distance] that
+## reconstructs and transforms the hit point back to world space.
+static func nearest_face_world_hit(
+		camera: Camera3D,
+		click_pos: Vector2,
+		node: GoBuildMeshInstance,
+		gbm: GoBuildMesh,
+		cull_backfaces: bool = false,
+) -> Vector3:
+	var inv_gt: Transform3D = node.global_transform.affine_inverse()
+	var ray_origin: Vector3 = inv_gt * camera.project_ray_origin(click_pos)
+	var ray_dir: Vector3 = (inv_gt.basis * camera.project_ray_normal(click_pos)).normalized()
+	var best_t: float = INF
+	var best_idx: int = -1
+	for idx: int in gbm.faces.size():
+		var face: GoBuildFace = gbm.faces[idx]
+		if face.vertex_indices.size() < 3:
+			continue
+		if cull_backfaces:
+			var face_normal: Vector3 = gbm.compute_face_normal(face)
+			if ray_dir.dot(face_normal) >= 0.0:
+				continue
+		var v0: Vector3 = gbm.vertices[face.vertex_indices[0]]
+		for tri: int in range(face.vertex_indices.size() - 2):
+			var v1: Vector3 = gbm.vertices[face.vertex_indices[tri + 1]]
+			var v2: Vector3 = gbm.vertices[face.vertex_indices[tri + 2]]
+			var t: float = ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
+			if t >= 0.0 and t < best_t:
+				best_t = t
+				best_idx = idx
+	if best_idx < 0:
+		return Vector3.INF
+	var local_hit: Vector3 = ray_origin + ray_dir * best_t
+	return node.to_global(local_hit)
+
+
 # ---------------------------------------------------------------------------
 # Box / rect picking  (camera-dependent; scene-runner tests deferred)
 # ---------------------------------------------------------------------------
