@@ -168,3 +168,65 @@ static func set_vertices(
 		if vi < 0 or vi >= mesh.vertices.size():
 			continue
 		arr[vi] = _blend(arr[vi], color, blend_mode, channel_mask)
+
+
+# ---------------------------------------------------------------------------
+# Isolate view helpers — pure data operations for channel swapping
+# ---------------------------------------------------------------------------
+
+## Copy [param target] channel data into [member GoBuildMesh.vertex_colors] so the
+## shader can read it from the COLOR attribute, and return the original vertex_colors
+## as a stash for later restoration via [method restore_vertex_colors].
+##
+## This is a pure data operation on [GoBuildMesh] with no scene-tree dependency.
+## The caller is responsible for calling [method _ensure_channel] before this if
+## the channel might not exist yet.
+static func swap_channel_to_vertex_colors(mesh: GoBuildMesh, target: TargetChannel) -> Array[Color]:
+	if mesh == null:
+		return []
+	var src: Array[Color] = _get_channel(mesh, target)
+	if src.is_empty():
+		_ensure_channel(mesh, target)
+		src = _get_channel(mesh, target)
+	var stash: Array[Color] = []
+	stash.resize(mesh.vertex_colors.size())
+	for i: int in mesh.vertex_colors.size():
+		stash[i] = mesh.vertex_colors[i]
+	mesh.vertex_colors.clear()
+	mesh.vertex_colors.resize(mesh.vertices.size())
+	for i: int in mesh.vertices.size():
+		mesh.vertex_colors[i] = src[i] if i < src.size() else Color()
+	return stash
+
+
+## Restore [member GoBuildMesh.vertex_colors] from a stash returned by
+## [method swap_channel_to_vertex_colors].  Clears the stash after restoration.
+##
+## This is a pure data operation on [GoBuildMesh] with no scene-tree dependency.
+static func restore_vertex_colors(mesh: GoBuildMesh, stash: Array[Color]) -> void:
+	if mesh == null or stash.is_empty():
+		return
+	mesh.vertex_colors.clear()
+	mesh.vertex_colors.resize(stash.size())
+	for i: int in stash.size():
+		mesh.vertex_colors[i] = stash[i]
+	stash.clear()
+
+
+## Copy [param target] channel data into [member GoBuildMesh.vertex_colors] without
+## stashing originals.  Used during painting when the originals are already stashed
+## and the custom channel data has been updated by a brush dab.
+##
+## This is a pure data operation on [GoBuildMesh] with no scene-tree dependency.
+static func sync_channel_to_vertex_colors(mesh: GoBuildMesh, target: TargetChannel) -> void:
+	if mesh == null:
+		return
+	if target == TargetChannel.COLOR:
+		return
+	var src: Array[Color] = _get_channel(mesh, target)
+	if src.is_empty():
+		return
+	mesh.vertex_colors.clear()
+	mesh.vertex_colors.resize(mesh.vertices.size())
+	for i: int in mesh.vertices.size():
+		mesh.vertex_colors[i] = src[i] if i < src.size() else Color()

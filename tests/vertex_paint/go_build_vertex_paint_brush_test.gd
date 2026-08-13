@@ -7,6 +7,9 @@
 ##   - channel masking (R-only)
 ##   - zero radius hits nothing
 ##   - stroke lifecycle (begin/end/cancel)
+##   - custom channel targets (CUSTOM0–CUSTOM3)
+##   - custom channel blend and mask
+##   - painted_vertices dictionary with custom channels
 extends GdUnitTestSuite
 
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
@@ -163,3 +166,124 @@ func test_paint_returns_false_when_nothing_hit() -> void:
 		Color.RED, VertexColorOperation.BlendMode.MIX,
 		VertexColorOperation.CHANNEL_ALL, 1.0, painted)
 	assert_bool(result).is_false()
+
+
+# ---------------------------------------------------------------------------
+# Custom channel targets
+# ---------------------------------------------------------------------------
+
+func test_paint_custom0_target() -> void:
+	var mesh := _make_unit_cube()
+	GoBuildVertexPaintBrush.paint_vertices_in_radius(
+		mesh, Vector3.ZERO, 10.0,
+		Color.RED, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, 1.0, {},
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	assert_int(mesh.custom_channel_0.size()).is_equal(8)
+	for c: Color in mesh.custom_channel_0:
+		assert_color_equal(c, Color.RED)
+
+
+func test_paint_custom1_target() -> void:
+	var mesh := _make_unit_cube()
+	GoBuildVertexPaintBrush.paint_vertices_in_radius(
+		mesh, Vector3.ZERO, 10.0,
+		Color(0.0, 1.0, 0.0, 0.5), VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, 1.0, {},
+		VertexColorOperation.TargetChannel.CUSTOM1)
+	assert_int(mesh.custom_channel_1.size()).is_equal(8)
+	for c: Color in mesh.custom_channel_1:
+		assert_color_equal(c, Color(0.0, 1.0, 0.0, 0.5))
+
+
+func test_paint_custom2_target_partial_radius() -> void:
+	var mesh := _make_unit_cube()
+	GoBuildVertexPaintBrush.paint_vertices_in_radius(
+		mesh, Vector3(-0.5, -0.5, -0.5), 0.01,
+		Color.BLUE, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, 1.0, {},
+		VertexColorOperation.TargetChannel.CUSTOM2)
+	assert_int(mesh.custom_channel_2.size()).is_equal(8)
+	assert_color_equal(mesh.custom_channel_2[0], Color.BLUE)
+	for i: int in range(1, mesh.custom_channel_2.size()):
+		assert_color_equal(mesh.custom_channel_2[i], Color(0, 0, 0, 0))
+
+
+func test_paint_custom3_does_not_affect_vertex_colors() -> void:
+	var mesh := _make_unit_cube()
+	GoBuildVertexPaintBrush.paint_vertices_in_radius(
+		mesh, Vector3.ZERO, 10.0,
+		Color.RED, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, 1.0, {},
+		VertexColorOperation.TargetChannel.CUSTOM3)
+	for c: Color in mesh.vertex_colors:
+		assert_color_equal(c, Color.WHITE)
+
+
+func test_paint_custom_channel_add_blend() -> void:
+	var mesh := _make_unit_cube()
+	VertexColorOperation.fill_all(mesh, Color(0.5, 0.5, 0.5, 0.5),
+		VertexColorOperation.BlendMode.MIX, VertexColorOperation.CHANNEL_ALL,
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	GoBuildVertexPaintBrush.paint_vertices_in_radius(
+		mesh, Vector3.ZERO, 10.0,
+		Color(0.3, 0.3, 0.3, 0.3), VertexColorOperation.BlendMode.ADD,
+		VertexColorOperation.CHANNEL_ALL, 1.0, {},
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	for c: Color in mesh.custom_channel_0:
+		assert_color_equal(c, Color(0.8, 0.8, 0.8, 0.8))
+
+
+func test_paint_custom_channel_mask_g_only() -> void:
+	var mesh := _make_unit_cube()
+	VertexColorOperation.fill_all(mesh, Color(0, 0, 0, 0),
+		VertexColorOperation.BlendMode.MIX, VertexColorOperation.CHANNEL_ALL,
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	GoBuildVertexPaintBrush.paint_vertices_in_radius(
+		mesh, Vector3.ZERO, 10.0,
+		Color(1.0, 1.0, 1.0, 1.0), VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_G, 1.0, {},
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	for c: Color in mesh.custom_channel_0:
+		assert_float(c.g).is_equal_approx(1.0, 0.001)
+		assert_float(c.r).is_equal_approx(0.0, 0.001)
+		assert_float(c.b).is_equal_approx(0.0, 0.001)
+		assert_float(c.a).is_equal_approx(0.0, 0.001)
+
+
+func test_paint_custom_channel_strength_scales() -> void:
+	var mesh := _make_unit_cube()
+	GoBuildVertexPaintBrush.paint_vertices_in_radius(
+		mesh, Vector3.ZERO, 10.0,
+		Color.GREEN, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, 0.5, {},
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	for c: Color in mesh.custom_channel_0:
+		assert_color_equal(c, Color(0.0, 0.5, 0.0, 0.5))
+
+
+func test_paint_custom_channel_painted_dict_tracks_originals() -> void:
+	var mesh := _make_unit_cube()
+	VertexColorOperation.fill_all(mesh, Color(0.4, 0.4, 0.4, 0.4),
+		VertexColorOperation.BlendMode.MIX, VertexColorOperation.CHANNEL_ALL,
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	var painted: Dictionary = {}
+	GoBuildVertexPaintBrush.paint_vertices_in_radius(
+		mesh, Vector3.ZERO, 10.0,
+		Color.RED, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, 1.0, painted,
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	assert_int(painted.size()).is_equal(8)
+	for vi: int in painted:
+		assert_color_equal(painted[vi], Color(0.4, 0.4, 0.4, 0.4))
+
+
+func test_paint_color_target_default_is_vertex_colors() -> void:
+	var mesh := _make_unit_cube()
+	GoBuildVertexPaintBrush.paint_vertices_in_radius(
+		mesh, Vector3.ZERO, 10.0,
+		Color.RED, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, 1.0, {},
+		VertexColorOperation.TargetChannel.COLOR)
+	for c: Color in mesh.vertex_colors:
+		assert_color_equal(c, Color.RED)

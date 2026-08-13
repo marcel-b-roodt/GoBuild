@@ -494,7 +494,8 @@ func _on_paint_toggled() -> void:
 			if _target != null and _target.mesh_changed.is_connected(_on_target_mesh_changed):
 				_target.mesh_changed.disconnect(_on_target_mesh_changed)
 			_isolate_material = null
-			_restore_original_vertex_colors()
+			_isolate_original_colors = _VC_OP_SCRIPT_VP.restore_vertex_colors(
+				_target.go_build_mesh, _isolate_original_colors)
 		_restore_materials()
 		if gizmo_plugin != null:
 			gizmo_plugin.show_vertex_colors = false
@@ -751,15 +752,8 @@ func sync_isolate_vertex_colors() -> void:
 		return
 	if _isolate_original_colors.is_empty():
 		return
-	var gbm: GoBuildMesh = _target.go_build_mesh
-	var src: Array[Color] = _VC_OP_SCRIPT_VP._get_channel(
-		gbm, target as _VC_OP_SCRIPT_VP.TargetChannel)
-	if src.is_empty():
-		return
-	gbm.vertex_colors.clear()
-	gbm.vertex_colors.resize(gbm.vertices.size())
-	for i: int in gbm.vertices.size():
-		gbm.vertex_colors[i] = src[i] if i < src.size() else Color()
+	_VC_OP_SCRIPT_VP.sync_channel_to_vertex_colors(
+		_target.go_build_mesh, target as _VC_OP_SCRIPT_VP.TargetChannel)
 
 
 ## Lightweight refresh after a mesh bake.  Syncs custom channel vertex colours
@@ -774,13 +768,7 @@ func _refresh_isolate_after_bake() -> void:
 	# just re-apply the shader overrides on the new mesh.
 	if target != _VC_OP_SCRIPT_VP.TargetChannel.COLOR and not _isolate_original_colors.is_empty():
 		sync_isolate_vertex_colors()
-		# Disconnect to avoid recursive signal during re-bake.
-		var was_connected: bool = _target.mesh_changed.is_connected(_on_target_mesh_changed)
-		if was_connected:
-			_target.mesh_changed.disconnect(_on_target_mesh_changed)
-		_target.bake()
-		if was_connected:
-			_target.mesh_changed.connect(_on_target_mesh_changed)
+		_target.bake_silently()
 	_apply_isolate_overrides()
 
 
@@ -818,12 +806,10 @@ func _apply_isolate_view() -> void:
 
 	if not _isolate_active:
 		_isolate_material = null
-		_restore_original_vertex_colors()
+		_isolate_original_colors = _VC_OP_SCRIPT_VP.restore_vertex_colors(
+			_target.go_build_mesh, _isolate_original_colors)
 		_clear_material_overrides()
-		# Disconnect signal to avoid recursion during bake.
-		if _target.mesh_changed.is_connected(_on_target_mesh_changed):
-			_target.mesh_changed.disconnect(_on_target_mesh_changed)
-		_target.bake()
+		_target.bake_silently()
 		if _paint_toggle != null and _paint_toggle.button_pressed:
 			_apply_paint_materials()
 		return
@@ -843,7 +829,8 @@ func _apply_isolate_view() -> void:
 	# Restore original vertex_colors before potentially replacing them with a
 	# different custom channel.  Without this, switching from Custom 0 to Custom 1
 	# would stash Custom-0-as-vertex_colors as "original", losing the real colours.
-	_restore_original_vertex_colors()
+	_isolate_original_colors = _VC_OP_SCRIPT_VP.restore_vertex_colors(
+		_target.go_build_mesh, _isolate_original_colors)
 
 	# Ensure the target channel data exists before baking.
 	_VC_OP_SCRIPT_VP._ensure_channel(
@@ -853,7 +840,8 @@ func _apply_isolate_view() -> void:
 	# so the shader can read it from COLOR.  The original colors are stashed
 	# in _isolate_original_colors for restoration when isolate is turned off.
 	if target != _VC_OP_SCRIPT_VP.TargetChannel.COLOR:
-		_bake_custom_channel_to_vertex_colors(target)
+		_isolate_original_colors = _VC_OP_SCRIPT_VP.swap_channel_to_vertex_colors(
+			_target.go_build_mesh, target as _VC_OP_SCRIPT_VP.TargetChannel)
 
 	# Build or update the isolate shader material.
 	if _isolate_material == null or _isolate_material.shader == null:
@@ -865,12 +853,8 @@ func _apply_isolate_view() -> void:
 	_isolate_material.set_shader_parameter("greyscale", greyscale)
 
 	# Bake the real mesh so vertex colors are up to date, then apply overrides.
-	if _target.mesh_changed.is_connected(_on_target_mesh_changed):
-		_target.mesh_changed.disconnect(_on_target_mesh_changed)
-	_target.bake()
+	_target.bake_silently()
 	_apply_isolate_overrides()
-	if not _target.mesh_changed.is_connected(_on_target_mesh_changed):
-		_target.mesh_changed.connect(_on_target_mesh_changed)
 
 
 ## Apply the stored isolate shader material as surface overrides on the current mesh.
@@ -884,41 +868,6 @@ func _apply_isolate_overrides() -> void:
 		return
 	for si: int in am.get_surface_count():
 		_target.set_surface_override_material(si, _isolate_material)
-
-
-## Copy the target custom channel data into [member GoBuildMesh.vertex_colors]
-## so the shader can read it from the COLOR attribute.  Stashes the original
-## vertex_colors for restoration when isolate is turned off.
-func _bake_custom_channel_to_vertex_colors(target: int) -> void:
-	var gbm: GoBuildMesh = _target.go_build_mesh
-	var src: Array[Color] = _VC_OP_SCRIPT_VP._get_channel(
-		gbm, target as _VC_OP_SCRIPT_VP.TargetChannel)
-	if src.is_empty():
-		_VC_OP_SCRIPT_VP._ensure_channel(gbm, target as _VC_OP_SCRIPT_VP.TargetChannel)
-		src = _VC_OP_SCRIPT_VP._get_channel(gbm, target as _VC_OP_SCRIPT_VP.TargetChannel)
-	# Stash original vertex_colors so we can restore them when isolate is turned off.
-	_isolate_original_colors.clear()
-	_isolate_original_colors.resize(gbm.vertex_colors.size())
-	for i: int in gbm.vertex_colors.size():
-		_isolate_original_colors[i] = gbm.vertex_colors[i]
-	gbm.vertex_colors.clear()
-	gbm.vertex_colors.resize(gbm.vertices.size())
-	for i: int in gbm.vertices.size():
-		gbm.vertex_colors[i] = src[i] if i < src.size() else Color()
-
-
-## Restore vertex_colors that were stashed by [method _bake_custom_channel_to_vertex_colors].
-func _restore_original_vertex_colors() -> void:
-	if _target == null or _target.go_build_mesh == null:
-		return
-	if _isolate_original_colors.is_empty():
-		return
-	var gbm: GoBuildMesh = _target.go_build_mesh
-	gbm.vertex_colors.clear()
-	gbm.vertex_colors.resize(_isolate_original_colors.size())
-	for i: int in _isolate_original_colors.size():
-		gbm.vertex_colors[i] = _isolate_original_colors[i]
-	_isolate_original_colors.clear()
 
 
 func _on_fill_all_pressed() -> void:

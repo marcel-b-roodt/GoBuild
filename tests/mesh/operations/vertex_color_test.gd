@@ -310,6 +310,144 @@ func test_bake_omits_empty_custom_channels() -> void:
 
 
 # ---------------------------------------------------------------------------
+# Isolate channel swap / restore / sync (pure data helpers)
+# ---------------------------------------------------------------------------
+
+func test_swap_channel_to_vertex_colors_stashes_originals() -> void:
+	var mesh := _make_quad()
+	mesh.vertex_colors[0] = Color.RED
+	mesh.vertex_colors[1] = Color.GREEN
+	VertexColorOperation.fill_all(mesh, Color.BLUE, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, VertexColorOperation.TargetChannel.CUSTOM0)
+	var stash: Array[Color] = VertexColorOperation.swap_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.CUSTOM0)
+	assert_int(stash.size()).is_equal(4)
+	assert_color_equal(stash[0], Color.RED)
+	assert_color_equal(stash[1], Color.GREEN)
+	assert_color_equal(stash[2], Color.WHITE)
+	assert_color_equal(stash[3], Color.WHITE)
+
+
+func test_swap_channel_copies_custom_data_into_vertex_colors() -> void:
+	var mesh := _make_quad()
+	VertexColorOperation.fill_all(mesh, Color(0.5, 0.0, 0.0, 0.0),
+		VertexColorOperation.BlendMode.MIX, VertexColorOperation.CHANNEL_ALL,
+		VertexColorOperation.TargetChannel.CUSTOM1)
+	VertexColorOperation.swap_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.CUSTOM1)
+	for c: Color in mesh.vertex_colors:
+		assert_color_equal(c, Color(0.5, 0.0, 0.0, 0.0))
+
+
+func test_swap_channel_color_target_is_noop_on_vertex_colors() -> void:
+	var mesh := _make_quad()
+	mesh.vertex_colors[0] = Color.RED
+	var stash: Array[Color] = VertexColorOperation.swap_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.COLOR)
+	assert_color_equal(mesh.vertex_colors[0], Color.RED)
+	assert_int(stash.size()).is_equal(4)
+
+
+func test_swap_channel_auto_ensures_channel() -> void:
+	var mesh := _make_quad()
+	assert_int(mesh.custom_channel_2.size()).is_equal(0)
+	VertexColorOperation.swap_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.CUSTOM2)
+	assert_int(mesh.custom_channel_2.size()).is_equal(4)
+	assert_int(mesh.vertex_colors.size()).is_equal(4)
+
+
+func test_restore_vertex_colors_from_stash() -> void:
+	var mesh := _make_quad()
+	mesh.vertex_colors[0] = Color.RED
+	mesh.vertex_colors[1] = Color.GREEN
+	VertexColorOperation.fill_all(mesh, Color.BLUE, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, VertexColorOperation.TargetChannel.CUSTOM0)
+	var stash: Array[Color] = VertexColorOperation.swap_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.CUSTOM0)
+	for c: Color in mesh.vertex_colors:
+		assert_color_equal(c, Color.BLUE)
+	VertexColorOperation.restore_vertex_colors(mesh, stash)
+	assert_color_equal(mesh.vertex_colors[0], Color.RED)
+	assert_color_equal(mesh.vertex_colors[1], Color.GREEN)
+	assert_color_equal(mesh.vertex_colors[2], Color.WHITE)
+	assert_color_equal(mesh.vertex_colors[3], Color.WHITE)
+
+
+func test_restore_vertex_colors_clears_stash() -> void:
+	var mesh := _make_quad()
+	var stash: Array[Color] = VertexColorOperation.swap_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.CUSTOM0)
+	assert_int(stash.size()).is_equal(4)
+	VertexColorOperation.restore_vertex_colors(mesh, stash)
+	assert_int(stash.size()).is_equal(0)
+
+
+func test_restore_vertex_colors_empty_stash_is_noop() -> void:
+	var mesh := _make_quad()
+	mesh.vertex_colors[0] = Color.RED
+	var empty_stash: Array[Color] = []
+	VertexColorOperation.restore_vertex_colors(mesh, empty_stash)
+	assert_color_equal(mesh.vertex_colors[0], Color.RED)
+
+
+func test_restore_vertex_colors_null_mesh_is_noop() -> void:
+	var stash: Array[Color] = [Color.RED]
+	VertexColorOperation.restore_vertex_colors(null, stash)
+	assert_int(stash.size()).is_equal(1)
+
+
+func test_sync_channel_to_vertex_colors() -> void:
+	var mesh := _make_quad()
+	VertexColorOperation.fill_all(mesh, Color(0.7, 0.0, 0.0, 0.0),
+		VertexColorOperation.BlendMode.MIX, VertexColorOperation.CHANNEL_ALL,
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	mesh.vertex_colors.clear()
+	mesh.vertex_colors.resize(4)
+	mesh.vertex_colors.fill(Color.WHITE)
+	VertexColorOperation.sync_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.CUSTOM0)
+	for c: Color in mesh.vertex_colors:
+		assert_color_equal(c, Color(0.7, 0.0, 0.0, 0.0))
+
+
+func test_sync_channel_color_target_is_noop() -> void:
+	var mesh := _make_quad()
+	mesh.vertex_colors[0] = Color.RED
+	VertexColorOperation.sync_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.COLOR)
+	assert_color_equal(mesh.vertex_colors[0], Color.RED)
+
+
+func test_sync_channel_empty_custom_channel_is_noop() -> void:
+	var mesh := _make_quad()
+	mesh.vertex_colors[0] = Color.RED
+	VertexColorOperation.sync_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.CUSTOM3)
+	assert_color_equal(mesh.vertex_colors[0], Color.RED)
+
+
+func test_swap_then_modify_then_restore() -> void:
+	var mesh := _make_two_quads()
+	mesh.vertex_colors[0] = Color.RED
+	mesh.vertex_colors[1] = Color.GREEN
+	VertexColorOperation.fill_all(mesh, Color(0.0, 0.0, 0.0, 0.0),
+		VertexColorOperation.BlendMode.MIX, VertexColorOperation.CHANNEL_ALL,
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	var stash: Array[Color] = VertexColorOperation.swap_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.CUSTOM0)
+	VertexColorOperation.fill_all(mesh, Color.YELLOW, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, VertexColorOperation.TargetChannel.CUSTOM0)
+	VertexColorOperation.sync_channel_to_vertex_colors(
+		mesh, VertexColorOperation.TargetChannel.CUSTOM0)
+	for c: Color in mesh.vertex_colors:
+		assert_color_equal(c, Color.YELLOW)
+	VertexColorOperation.restore_vertex_colors(mesh, stash)
+	assert_color_equal(mesh.vertex_colors[0], Color.RED)
+	assert_color_equal(mesh.vertex_colors[1], Color.GREEN)
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 

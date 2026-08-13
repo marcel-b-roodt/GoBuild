@@ -529,6 +529,15 @@ func _pad_or_trim_per_vertex_data(arr: Array[Color], default_val: Color) -> void
 		arr.resize(n)
 
 
+## Whether any vertex colour has alpha below 1.0.
+## Used to decide whether to enable transparency on material overrides.
+func has_alpha_below_one() -> bool:
+	for c: Color in vertex_colors:
+		if c.a < 0.999:
+			return true
+	return false
+
+
 ## Copy the colour and custom-channel data from vertex [param src_vi] to a
 ## newly appended vertex.  Call this after [code]vertices.append()[/code] in any
 ## operation that creates new vertices so per-vertex data stays parallel.

@@ -84,14 +84,28 @@ func _ready() -> void:
 ## Rebuild the [ArrayMesh] from [member go_build_mesh] and apply it to this node.
 ## Call this after any mutation to the GoBuildMesh data.
 func bake() -> void:
+	_bake_internal(true)
+
+
+## Same as [method bake] but does not emit [signal mesh_changed].
+## Use when the caller needs to modify the mesh and then do additional work
+## before external observers should react — avoids disconnect/reconnect dances.
+func bake_silently() -> void:
+	_bake_internal(false)
+
+
+func _bake_internal(emit_changed: bool) -> void:
 	if go_build_mesh == null:
 		mesh = null
+		if emit_changed:
+			mesh_changed.emit()
 		return
 	mesh = go_build_mesh.bake()
 	_ensure_vertex_alpha_materials()
 	if _edit_cull_override:
 		_apply_cull_overrides()
-	mesh_changed.emit()
+	if emit_changed:
+		mesh_changed.emit()
 
 
 ## Rebuild the mesh in-place when possible, avoiding [member mesh] reassignment.
@@ -339,7 +353,7 @@ func _apply_cull_overrides() -> void:
 		return
 	var has_alpha: bool = go_build_mesh != null \
 		and go_build_mesh.vertex_colors.size() == go_build_mesh.vertices.size() \
-		and _any_alpha_below_one(go_build_mesh)
+		and go_build_mesh.has_alpha_below_one()
 	for i: int in am.get_surface_count():
 		var orig: Material = am.surface_get_material(i)
 		if orig is BaseMaterial3D:
@@ -356,15 +370,6 @@ func _apply_cull_overrides() -> void:
 			mat.albedo_color = Color(0.7, 0.85, 1.0, 0.6)
 			mat.vertex_color_use_as_albedo = true
 			set_surface_override_material(i, mat)
-
-
-## Check if any vertex colour has alpha below 1.0.
-## Used to decide whether to enable transparency on the material override.
-func _any_alpha_below_one(gbm: GoBuildMesh) -> bool:
-	for c: Color in gbm.vertex_colors:
-		if c.a < 0.999:
-			return true
-	return false
 
 
 ## Clear all surface override materials set by [method _apply_cull_overrides].
@@ -385,7 +390,7 @@ func _ensure_vertex_alpha_materials() -> void:
 	var has_colors: bool = go_build_mesh.vertex_colors.size() == go_build_mesh.vertices.size()
 	if not has_colors:
 		return
-	var has_alpha: bool = _any_alpha_below_one(go_build_mesh)
+	var has_alpha: bool = go_build_mesh.has_alpha_below_one()
 	for mat: Material in go_build_mesh.material_slots:
 		if mat is BaseMaterial3D:
 			var bmat: BaseMaterial3D = mat as BaseMaterial3D
