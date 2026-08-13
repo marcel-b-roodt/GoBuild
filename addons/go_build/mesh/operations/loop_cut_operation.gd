@@ -301,19 +301,15 @@ static func _cut_ring(
 		# so that the same directed edge always maps to the same key.
 		var key_entry: String = "%d_%d_%d_%.6f" % [mini(va, vb), maxi(va, vb), mini(va, vb), t]
 		if not cut_verts.has(key_entry):
-			cut_verts[key_entry] = mesh.vertices.size()
-			mesh.vertices.append(mesh.vertices[va].lerp(mesh.vertices[vb], t))
-			if not mesh.vertex_colors.is_empty():
-				mesh.vertex_colors.append(mesh.vertex_colors[va].lerp(mesh.vertex_colors[vb], t))
+			var pos_e: Vector3 = mesh.vertices[va].lerp(mesh.vertices[vb], t)
+			cut_verts[key_entry] = mesh.append_vertex_lerp(va, vb, pos_e, t)
 		var m_entry: int = cut_verts[key_entry]
 
 		# Far-edge cut: lerp(opp_va→opp_vb, t).
 		var key_far: String = "%d_%d_%d_%.6f" % [mini(ova, ovb), maxi(ova, ovb), mini(ova, ovb), t]
 		if not cut_verts.has(key_far):
-			cut_verts[key_far] = mesh.vertices.size()
-			mesh.vertices.append(mesh.vertices[ova].lerp(mesh.vertices[ovb], t))
-			if not mesh.vertex_colors.is_empty():
-				mesh.vertex_colors.append(mesh.vertex_colors[ova].lerp(mesh.vertex_colors[ovb], t))
+			var pos_f: Vector3 = mesh.vertices[ova].lerp(mesh.vertices[ovb], t)
+			cut_verts[key_far] = mesh.append_vertex_lerp(ova, ovb, pos_f, t)
 		var m_far: int = cut_verts[key_far]
 
 		# Determine winding.

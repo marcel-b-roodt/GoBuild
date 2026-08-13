@@ -426,17 +426,35 @@ func _draw_vertices(
 	# Determine whether the coincident-group map is ready.
 	var has_groups: bool = gbm.coincident_groups.size() == gbm.vertices.size()
 
-	# group_id → { "pos": Vector3, "selected": bool }
+	# When paint mode is active, tint unselected vertex cubes by their vertex colour.
+	var plugin = _manual_plugin_ref if _manual_plugin_ref != null else get_plugin()
+	var paint_mode: bool = plugin != null and plugin.show_vertex_colors
+	var has_colors: bool = paint_mode and gbm.vertex_colors.size() == gbm.vertices.size()
+	var colors_normal := PackedColorArray()
+
+	# group_id → { "pos": Vector3, "selected": bool, "color": Color, "count": int }
 	var group_data: Dictionary = {}
 
 	for idx: int in gbm.vertices.size():
 		var group_id: int = gbm.coincident_groups[idx] if has_groups else idx
 		var is_sel: bool = sel.is_vertex_selected(idx)
+		var vert_color: Color = gbm.vertex_colors[idx] if has_colors else Color.WHITE
 		if group_data.has(group_id):
 			if is_sel and not group_data[group_id]["selected"]:
 				group_data[group_id]["selected"] = true
+			# ponytail: average colours of coincident vertices for a representative tint
+			if has_colors:
+				var prev: Color = group_data[group_id]["color"]
+				var count: int = group_data[group_id]["count"]
+				group_data[group_id]["color"] = prev.lerp(vert_color, 1.0 / (count + 1))
+				group_data[group_id]["count"] = count + 1
 		else:
-			group_data[group_id] = { "pos": gbm.vertices[idx], "selected": is_sel }
+			group_data[group_id] = {
+				"pos": gbm.vertices[idx],
+				"selected": is_sel,
+				"color": vert_color,
+				"count": 1,
+			}
 
 	for entry: Dictionary in group_data.values():
 		var cube := _solid_cube_tris_at(entry["pos"], cube_half)
@@ -444,14 +462,25 @@ func _draw_vertices(
 			fill_selected.append_array(cube)
 		else:
 			fill_normal.append_array(cube)
+			if has_colors:
+				var c: Color = entry["color"]
+				for _i: int in range(36):
+					colors_normal.append(c)
 
 	if not fill_normal.is_empty():
 		var arrays: Array = []
 		arrays.resize(Mesh.ARRAY_MAX)
 		arrays[Mesh.ARRAY_VERTEX] = fill_normal
+		if has_colors:
+			arrays[Mesh.ARRAY_COLOR] = colors_normal
 		var m := ArrayMesh.new()
 		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		add_mesh(m, mat_normal)
+		if has_colors:
+			var mat_vc: Material = plugin.mat_vertex_colored \
+					if not plugin.xray_mode else plugin.mat_vertex_colored_depth
+			add_mesh(m, mat_vc)
+		else:
+			add_mesh(m, mat_normal)
 	if not fill_selected.is_empty():
 		var arrays: Array = []
 		arrays.resize(Mesh.ARRAY_MAX)
@@ -459,8 +488,8 @@ func _draw_vertices(
 		var ms := ArrayMesh.new()
 		ms.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		add_mesh(ms, mat_selected)
-	GoBuildDebug.log("[GoBuild] GIZMO._draw_vertices  n=%d  sel=%d  half=%.4f" \
-			% [fill_normal.size(), fill_selected.size(), cube_half])
+	GoBuildDebug.log("[GoBuild] GIZMO._draw_vertices  n=%d  sel=%d  half=%.4f  colors=%s" \
+			% [fill_normal.size(), fill_selected.size(), cube_half, str(has_colors)])
 
 
 ## Draw face overlays in Face mode.

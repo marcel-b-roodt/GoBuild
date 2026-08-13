@@ -28,6 +28,16 @@ const _TRIANGULATE_SCRIPT := preload("res://addons/go_build/mesh/triangulate.gd"
 ## emits an [code]ARRAY_COLOR[/code] channel in the [ArrayMesh].
 @export var vertex_colors: Array[Color] = []
 
+## Per-vertex custom float4 channels, parallel to [member vertices].
+## Each channel is an [Array][Color] where R/G/B/A map to float4 components.
+## When non-empty and [code]size() == vertices.size()[/code], the bake pipeline
+## emits the corresponding [code]ARRAY_CUSTOMN[/code] channel in the [ArrayMesh].
+## Default value is [code]Color(0, 0, 0, 0)[/code] (zero, not white).
+@export var custom_channel_0: Array[Color] = []
+@export var custom_channel_1: Array[Color] = []
+@export var custom_channel_2: Array[Color] = []
+@export var custom_channel_3: Array[Color] = []
+
 ## All faces. Each [GoBuildFace] references vertex positions by index.
 @export var faces: Array[GoBuildFace] = []
 
@@ -143,11 +153,31 @@ func _bake_into(array_mesh: ArrayMesh) -> void:
 			smooth_normals[vi][rid] = (smooth_normals[vi][rid] as Vector3).normalized()
 
 	# One surface per material index.
+	var has_cc0: bool = custom_channel_0.size() == vertices.size()
+	var has_cc1: bool = custom_channel_1.size() == vertices.size()
+	var has_cc2: bool = custom_channel_2.size() == vertices.size()
+	var has_cc3: bool = custom_channel_3.size() == vertices.size()
+
 	for mat_idx in _collect_material_indices():
 		var surface_arrays := _build_surface(mat_idx, face_normals, face_region, smooth_normals)
 		if surface_arrays.is_empty():
 			continue
-		array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_arrays)
+		# Build format flags from what the surface actually contains.
+		# Presence bits for custom channels (RGBA8_UNORM = format 0, no shift bits needed).
+		var has_colors: bool = vertex_colors.size() == vertices.size()
+		var flags: int = Mesh.ARRAY_FORMAT_VERTEX | Mesh.ARRAY_FORMAT_NORMAL \
+				| Mesh.ARRAY_FORMAT_TEX_UV | Mesh.ARRAY_FORMAT_TEX_UV2
+		if has_colors:
+			flags |= Mesh.ARRAY_FORMAT_COLOR
+		if has_cc0:
+			flags |= Mesh.ARRAY_FORMAT_CUSTOM0
+		if has_cc1:
+			flags |= Mesh.ARRAY_FORMAT_CUSTOM1
+		if has_cc2:
+			flags |= Mesh.ARRAY_FORMAT_CUSTOM2
+		if has_cc3:
+			flags |= Mesh.ARRAY_FORMAT_CUSTOM3
+		array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface_arrays, [], {}, flags)
 		var surf_idx: int = array_mesh.get_surface_count() - 1
 		if mat_idx < material_slots.size() and material_slots[mat_idx] != null:
 			array_mesh.surface_set_material(surf_idx, material_slots[mat_idx])
@@ -271,6 +301,16 @@ func _build_surface(
 	var colors_p := PackedColorArray()
 	var has_colors: bool = vertex_colors.size() == vertices.size()
 
+	# ponytail: custom channels are RGBA8_UNORM — must be PackedByteArray for Godot.
+	var cc_arrays: Array[PackedByteArray] = []
+	cc_arrays.resize(4)
+	var cc_active: Array[bool] = []
+	cc_active.resize(4)
+	cc_active[0] = custom_channel_0.size() == vertices.size()
+	cc_active[1] = custom_channel_1.size() == vertices.size()
+	cc_active[2] = custom_channel_2.size() == vertices.size()
+	cc_active[3] = custom_channel_3.size() == vertices.size()
+
 	for fi in faces.size():
 		var face: GoBuildFace = faces[fi]
 		if face.material_index != mat_idx:
@@ -309,6 +349,16 @@ func _build_surface(
 				if has_colors:
 					colors_p.append(vertex_colors[vi])
 
+				# Custom channels — per-vertex float4, encoded as RGBA8 bytes.
+				if cc_active[0]:
+					_color_to_rgba8(custom_channel_0[vi], cc_arrays[0])
+				if cc_active[1]:
+					_color_to_rgba8(custom_channel_1[vi], cc_arrays[1])
+				if cc_active[2]:
+					_color_to_rgba8(custom_channel_2[vi], cc_arrays[2])
+				if cc_active[3]:
+					_color_to_rgba8(custom_channel_3[vi], cc_arrays[3])
+
 	if verts.is_empty():
 		return []
 
@@ -320,7 +370,27 @@ func _build_surface(
 	arrays[Mesh.ARRAY_TEX_UV2] = uv2s_p
 	if has_colors:
 		arrays[Mesh.ARRAY_COLOR] = colors_p
+	if cc_active[0]:
+		arrays[Mesh.ARRAY_CUSTOM0] = cc_arrays[0]
+	if cc_active[1]:
+		arrays[Mesh.ARRAY_CUSTOM1] = cc_arrays[1]
+	if cc_active[2]:
+		arrays[Mesh.ARRAY_CUSTOM2] = cc_arrays[2]
+	if cc_active[3]:
+		arrays[Mesh.ARRAY_CUSTOM3] = cc_arrays[3]
 	return arrays
+
+
+## Encode a [Color] as 4 bytes (RGBA8) appended to [param buf].
+## Godot's [constant Mesh.ARRAY_CUSTOM0]–[constant Mesh.ARRAY_CUSTOM3] with
+## RGBA8_UNORM format require [PackedByteArray], not [PackedColorArray].
+static func _color_to_rgba8(c: Color, buf: PackedByteArray) -> void:
+	buf.append_array(PackedByteArray([
+		roundi(c.r * 255.0),
+		roundi(c.g * 255.0),
+		roundi(c.b * 255.0),
+		roundi(c.a * 255.0),
+	]))
 
 
 # ---------------------------------------------------------------------------
@@ -441,12 +511,65 @@ func rebuild_edges() -> void:
 func _sync_vertex_colors() -> void:
 	if vertex_colors.is_empty():
 		return
+	_pad_or_trim_per_vertex_data(vertex_colors, Color.WHITE)
+	for cc_name in ["custom_channel_0", "custom_channel_1", "custom_channel_2", "custom_channel_3"]:
+		if self[cc_name].is_empty():
+			continue
+		_pad_or_trim_per_vertex_data(self[cc_name], Color(0.0, 0.0, 0.0, 0.0))
+
+
+## Pad [param arr] with [param default_val] to match [member vertices].size(),
+## or trim it if it's too long.  Used for vertex_colors and custom channels.
+func _pad_or_trim_per_vertex_data(arr: Array[Color], default_val: Color) -> void:
 	var n: int = vertices.size()
-	if vertex_colors.size() < n:
-		for i: int in range(vertex_colors.size(), n):
-			vertex_colors.append(Color.WHITE)
-	elif vertex_colors.size() > n:
-		vertex_colors.resize(n)
+	if arr.size() < n:
+		for i: int in range(arr.size(), n):
+			arr.append(default_val)
+	elif arr.size() > n:
+		arr.resize(n)
+
+
+## Copy the colour and custom-channel data from vertex [param src_vi] to a
+## newly appended vertex.  Call this after [code]vertices.append()[/code] in any
+## operation that creates new vertices so per-vertex data stays parallel.
+## Returns the index of the new vertex (i.e. [code]vertices.size() - 1[/code]).
+func append_vertex_from(src_vi: int, position: Vector3) -> int:
+	vertices.append(position)
+	if not vertex_colors.is_empty():
+		vertex_colors.append(vertex_colors[src_vi])
+	for cc_name in ["custom_channel_0", "custom_channel_1", "custom_channel_2", "custom_channel_3"]:
+		var cc: Array[Color] = self[cc_name]
+		if not cc.is_empty():
+			cc.append(cc[src_vi])
+	return vertices.size() - 1
+
+
+## Interpolate colour and custom-channel data between two vertices and append
+## a new vertex at the lerp [param position].  [param t] is 0–1, 0 = src_a, 1 = src_b.
+## Returns the index of the new vertex.
+func append_vertex_lerp(src_a: int, src_b: int, position: Vector3, t: float) -> int:
+	vertices.append(position)
+	if not vertex_colors.is_empty():
+		vertex_colors.append(vertex_colors[src_a].lerp(vertex_colors[src_b], t))
+	for cc_name in ["custom_channel_0", "custom_channel_1", "custom_channel_2", "custom_channel_3"]:
+		var cc: Array[Color] = self[cc_name]
+		if not cc.is_empty():
+			cc.append(cc[src_a].lerp(cc[src_b], t))
+	return vertices.size() - 1
+
+
+## Append a new vertex at [param position] with default per-vertex data
+## (white for colour, zero for custom channels).
+## Returns the index of the new vertex.
+func append_vertex_default(position: Vector3) -> int:
+	vertices.append(position)
+	if not vertex_colors.is_empty():
+		vertex_colors.append(Color.WHITE)
+	for cc_name in ["custom_channel_0", "custom_channel_1", "custom_channel_2", "custom_channel_3"]:
+		var cc: Array[Color] = self[cc_name]
+		if not cc.is_empty():
+			cc.append(Color(0.0, 0.0, 0.0, 0.0))
+	return vertices.size() - 1
 
 
 # ---------------------------------------------------------------------------
@@ -813,12 +936,25 @@ func take_snapshot() -> Dictionary:
 	var colors_copy: Array[Color] = []
 	colors_copy.assign(vertex_colors)
 
+	var cc0_copy: Array[Color] = []
+	cc0_copy.assign(custom_channel_0)
+	var cc1_copy: Array[Color] = []
+	cc1_copy.assign(custom_channel_1)
+	var cc2_copy: Array[Color] = []
+	cc2_copy.assign(custom_channel_2)
+	var cc3_copy: Array[Color] = []
+	cc3_copy.assign(custom_channel_3)
+
 	return {
 		"vertices": verts_copy,
 		"faces": faces_copy,
 		"material_slots": slots_copy,
 		"hard_edge_pairs": pairs_copy,
 		"vertex_colors": colors_copy,
+		"custom_channel_0": cc0_copy,
+		"custom_channel_1": cc1_copy,
+		"custom_channel_2": cc2_copy,
+		"custom_channel_3": cc3_copy,
 	}
 
 
@@ -849,5 +985,10 @@ func restore_snapshot(snapshot: Dictionary) -> void:
 		vertex_colors.assign(snapshot["vertex_colors"])
 	else:
 		vertex_colors.clear()
+	for cc_name in ["custom_channel_0", "custom_channel_1", "custom_channel_2", "custom_channel_3"]:
+		if snapshot.has(cc_name):
+			self[cc_name].assign(snapshot[cc_name])
+		else:
+			self[cc_name].clear()
 	rebuild_edges()
 

@@ -6,7 +6,7 @@
 ##   - set_vertices: paint specific vertices
 ##   - Blend modes: Mix, Add, Subtract, Multiply
 ##   - Channel masking: R-only, G-only, RGB, etc.
-##   - _ensure_colors: lazy init from white defaults
+##   - _ensure_channel: lazy init (white for COLOR, zero for custom)
 extends GdUnitTestSuite
 
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
@@ -216,10 +216,10 @@ func test_channel_mask_a_only() -> void:
 
 
 # ---------------------------------------------------------------------------
-# _ensure_colors
+# _ensure_channel
 # ---------------------------------------------------------------------------
 
-func test_ensure_colors_initializes_white() -> void:
+func test_ensure_channel_initializes_white_for_color() -> void:
 	var mesh := GoBuildMesh.new()
 	mesh.vertices = [Vector3.ZERO, Vector3.RIGHT, Vector3.FORWARD]
 	var f := GoBuildFace.new()
@@ -232,6 +232,81 @@ func test_ensure_colors_initializes_white() -> void:
 	assert_color_equal(mesh.vertex_colors[0], Color.RED)
 	assert_color_equal(mesh.vertex_colors[1], Color.RED)
 	assert_color_equal(mesh.vertex_colors[2], Color.RED)
+
+
+func test_ensure_channel_initializes_zero_for_custom() -> void:
+	var mesh := GoBuildMesh.new()
+	mesh.vertices = [Vector3.ZERO, Vector3.RIGHT, Vector3.FORWARD]
+	var f := GoBuildFace.new()
+	f.vertex_indices = [0, 1, 2]
+	f.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
+	mesh.faces.append(f)
+	assert_int(mesh.custom_channel_0.size()).is_equal(0)
+	VertexColorOperation.fill_all(mesh, Color.RED, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, VertexColorOperation.TargetChannel.CUSTOM0)
+	assert_int(mesh.custom_channel_0.size()).is_equal(3)
+	assert_color_equal(mesh.custom_channel_0[0], Color.RED)
+	assert_color_equal(mesh.custom_channel_0[1], Color.RED)
+	assert_color_equal(mesh.custom_channel_0[2], Color.RED)
+
+
+func test_fill_faces_custom_channel() -> void:
+	var mesh := _make_two_quads()
+	VertexColorOperation.fill_faces(mesh, [0], Color.RED, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, VertexColorOperation.TargetChannel.CUSTOM1)
+	assert_color_equal(mesh.custom_channel_1[0], Color.RED)
+	assert_color_equal(mesh.custom_channel_1[1], Color.RED)
+	assert_color_equal(mesh.custom_channel_1[2], Color.RED)
+	assert_color_equal(mesh.custom_channel_1[3], Color.RED)
+	assert_color_equal(mesh.custom_channel_1[4], Color(0, 0, 0, 0))
+	assert_color_equal(mesh.custom_channel_1[5], Color(0, 0, 0, 0))
+
+
+func test_set_vertices_custom_channel() -> void:
+	var mesh := _make_quad()
+	VertexColorOperation.set_vertices(mesh, [0, 2], Color.GREEN, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, VertexColorOperation.TargetChannel.CUSTOM2)
+	assert_color_equal(mesh.custom_channel_2[0], Color.GREEN)
+	assert_color_equal(mesh.custom_channel_2[1], Color(0, 0, 0, 0))
+	assert_color_equal(mesh.custom_channel_2[2], Color.GREEN)
+	assert_color_equal(mesh.custom_channel_2[3], Color(0, 0, 0, 0))
+
+
+func test_custom_channel_blend_mode_add() -> void:
+	var mesh := _make_quad()
+	VertexColorOperation.fill_all(mesh, Color(0.5, 0.5, 0.5, 0.5), VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, VertexColorOperation.TargetChannel.CUSTOM0)
+	VertexColorOperation.fill_all(mesh, Color(0.3, 0.3, 0.3, 0.3), VertexColorOperation.BlendMode.ADD,
+		VertexColorOperation.CHANNEL_ALL, VertexColorOperation.TargetChannel.CUSTOM0)
+	assert_color_equal(mesh.custom_channel_0[0], Color(0.8, 0.8, 0.8, 0.8))
+
+
+func test_custom_channel_mask_r_only() -> void:
+	var mesh := _make_quad()
+	VertexColorOperation.fill_all(mesh, Color(0, 0, 0, 0), VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, VertexColorOperation.TargetChannel.CUSTOM3)
+	VertexColorOperation.fill_all(mesh, Color(1, 0, 0, 0), VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_R, VertexColorOperation.TargetChannel.CUSTOM3)
+	assert_color_equal(mesh.custom_channel_3[0], Color(1, 0, 0, 0))
+
+
+func test_bake_includes_custom_channels() -> void:
+	var mesh := _make_quad()
+	VertexColorOperation.fill_all(mesh, Color.RED, VertexColorOperation.BlendMode.MIX,
+		VertexColorOperation.CHANNEL_ALL, VertexColorOperation.TargetChannel.CUSTOM0)
+	var baked: ArrayMesh = mesh.bake()
+	assert_int(baked.get_surface_count()).is_greater(0)
+	var arrays: Array = baked.surface_get_arrays(0)
+	assert_that(arrays[Mesh.ARRAY_CUSTOM0]).is_not_null()
+
+
+func test_bake_omits_empty_custom_channels() -> void:
+	var mesh := _make_quad()
+	var baked: ArrayMesh = mesh.bake()
+	assert_int(baked.get_surface_count()).is_greater(0)
+	var arrays: Array = baked.surface_get_arrays(0)
+	# Custom channels should be null when empty
+	assert_that(arrays[Mesh.ARRAY_CUSTOM0] == null or arrays[Mesh.ARRAY_CUSTOM0].is_empty()).is_true()
 
 
 # ---------------------------------------------------------------------------

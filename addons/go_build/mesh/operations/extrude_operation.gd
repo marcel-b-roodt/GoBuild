@@ -81,10 +81,7 @@ static func _extrude_single_face(mesh: GoBuildMesh, face_index: int, distance: f
 	new_indices.resize(vc)
 	for k: int in vc:
 		var orig_pos: Vector3 = mesh.vertices[face.vertex_indices[k]]
-		mesh.vertices.append(orig_pos + offset)
-		if not mesh.vertex_colors.is_empty():
-			mesh.vertex_colors.append(mesh.vertex_colors[face.vertex_indices[k]])
-		new_indices[k] = mesh.vertices.size() - 1
+		new_indices[k] = mesh.append_vertex_from(face.vertex_indices[k], orig_pos + offset)
 
 	# ── 2. Create side faces ────────────────────────────────────────────────
 	# Winding [bottom_a, bottom_b, top_b, top_a] is CCW from outside.

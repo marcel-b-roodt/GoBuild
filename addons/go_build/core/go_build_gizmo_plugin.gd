@@ -142,6 +142,10 @@ var mat_edge_normal_depth:     StandardMaterial3D
 var mat_edge_context_depth:    StandardMaterial3D
 var mat_vertex_normal_depth:   StandardMaterial3D
 
+## Vertex-coloured material for paint mode: vertex colours drive albedo.
+var mat_vertex_colored:        StandardMaterial3D
+var mat_vertex_colored_depth:  StandardMaterial3D
+
 ## When true (default), all gizmo elements are drawn with no_depth_test (always
 ## visible on top of geometry) and picking ignores occlusion — the user can select
 ## any element regardless of whether it is behind the mesh surface.
@@ -159,6 +163,10 @@ var show_face_normals: bool = false
 ## lines from each vertex along its normal direction.  Toggled via the panel
 ## "Vtx N" button.
 var show_vertex_normals: bool = false
+
+## When true, unselected vertex cubes are tinted by their vertex colour.
+## Set by plugin.gd when paint mode is active.
+var show_vertex_colors: bool = false
 
 ## Length of normal-visualiser lines in local mesh units (before gizmo scaling).
 var normal_display_length: float = 0.3
@@ -272,6 +280,8 @@ func setup(plugin: EditorPlugin) -> void:
 	mat_edge_normal_depth   = _line_mat_depth(Color(0.05, 0.05, 0.05, 1.0))
 	mat_edge_context_depth  = _line_mat_depth(Color(0.2, 0.2, 0.2, 1.0))
 	mat_vertex_normal_depth = _cone_mat_depth(Color(0.05, 0.05, 0.05, 1.0))
+	mat_vertex_colored      = _cone_mat_vertex_color()
+	mat_vertex_colored_depth = _cone_mat_vertex_color_depth()
 	# Planar quad meshes (unit half-size 1.0 — scale at draw time by PLANE_HALF * s).
 	plane_quad_mesh_xy = _build_plane_quad_mesh(Vector3.RIGHT, Vector3.UP)   # XY plane
 	plane_quad_mesh_yz = _build_plane_quad_mesh(Vector3.UP, Vector3.BACK)    # YZ plane
@@ -686,6 +696,27 @@ func _cone_mat(color: Color) -> StandardMaterial3D:
 	mat.cull_mode       = BaseMaterial3D.CULL_DISABLED
 	mat.no_depth_test   = true
 	mat.render_priority = 2
+	return mat
+
+
+func _cone_mat_vertex_color() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode           = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color           = Color.WHITE
+	mat.vertex_color_use_as_albedo = true
+	mat.cull_mode              = BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test          = true
+	mat.render_priority        = 2
+	return mat
+
+
+func _cone_mat_vertex_color_depth() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode           = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color           = Color.WHITE
+	mat.vertex_color_use_as_albedo = true
+	mat.cull_mode              = BaseMaterial3D.CULL_DISABLED
+	mat.render_priority        = 0
 	return mat
 
 

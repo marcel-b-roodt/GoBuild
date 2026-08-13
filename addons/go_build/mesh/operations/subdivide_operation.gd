@@ -62,10 +62,7 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 			var key: String = "%d_%d" % [mini(va, vb), maxi(va, vb)]
 			if not edge_mids.has(key):
 				var mid: Vector3 = (mesh.vertices[va] + mesh.vertices[vb]) * 0.5
-				edge_mids[key] = mesh.vertices.size()
-				mesh.vertices.append(mid)
-				if not mesh.vertex_colors.is_empty():
-					mesh.vertex_colors.append(mesh.vertex_colors[va].lerp(mesh.vertex_colors[vb], 0.5))
+				edge_mids[key] = mesh.append_vertex_lerp(va, vb, mid, 0.5)
 
 	# ── Phase 2: build replacement quad sets for each selected face ──────────
 	#
@@ -81,13 +78,19 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 		for vi: int in face.vertex_indices:
 			centroid += mesh.vertices[vi]
 		centroid /= float(vc)
-		var c_idx: int = mesh.vertices.size()
-		mesh.vertices.append(centroid)
+		var c_idx: int = mesh.append_vertex_default(centroid)
 		if not mesh.vertex_colors.is_empty():
 			var avg_color := Color.BLACK
 			for vi: int in face.vertex_indices:
 				avg_color += mesh.vertex_colors[vi]
-			mesh.vertex_colors.append(avg_color / float(vc))
+			mesh.vertex_colors[c_idx] = avg_color / float(vc)
+		for cc_name in ["custom_channel_0", "custom_channel_1", "custom_channel_2", "custom_channel_3"]:
+			var cc: Array[Color] = mesh[cc_name]
+			if not cc.is_empty():
+				var cc_avg := Color(0.0, 0.0, 0.0, 0.0)
+				for vi: int in face.vertex_indices:
+					cc_avg += cc[vi]
+				cc[c_idx] = cc_avg / float(vc)
 
 		var new_quads: Array[GoBuildFace] = []
 		for k: int in vc:

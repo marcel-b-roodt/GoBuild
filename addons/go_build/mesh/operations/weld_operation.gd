@@ -59,6 +59,13 @@ static func apply_merge(mesh: GoBuildMesh, vertex_indices: Array[int]) -> void:
 		for vi: int in valid:
 			avg_color += mesh.vertex_colors[vi]
 		mesh.vertex_colors[canonical] = avg_color / float(valid.size())
+	for cc_name in ["custom_channel_0", "custom_channel_1", "custom_channel_2", "custom_channel_3"]:
+		var cc: Array[Color] = mesh[cc_name]
+		if not cc.is_empty():
+			var cc_avg := Color(0.0, 0.0, 0.0, 0.0)
+			for vi: int in valid:
+				cc_avg += cc[vi]
+			cc[canonical] = cc_avg / float(valid.size())
 
 	# Build remap: every other index in the group → canonical.
 	var remap: Dictionary = {}
@@ -121,6 +128,13 @@ static func apply_weld_by_threshold(mesh: GoBuildMesh, threshold: float = 0.0001
 			for vi: int in sorted_m:
 				avg_color += mesh.vertex_colors[vi]
 			mesh.vertex_colors[canonical] = avg_color / float(sorted_m.size())
+		for cc_name in ["custom_channel_0", "custom_channel_1", "custom_channel_2", "custom_channel_3"]:
+			var cc: Array[Color] = mesh[cc_name]
+			if not cc.is_empty():
+				var cc_avg := Color(0.0, 0.0, 0.0, 0.0)
+				for vi: int in sorted_m:
+					cc_avg += cc[vi]
+				cc[canonical] = cc_avg / float(sorted_m.size())
 		for i: int in range(1, sorted_m.size()):
 			remap[sorted_m[i]] = canonical
 

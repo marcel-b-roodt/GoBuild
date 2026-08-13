@@ -9,11 +9,16 @@
 @tool
 extends EditorPlugin
 
+# Load the central script registry first so all class_name identifiers are
+# registered in Godot's global lookup before any other script compiles.
+# This eliminates the per-file self-preload requirement and prevents
+# "Nonexistent function 'new'" errors from alphabetical scan-order issues.
+const _INIT := preload("res://addons/go_build/go_build_init.gd")
+
 # ---------------------------------------------------------------------------
-# Preloads — ORDER MATTERS.
-# Each script is listed after the scripts it depends on so that class names
-# are registered in the global registry before they are referenced by a later
-# script in the chain.
+# Preloads — kept for backward compatibility with existing const references
+# in this script.  Order no longer matters because GoBuildInit has already
+# registered all class names.
 # ---------------------------------------------------------------------------
 const _DEBUG_SCRIPT         := preload("res://addons/go_build/core/go_build_debug.gd")
 const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face.gd")
@@ -578,6 +583,54 @@ func _input(event: InputEvent) -> void:
 							update_overlays()
 							get_viewport().set_input_as_handled()
 							return
+	# Route events to the paint brush when it's in resize mode (CAPTURED mouse).
+	# Under MOUSE_MODE_CAPTURED, _forward_3d_gui_input stops receiving events,
+	# so the global _input handler must route them instead.
+	# Also intercept Alt+S / Alt+D key presses in paint mode here so they
+	# never reach the editor's built-in shortcuts (e.g. S = nav).
+	# Also intercept Alt+Q/W/E/R to toggle RGBA channel masks,
+	# and Alt+1–5 to select target channel.
+	if _paint_brush != null and _vc_painter != null and _vc_painter.is_paint_mode():
+		if event is InputEventKey:
+			var key := event as InputEventKey
+			if key.pressed and not key.echo and key.alt_pressed:
+				var handled := true
+				match key.keycode:
+					KEY_Q: _vc_painter.toggle_channel_r()
+					KEY_W: _vc_painter.toggle_channel_g()
+					KEY_E: _vc_painter.toggle_channel_b()
+					KEY_R: _vc_painter.toggle_channel_a()
+					KEY_T: _vc_painter.toggle_isolate()
+					KEY_1: _vc_painter.select_target_channel(0)
+					KEY_2: _vc_painter.select_target_channel(1)
+					KEY_3: _vc_painter.select_target_channel(2)
+					KEY_4: _vc_painter.select_target_channel(3)
+					KEY_5: _vc_painter.select_target_channel(4)
+					_: handled = false
+				if not handled and (key.keycode == KEY_S or key.keycode == KEY_D):
+					var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+					var camera: Camera3D = vp.get_camera_3d() if vp != null else null
+					if camera != null and _edited_node != null:
+						var result: int = _paint_brush.handle_input(camera, event, _edited_node)
+						if result != 0:
+							update_overlays()
+							get_viewport().set_input_as_handled()
+							return
+					handled = true
+				if handled:
+					get_viewport().set_input_as_handled()
+					return
+		if _paint_brush.is_resizing():
+			if event is InputEventMouseMotion or event is InputEventMouseButton or event is InputEventKey:
+				if _edited_node != null and _vc_painter != null:
+					var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+					var camera: Camera3D = vp.get_camera_3d() if vp != null else null
+					if camera != null:
+						var result: int = _paint_brush.handle_input(camera, event, _edited_node)
+						if result != 0:
+							update_overlays()
+							get_viewport().set_input_as_handled()
+							return
 	if _input_controller == null:
 		return
 	if _input_controller.handle_global_input(event):
@@ -798,10 +851,13 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 			update_overlays()
 			return result
 	# Vertex paint brush intercepts LMB when paint mode is active.
+	# When the brush is in resize mode (MOUSE_MODE_CAPTURED), events are routed
+	# through the global _input() handler instead — skip here to avoid conflicts.
 	if _paint_brush != null and _vc_painter != null and _vc_painter.is_paint_mode():
-		var brush_result: int = _handle_paint_brush(camera, event)
-		if brush_result != 0:
-			return brush_result
+		if not _paint_brush.is_resizing():
+			var brush_result: int = _handle_paint_brush(camera, event)
+			if brush_result != 0:
+				return brush_result
 	if _edited_node == null:
 		return 0
 	var key_result: int = _handle_keyboard(event)
@@ -869,22 +925,39 @@ func _draw_shape_draw_overlay(overlay: Control) -> void:
 # ---------------------------------------------------------------------------
 
 ## Draw the brush cursor circle at the hit point showing the brush radius.
+## When the ray doesn't hit the mesh, draws a simpler circle at the mouse
+## position with a fixed screen-space size so the cursor is always visible.
 func _draw_brush_cursor_overlay(overlay: Control) -> void:
 	if _vc_painter == null or not _vc_painter.is_paint_mode():
 		return
 	if _paint_brush == null:
 		return
-	var world_pos: Vector3 = _paint_brush.get_cursor_world_pos()
-	var screen_pos: Vector2 = _paint_brush.get_cursor_screen_pos()
-	if world_pos == Vector3.INF or screen_pos == Vector2.INF:
-		return
 	if _edited_node == null:
 		return
+	var draw_pos: Vector2 = _paint_brush.get_mouse_2d_pos()
+	if draw_pos == Vector2.INF:
+		draw_pos = _paint_brush.get_cursor_screen_pos()
+	if draw_pos == Vector2.INF:
+		return
+	var world_pos: Vector3 = _paint_brush.get_cursor_world_pos()
 	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
 	if vp == null:
 		return
 	var camera: Camera3D = vp.get_camera_3d()
 	if camera == null:
+		return
+	if world_pos == Vector3.INF:
+		var radius: float = _vc_painter.get_brush_radius()
+		var fallback_radius: float = radius * 20.0
+		fallback_radius = clampf(fallback_radius, 4.0, 60.0)
+		overlay.draw_arc(draw_pos, fallback_radius, 0.0, TAU, 64,
+			Color(1.0, 1.0, 1.0, 0.35), 1.0, true)
+		var fb_strength: float = _vc_painter.get_brush_strength()
+		var fb_inner: float = fallback_radius * fb_strength
+		if fb_inner > 1.0:
+			overlay.draw_arc(draw_pos, fb_inner, 0.0, TAU, 64,
+					Color(1.0, 0.85, 0.35, 0.35), 1.0, true)
+		_draw_paint_mode_info(overlay)
 		return
 	var radius: float = _vc_painter.get_brush_radius()
 	var avg_scale: float = (_edited_node.scale.x + _edited_node.scale.y + _edited_node.scale.z) / 3.0
@@ -897,7 +970,13 @@ func _draw_brush_cursor_overlay(overlay: Control) -> void:
 	var screen_radius: float = (offset_screen - center_screen).length()
 	screen_radius = clampf(screen_radius, 4.0, 400.0)
 	var color: Color = Color(1.0, 1.0, 1.0, 0.7)
-	overlay.draw_arc(screen_pos, screen_radius, 0.0, TAU, 64, color, 1.5, true)
+	overlay.draw_arc(draw_pos, screen_radius, 0.0, TAU, 64, color, 1.5, true)
+	# Strength inner circle: fills from centre to strength percentage of the radius.
+	var strength: float = _vc_painter.get_brush_strength()
+	var inner_radius: float = screen_radius * strength
+	if inner_radius > 1.0:
+		overlay.draw_arc(draw_pos, inner_radius, 0.0, TAU, 64,
+				Color(1.0, 0.85, 0.35, 0.55), 1.0, true)
 	# Paint mode info label.
 	_draw_paint_mode_info(overlay)
 
@@ -917,8 +996,9 @@ func _draw_paint_mode_info(overlay: Control) -> void:
 	var radius_str: String = "R: %.2f" % _vc_painter.get_brush_radius()
 	var strength_str: String = "S: %.0f%%" % (_vc_painter.get_brush_strength() * 100.0)
 	var line1: String = "Paint | %s | %s | %s" % [blend_name, radius_str, strength_str]
-	var line2: String = "F=Size  S=Strength  A=Blend  Ctrl=Picker"
-	var y: float = overlay.size.y - m - 18.0 - 18.0
+	var line2: String = "Alt+S=Size  Alt+D=Strength  Alt+Eyedrop  Shift+A=Cycle Blend"
+	var line3: String = "Alt+Q/W/E/R=Channels  Alt+T=Isolate  Alt+1-5=Target"
+	var y: float = overlay.size.y - m - 18.0 - 18.0 - 18.0
 	overlay.draw_string(font, Vector2(m + 1.0, y + 1.0), line1,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
 	overlay.draw_string(font, Vector2(m, y), line1,
@@ -926,6 +1006,10 @@ func _draw_paint_mode_info(overlay: Control) -> void:
 	overlay.draw_string(font, Vector2(m + 1.0, y + 18.0 + 1.0), line2,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
 	overlay.draw_string(font, Vector2(m, y + 18.0), line2,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 0.85, 1.0, 0.75))
+	overlay.draw_string(font, Vector2(m + 1.0, y + 36.0 + 1.0), line3,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+	overlay.draw_string(font, Vector2(m, y + 36.0), line3,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 0.85, 1.0, 0.75))
 
 
@@ -942,6 +1026,10 @@ func _handle_paint_brush(camera: Camera3D, event: InputEvent) -> int:
 		_paint_brush.clear_cursor()
 		return 0
 	var result: int = _paint_brush.handle_input(camera, event, _edited_node)
+	# Always refresh the overlay in paint mode so the cursor circle updates
+	# even when the brush doesn't consume the event (hovering without painting).
+	if event is InputEventMouseMotion:
+		update_overlays()
 	if result != 0:
 		update_overlays()
 	return result

@@ -3,4 +3,5 @@
 [ext_resource type="Texture2D" uid="uid://ddhgk66spfxcf" path="res://test_scenarios/material_palette_test/metal_wall.png" id="1_i5lwa"]
 
 [resource]
+vertex_color_use_as_albedo = true
 albedo_texture = ExtResource("1_i5lwa")

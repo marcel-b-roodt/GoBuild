@@ -7,8 +7,19 @@
 ##
 ## All operations respect a channel mask (R/G/B/A bitmask) and blend mode
 ## (Mix, Add, Subtract, Multiply).
+##
+## Use [member TargetChannel] to select which per-vertex channel to paint on.
 class_name VertexColorOperation
 extends RefCounted
+
+## Which per-vertex data channel to paint on.
+enum TargetChannel {
+	COLOR,     ## vertex_colors (ARRAY_COLOR)
+	CUSTOM0,   ## custom_channel_0 (ARRAY_CUSTOM0)
+	CUSTOM1,   ## custom_channel_1 (ARRAY_CUSTOM1)
+	CUSTOM2,   ## custom_channel_2 (ARRAY_CUSTOM2)
+	CUSTOM3,   ## custom_channel_3 (ARRAY_CUSTOM3)
+}
 
 ## Blend modes for colour application.
 enum BlendMode {
@@ -28,15 +39,33 @@ const CHANNEL_A := 0b1000
 const CHANNEL_ALL := CHANNEL_R | CHANNEL_G | CHANNEL_B | CHANNEL_A
 const CHANNEL_RGB := CHANNEL_R | CHANNEL_G | CHANNEL_B
 
+## Property names on GoBuildMesh corresponding to each [TargetChannel].
+const _CHANNEL_PROPERTY: Dictionary = {
+	TargetChannel.COLOR: "vertex_colors",
+	TargetChannel.CUSTOM0: "custom_channel_0",
+	TargetChannel.CUSTOM1: "custom_channel_1",
+	TargetChannel.CUSTOM2: "custom_channel_2",
+	TargetChannel.CUSTOM3: "custom_channel_3",
+}
 
-## Ensure [member GoBuildMesh.vertex_colors] is initialised and parallel to
-## [member GoBuildMesh.vertices].  Called internally before any write.
-static func _ensure_colors(mesh: GoBuildMesh) -> void:
-	if mesh.vertex_colors.size() != mesh.vertices.size():
-		mesh.vertex_colors.resize(mesh.vertices.size())
+
+## Get the per-vertex data array for [param target] on [param mesh].
+static func _get_channel(mesh: GoBuildMesh, target: TargetChannel) -> Array[Color]:
+	return mesh[_CHANNEL_PROPERTY[target]]
+
+
+## Ensure the target channel is initialised and parallel to
+## [member GoBuildMesh.vertices].  [param default_val] is used for padding
+## (white for colour, transparent black for custom channels).
+static func _ensure_channel(mesh: GoBuildMesh, target: TargetChannel) -> void:
+	var prop_name: String = _CHANNEL_PROPERTY[target]
+	var arr: Array[Color] = mesh[prop_name]
+	if arr.size() != mesh.vertices.size():
+		arr.resize(mesh.vertices.size())
+		var default: Color = Color.WHITE if target == TargetChannel.COLOR else Color(0.0, 0.0, 0.0, 0.0)
 		for i: int in mesh.vertices.size():
-			if mesh.vertex_colors[i] == Color():
-				mesh.vertex_colors[i] = Color.WHITE
+			if arr[i] == Color():
+				arr[i] = default
 
 
 ## Blend [param new_color] into [param existing] using [param blend_mode],
@@ -79,6 +108,7 @@ static func _blend_channel(existing: float, new_val: float, blend_mode: int) -> 
 ##
 ## [param blend_mode] controls how the colour is combined with existing values.
 ## [param channel_mask] controls which channels (R/G/B/A) are affected.
+## [param target] selects which per-vertex data channel to paint on.
 ## A [code]null[/code] or empty [param face_indices] is a safe no-op.
 static func fill_faces(
 		mesh: GoBuildMesh,
@@ -86,10 +116,12 @@ static func fill_faces(
 		color: Color,
 		blend_mode: int = BlendMode.MIX,
 		channel_mask: int = CHANNEL_ALL,
+		target: TargetChannel = TargetChannel.COLOR,
 ) -> void:
 	if mesh == null or face_indices.is_empty():
 		return
-	_ensure_colors(mesh)
+	_ensure_channel(mesh, target)
+	var arr: Array[Color] = _get_channel(mesh, target)
 	var seen: Dictionary = {}
 	for fi: int in face_indices:
 		if fi < 0 or fi >= mesh.faces.size():
@@ -98,7 +130,7 @@ static func fill_faces(
 			if seen.has(vi):
 				continue
 			seen[vi] = true
-			mesh.vertex_colors[vi] = _blend(mesh.vertex_colors[vi], color, blend_mode, channel_mask)
+			arr[vi] = _blend(arr[vi], color, blend_mode, channel_mask)
 
 
 ## Paint every vertex in the mesh with [param color].
@@ -107,12 +139,14 @@ static func fill_all(
 		color: Color,
 		blend_mode: int = BlendMode.MIX,
 		channel_mask: int = CHANNEL_ALL,
+		target: TargetChannel = TargetChannel.COLOR,
 ) -> void:
 	if mesh == null:
 		return
-	_ensure_colors(mesh)
+	_ensure_channel(mesh, target)
+	var arr: Array[Color] = _get_channel(mesh, target)
 	for i: int in mesh.vertices.size():
-		mesh.vertex_colors[i] = _blend(mesh.vertex_colors[i], color, blend_mode, channel_mask)
+		arr[i] = _blend(arr[i], color, blend_mode, channel_mask)
 
 
 ## Paint specific vertices with [param color].
@@ -124,11 +158,13 @@ static func set_vertices(
 		color: Color,
 		blend_mode: int = BlendMode.MIX,
 		channel_mask: int = CHANNEL_ALL,
+		target: TargetChannel = TargetChannel.COLOR,
 ) -> void:
 	if mesh == null or vertex_indices.is_empty():
 		return
-	_ensure_colors(mesh)
+	_ensure_channel(mesh, target)
+	var arr: Array[Color] = _get_channel(mesh, target)
 	for vi: int in vertex_indices:
 		if vi < 0 or vi >= mesh.vertices.size():
 			continue
-		mesh.vertex_colors[vi] = _blend(mesh.vertex_colors[vi], color, blend_mode, channel_mask)
+		arr[vi] = _blend(arr[vi], color, blend_mode, channel_mask)

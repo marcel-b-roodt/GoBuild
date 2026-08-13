@@ -182,10 +182,7 @@ static func _build_vertex_plan(
 			var total_offset: Vector3 = Vector3.ZERO
 			for off: Vector3 in raw_offsets[fi][vi]:
 				total_offset += off
-			var new_idx: int = mesh.vertices.size()
-			mesh.vertices.append(mesh.vertices[vi] + total_offset)
-			if not mesh.vertex_colors.is_empty():
-				mesh.vertex_colors.append(mesh.vertex_colors[vi])
+			var new_idx: int = mesh.append_vertex_from(vi, mesh.vertices[vi] + total_offset)
 			# slide_nbr stores the first contributing neighbour (used for winding
 			# order hints in _add_bevel_strips / _sort_entries_ccw).
 			plan[fi][vi] = [{"idx": new_idx, "slide_nbr": raw_nbrs[fi][vi][0]}]
@@ -311,10 +308,7 @@ static func _update_faces(
 				var to_w: Vector3 = mesh.vertices[best_w] - mesh.vertices[vi]
 				var edge_len: float = to_w.length()
 				var t_clamp: float = minf(width, edge_len) / edge_len
-				anchor_idx = mesh.vertices.size()
-				mesh.vertices.append(mesh.vertices[vi] + to_w * t_clamp)
-				if not mesh.vertex_colors.is_empty():
-					mesh.vertex_colors.append(mesh.vertex_colors[vi])
+				anchor_idx = mesh.append_vertex_from(vi, mesh.vertices[vi] + to_w * t_clamp)
 			np_info[vi] = {"faces": faces_arr, "anchor_idx": anchor_idx, "W": best_w}
 			# Record the cap polygon for _add_endpoint_caps.
 			# The hint normal is computed NOW — before Phase 2 modifies any face
