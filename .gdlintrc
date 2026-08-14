@@ -7,9 +7,9 @@ max-line-length: 100
 # element types + mode + bulk helpers).  Raise the cap rather than forcing
 # artificial restructuring of a cohesive API.
 # GdUnit4 test suites also accumulate many public test_ methods by design;
-# 60 is generous enough for any test class while still catching bloated
+# 70 is generous enough for any test class while still catching bloated
 # production classes.
-max-public-methods: 60
+max-public-methods: 70
 
 # GoBuildGizmoPlugin grows legitimately: it owns all gizmo materials, cached
 # meshes, drag-math methods (translate, rotate, plane, scale, viewport-plane,

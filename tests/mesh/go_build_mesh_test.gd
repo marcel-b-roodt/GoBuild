@@ -6,6 +6,7 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
 const _CUBE_SCRIPT := preload("res://addons/go_build/mesh/generators/cube_generator.gd")
+const _VC_OP_SCRIPT := preload("res://addons/go_build/mesh/operations/vertex_color_operation.gd")
 
 
 # ---------------------------------------------------------------------------
@@ -693,4 +694,102 @@ func test_adjacency_caches_cube() -> void:
 	for fi: int in 6:
 		assert_int((m._face_to_edges[fi] as Array).size()).is_equal(4)
 
+
+# ---------------------------------------------------------------------------
+# compact_vertices
+# ---------------------------------------------------------------------------
+
+func test_compact_vertices_preserves_vertex_colors() -> void:
+	var mesh := _make_unit_cube()
+	mesh.vertex_colors[0] = Color.RED
+	mesh.vertex_colors[1] = Color.GREEN
+	mesh.faces.remove_at(0)
+	mesh.rebuild_edges()
+	var remap: Dictionary = mesh.compact_vertices()
+	assert_int(mesh.vertex_colors.size()).is_equal(mesh.vertices.size())
+	assert_color_equal(mesh.vertex_colors[remap[0]], Color.RED)
+	assert_color_equal(mesh.vertex_colors[remap[1]], Color.GREEN)
+
+
+func test_compact_vertices_preserves_custom_channels() -> void:
+	var mesh := _make_unit_cube()
+	VertexColorOperation.fill_all(mesh, Color(0.5, 0.0, 0.0, 0.0),
+		VertexColorOperation.BlendMode.MIX, VertexColorOperation.CHANNEL_ALL,
+		VertexColorOperation.TargetChannel.CUSTOM0)
+	VertexColorOperation.fill_all(mesh, Color(0.0, 0.5, 0.0, 0.0),
+		VertexColorOperation.BlendMode.MIX, VertexColorOperation.CHANNEL_ALL,
+		VertexColorOperation.TargetChannel.CUSTOM1)
+	mesh.custom_channel_0[0] = Color.RED
+	mesh.custom_channel_1[3] = Color.BLUE
+	mesh.faces.remove_at(0)
+	mesh.rebuild_edges()
+	var remap: Dictionary = mesh.compact_vertices()
+	assert_int(mesh.custom_channel_0.size()).is_equal(mesh.vertices.size())
+	assert_int(mesh.custom_channel_1.size()).is_equal(mesh.vertices.size())
+	assert_color_equal(mesh.custom_channel_0[remap[0]], Color.RED)
+	assert_color_equal(mesh.custom_channel_1[remap[3]], Color.BLUE)
+
+
+func test_compact_vertices_clears_empty_custom_channels() -> void:
+	var mesh := _make_unit_cube()
+	assert_int(mesh.custom_channel_0.size()).is_equal(0)
+	mesh.faces.remove_at(0)
+	mesh.rebuild_edges()
+	mesh.compact_vertices()
+	assert_int(mesh.custom_channel_0.size()).is_equal(0)
+
+
+# ---------------------------------------------------------------------------
+# has_alpha_below_one
+# ---------------------------------------------------------------------------
+
+func test_has_alpha_below_one_true() -> void:
+	var mesh := _make_unit_cube()
+	mesh.vertex_colors[0] = Color(1.0, 1.0, 1.0, 0.5)
+	assert_bool(mesh.has_alpha_below_one()).is_true()
+
+
+func test_has_alpha_below_one_false_when_all_opaque() -> void:
+	var mesh := _make_unit_cube()
+	for i: int in mesh.vertex_colors.size():
+		mesh.vertex_colors[i] = Color.WHITE
+	assert_bool(mesh.has_alpha_below_one()).is_false()
+
+
+func test_has_alpha_below_one_false_when_no_colors() -> void:
+	var mesh := GoBuildMesh.new()
+	mesh.vertices = [Vector3.ZERO]
+	assert_bool(mesh.has_alpha_below_one()).is_false()
+
+
+func _make_unit_cube() -> GoBuildMesh:
+	var mesh := GoBuildMesh.new()
+	mesh.vertices = [
+		Vector3(-0.5, -0.5, -0.5), Vector3(0.5, -0.5, -0.5),
+		Vector3(0.5, -0.5, 0.5), Vector3(-0.5, -0.5, 0.5),
+		Vector3(-0.5, 0.5, -0.5), Vector3(0.5, 0.5, -0.5),
+		Vector3(0.5, 0.5, 0.5), Vector3(-0.5, 0.5, 0.5),
+	]
+	var colors: Array[Color] = []
+	colors.resize(8)
+	colors.fill(Color.WHITE)
+	mesh.vertex_colors = colors
+	var faces_data: Array = [
+		[0, 3, 2, 1], [4, 5, 6, 7], [0, 4, 7, 3],
+		[1, 2, 6, 5], [0, 1, 5, 4], [3, 7, 6, 2],
+	]
+	for vi_arr: Array in faces_data:
+		var f := GoBuildFace.new()
+		f.vertex_indices.assign(vi_arr)
+		f.uvs.resize(vi_arr.size())
+		mesh.faces.append(f)
+	mesh.rebuild_edges()
+	return mesh
+
+
+func assert_color_equal(actual: Color, expected: Color, delta: float = 0.001) -> void:
+	assert_float(actual.r).is_equal_approx(expected.r, delta)
+	assert_float(actual.g).is_equal_approx(expected.g, delta)
+	assert_float(actual.b).is_equal_approx(expected.b, delta)
+	assert_float(actual.a).is_equal_approx(expected.a, delta)
 

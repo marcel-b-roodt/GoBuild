@@ -819,12 +819,28 @@ func compact_vertices() -> Dictionary:
 	var new_verts: Array[Vector3] = []
 	var new_colors: Array[Color] = []
 	var has_colors: bool = vertex_colors.size() == vertices.size()
+	var new_ch0: Array[Color] = []
+	var new_ch1: Array[Color] = []
+	var new_ch2: Array[Color] = []
+	var new_ch3: Array[Color] = []
+	var has_ch0: bool = custom_channel_0.size() == vertices.size()
+	var has_ch1: bool = custom_channel_1.size() == vertices.size()
+	var has_ch2: bool = custom_channel_2.size() == vertices.size()
+	var has_ch3: bool = custom_channel_3.size() == vertices.size()
 	for new_vi: int in old_indices.size():
 		var old_vi: int = old_indices[new_vi]
 		remap[old_vi] = new_vi
 		new_verts.append(vertices[old_vi])
 		if has_colors:
 			new_colors.append(vertex_colors[old_vi])
+		if has_ch0:
+			new_ch0.append(custom_channel_0[old_vi])
+		if has_ch1:
+			new_ch1.append(custom_channel_1[old_vi])
+		if has_ch2:
+			new_ch2.append(custom_channel_2[old_vi])
+		if has_ch3:
+			new_ch3.append(custom_channel_3[old_vi])
 
 	for face: GoBuildFace in faces:
 		for k: int in face.vertex_indices.size():
@@ -835,6 +851,22 @@ func compact_vertices() -> Dictionary:
 		vertex_colors = new_colors
 	else:
 		vertex_colors.clear()
+	if has_ch0:
+		custom_channel_0 = new_ch0
+	else:
+		custom_channel_0.clear()
+	if has_ch1:
+		custom_channel_1 = new_ch1
+	else:
+		custom_channel_1.clear()
+	if has_ch2:
+		custom_channel_2 = new_ch2
+	else:
+		custom_channel_2.clear()
+	if has_ch3:
+		custom_channel_3 = new_ch3
+	else:
+		custom_channel_3.clear()
 	return remap
 
 
