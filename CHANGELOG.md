@@ -21,6 +21,82 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.10.0] — 2026-08-15
+
+### Added
+- **Vertex color painting** — paint per-vertex RGBA directly in the 3D viewport with a
+  brush; Alt+Click to eyedrop colour from a vertex; Alt+S/Alt+D to resize brush radius
+  and strength; Shift+A to cycle blend mode; full undo/redo per stroke
+- **Vertex paint dock panel** — dedicated GoBuildVertexPainter dock (upper-right) with
+  colour picker, greyscale value slider, target channel dropdown (Color / Custom 0–3),
+  R/G/B/A channel mask toggles, blend mode (Mix/Add/Subtract/Multiply), brush
+  radius and strength sliders, Fill Selected / Fill All batch buttons, Paint mode toggle
+- **Custom vertex channels** — four per-vertex float channels (CUSTOM0–3) stored
+  alongside vertex colours; paint and isolate any channel independently; data survives
+  all mesh operations (extrude, bevel, weld, delete, dissolve, rip, subdivide)
+- **Isolate View** — shader overlay that visualises a single channel (R, G, B, or A)
+  of the target channel; greyscale toggle for value preview; Alt+T to toggle, Alt+Q/W/E/R
+  for channel masks, Alt+1–5 for target channel; auto-disables when paint mode is off
+- **Mesh import** — convert any ArrayMesh resource to a GoBuildMesh via "Import Mesh"
+  button in the Create drawer; reads vertex positions, UVs, UV2s, vertex colours, and
+  materials per surface
+- **Polygon draw tool** — draw arbitrary convex/concave polygon outlines in the viewport;
+  click to place vertices, close loop or press Enter to finish; drag height to extrude
+  into a prism; ear-clip triangulation for concave caps
+- **Dissolve operation** — dissolve vertices, edges, or faces; merges surrounding faces
+  into one, removing the element without leaving holes; vertex dissolve walks the
+  face-to-face boundary ring with Newell-normal winding check
+- **Triangulate operation** — convert selected N-gon faces into triangles using ear-clip
+  for concave polygons with fan fallback for non-planar faces
+- **Brush cursor overlay** — radius circle and info label (blend mode, radius, strength,
+  hotkey hints) drawn in the 3D viewport when paint mode is active
+- **Auto-transparency** — surfaces with vertex alpha < 1.0 automatically get
+  `TRANSPARENCY_ALPHA` material override; `GoBuildMesh.has_alpha_below_one()` query
+- **`GoBuildMeshInstance.bake_silently()`** — no-signal variant of bake(); replaces
+  disconnect-bake-reconnect pattern in isolate view and custom channel management
+- **`VertexColorOperation` isolate helpers** — `swap_channel_to_vertex_colors`,
+  `restore_vertex_colors`, `sync_channel_to_vertex_colors` as pure static methods;
+  testable without scene tree
+- **Hotkeys** — Alt+Q/W/E/R (channel masks), Alt+T (isolate), Alt+1–5 (target channel),
+  Alt+Click (eyedropper), Alt+S (resize radius), Alt+D (resize strength), Shift+A
+  (cycle blend)
+
+### Changed
+- Vertex paint dock moved from bottom-right to upper-right (same position as Scene/Import)
+- `GoBuildMesh.compact_vertices()` now preserves `custom_channel_0/1/2/3` alongside
+  `vertex_colors`; previously custom channels were silently dropped during compaction
+- All mesh operations that create new vertices (extrude, bevel, subdivide, loop cut,
+  inset, edge extrude, rip) use `append_vertex_from`/`append_vertex_lerp` which correctly
+  copy/lerp all custom channels
+- `WeldOperation.apply_merge` now averages custom channel values across merged groups
+- `GoBuildMesh.has_alpha_below_one()` extracted from `GoBuildMeshInstance._any_alpha_below_one`;
+  pure data query, reusable without scene tree
+- Overlay eyedropper hint corrected: "Alt+Click=Eyedropper" instead of "Alt+Eyedrop"
+- Isolate view greyscale mode uses BT.709 luminance weighting instead of raw channel sum,
+  preventing HDR blowout on bright values
+
+### Fixed
+- Custom channels (`custom_channel_0/1/2/3`) are now correctly preserved through
+  `compact_vertices()` (delete, dissolve, rip, bevel, weld operations)
+- Isolate view channel switch no longer corrupts vertex colours when switching between
+  custom channel targets
+- Paint mode disable now properly restores original vertex colours and nulls the
+  isolate material
+- `restore_vertex_colors()` called as statement instead of assignment (void return type)
+
+### Tests
+- 10 new brush tests for custom channel targets (CUSTOM0–3, blend modes, masks, strength,
+  painted dictionary tracking)
+- 12 new unit tests for isolate channel helpers (`swap_channel_to_vertex_colors`,
+  `restore_vertex_colors`, `sync_channel_to_vertex_colors`, round-trip, null safety,
+  stash clearing)
+- 4 new `compact_vertices` tests (preserves vertex_colors, preserves custom channels,
+  clears empty custom channels)
+- 3 new `has_alpha_below_one` tests (true, false, empty mesh)
+- DissolveOperation and Triangulate operation tests
+
+---
+
 ## [0.9.0] — 2026-07-23
 
 ### Added
