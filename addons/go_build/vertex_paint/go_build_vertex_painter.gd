@@ -37,8 +37,8 @@ void fragment() {
 		src.a * show_channels.a
 	);
 	if (greyscale) {
-		float v = filtered.r + filtered.g + filtered.b + filtered.a;
-		ALBEDO = vec3(v);
+		float lum = dot(filtered.rgb, vec3(0.2126, 0.7152, 0.0722));
+		ALBEDO = vec3(lum + filtered.a);
 	} else {
 		ALBEDO = vec3(filtered.r, filtered.g, filtered.b);
 	}
