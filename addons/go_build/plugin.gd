@@ -183,7 +183,7 @@ func _enter_tree() -> void:
 
 	_vc_painter = _VC_PAINTER_SCRIPT.new()
 	_vc_painter.name = "GoBuild Vertex Paint"
-	add_control_to_dock(DOCK_SLOT_RIGHT_BL, _vc_painter)
+	add_control_to_dock(DOCK_SLOT_RIGHT_UL, _vc_painter)
 	_vc_painter.set_plugin(self)
 
 	_paint_brush = _PAINT_BRUSH_SCRIPT.new()
@@ -397,7 +397,7 @@ func _reset_panel_layout() -> void:
 	if _uv_panel != null and is_instance_valid(_uv_panel):
 		add_control_to_dock(DOCK_SLOT_BOTTOM, _uv_panel)
 	if _vc_painter != null and is_instance_valid(_vc_painter):
-		add_control_to_dock(DOCK_SLOT_RIGHT_BL, _vc_painter)
+		add_control_to_dock(DOCK_SLOT_RIGHT_UL, _vc_painter)
 
 
 ## Cancel any active material-drop preview and reset drag state.
@@ -996,7 +996,7 @@ func _draw_paint_mode_info(overlay: Control) -> void:
 	var radius_str: String = "R: %.2f" % _vc_painter.get_brush_radius()
 	var strength_str: String = "S: %.0f%%" % (_vc_painter.get_brush_strength() * 100.0)
 	var line1: String = "Paint | %s | %s | %s" % [blend_name, radius_str, strength_str]
-	var line2: String = "Alt+S=Size  Alt+D=Strength  Alt+Eyedrop  Shift+A=Cycle Blend"
+	var line2: String = "Alt+Click=Eyedropper  Alt+S=Size  Alt+D=Strength  Shift+A=Cycle Blend"
 	var line3: String = "Alt+Q/W/E/R=Channels  Alt+T=Isolate  Alt+1-5=Target"
 	var y: float = overlay.size.y - m - 18.0 - 18.0 - 18.0
 	overlay.draw_string(font, Vector2(m + 1.0, y + 1.0), line1,
