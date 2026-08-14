@@ -494,7 +494,7 @@ func _on_paint_toggled() -> void:
 			if _target != null and _target.mesh_changed.is_connected(_on_target_mesh_changed):
 				_target.mesh_changed.disconnect(_on_target_mesh_changed)
 			_isolate_material = null
-			_isolate_original_colors = _VC_OP_SCRIPT_VP.restore_vertex_colors(
+			_VC_OP_SCRIPT_VP.restore_vertex_colors(
 				_target.go_build_mesh, _isolate_original_colors)
 		_restore_materials()
 		if gizmo_plugin != null:
@@ -806,7 +806,7 @@ func _apply_isolate_view() -> void:
 
 	if not _isolate_active:
 		_isolate_material = null
-		_isolate_original_colors = _VC_OP_SCRIPT_VP.restore_vertex_colors(
+		_VC_OP_SCRIPT_VP.restore_vertex_colors(
 			_target.go_build_mesh, _isolate_original_colors)
 		_clear_material_overrides()
 		_target.bake_silently()
@@ -829,7 +829,7 @@ func _apply_isolate_view() -> void:
 	# Restore original vertex_colors before potentially replacing them with a
 	# different custom channel.  Without this, switching from Custom 0 to Custom 1
 	# would stash Custom-0-as-vertex_colors as "original", losing the real colours.
-	_isolate_original_colors = _VC_OP_SCRIPT_VP.restore_vertex_colors(
+	_VC_OP_SCRIPT_VP.restore_vertex_colors(
 		_target.go_build_mesh, _isolate_original_colors)
 
 	# Ensure the target channel data exists before baking.
