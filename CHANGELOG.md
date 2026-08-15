@@ -19,10 +19,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
----
-
-## [0.10.0] — 2026-08-15
-
 ### Added
 - **Vertex color painting** — paint per-vertex RGBA directly in the 3D viewport with a
   brush; Alt+Click to eyedrop colour from a vertex; Alt+S/Alt+D to resize brush radius
@@ -71,7 +67,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `WeldOperation.apply_merge` now averages custom channel values across merged groups
 - `GoBuildMesh.has_alpha_below_one()` extracted from `GoBuildMeshInstance._any_alpha_below_one`;
   pure data query, reusable without scene tree
-- Overlay eyedropper hint corrected: "Alt+Click=Eyedropper" instead of "Alt+Eyedrop"
+- Overlay eyedropper hint corrected: "Alt+Click=Eyedropper" instead of "Alt=Eyedrop"
 - Isolate view greyscale mode uses BT.709 luminance weighting instead of raw channel sum,
   preventing HDR blowout on bright values
 
