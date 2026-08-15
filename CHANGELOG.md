@@ -19,6 +19,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [0.10.0] — 2026-08-15
+
 ### Added
 - **Vertex color painting** — paint per-vertex RGBA directly in the 3D viewport with a
   brush; Alt+Click to eyedrop colour from a vertex; Alt+S/Alt+D to resize brush radius
