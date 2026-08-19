@@ -57,19 +57,21 @@ If you have questions about how any piece of code was written or verified, pleas
 
 ## Godot compatibility
 
-GoBuild requires **Godot 4.3 or later**. The addon uses `DOCK_SLOT_BOTTOM` and `StaticBody3D.DisableMode` which were introduced in 4.3.
+GoBuild requires **Godot 4.4 or later**. The addon uses `DOCK_SLOT_BOTTOM` and other 4.4+ syntax.
 
 For older versions, compat scripts are included:
 
 ```bash
 cd addons/go_build
-./scripts/compat/compat_42.sh   # For Godot 4.2 (recommended minimum for compat)
+./scripts/compat/compat_43.sh   # For Godot 4.3
+./scripts/compat/compat_42.sh   # For Godot 4.2
 ./scripts/compat/compat_40.sh   # For Godot 4.0 (partial — EditorInterface API remains incompatible)
 ```
 
 No arguments needed — the script finds the addon root automatically and transforms files in-place. Re-download or re-extract the addon to restore the original files.
 
-- **compat_42.sh** — strips typed for-loops, replaces `DOCK_SLOT_BOTTOM`, replaces `DisableMode`
+- **compat_43.sh** — replaces `DOCK_SLOT_BOTTOM` with `DOCK_SLOT_LEFT_UR`
+- **compat_42.sh** — strips typed for-loops, replaces `DOCK_SLOT_BOTTOM` (as int), replaces `DisableMode`, replaces `Vector3.min/max`, replaces `as int` casts
 - **compat_41.sh** — same as compat_42 (4.1 has additional EditorInterface issues, not recommended)
 - **compat_40.sh** — also strips `@export_group` (4.0 doesn't have those)
 

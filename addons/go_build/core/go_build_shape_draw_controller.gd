@@ -93,6 +93,19 @@ var _saved_mouse_mode: int = Input.MOUSE_MODE_VISIBLE
 var _capture_filter_count: int = 0
 
 
+func _ensure_scene_root() -> Node:
+	var root: Node = EditorInterface.get_edited_scene_root()
+	if root != null:
+		return root
+	root = Node3D.new()
+	root.name = "Node3D"
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	tree.root.add_child(root)
+	root.owner = root
+	EditorInterface.edit_node(root)
+	return root
+
+
 func is_active() -> bool:
 	return _state != DrawState.IDLE
 
@@ -160,7 +173,7 @@ func start(
 	_shape_name = shape_name
 	_plugin = plugin
 	_align_to_surface = align_to_surface
-	_scene_root = EditorInterface.get_edited_scene_root()
+	_scene_root = _ensure_scene_root()
 	_edited_node = edited_node
 	_extra_params = _CATALOG_SCRIPT.default_non_drawable_params(shape_name)
 	_drawn_width = 0.0
@@ -189,7 +202,7 @@ func start_at_position(
 	_shape_name = shape_name
 	_plugin = plugin
 	_align_to_surface = align_to_surface
-	_scene_root = EditorInterface.get_edited_scene_root()
+	_scene_root = _ensure_scene_root()
 	_edited_node = edited_node
 	_extra_params = _CATALOG_SCRIPT.default_non_drawable_params(shape_name)
 	_drawn_width = 0.0
@@ -1132,7 +1145,7 @@ func _commit_shape() -> void:
 	var node := GoBuildMeshInstance.new()
 	node.name = node_name
 	node.go_build_mesh = _CATALOG_SCRIPT.build_mesh(_shape_name, params)
-	var scene_root: Node = EditorInterface.get_edited_scene_root()
+	var scene_root: Node = _ensure_scene_root()
 	if scene_root == null:
 		cancel()
 		return

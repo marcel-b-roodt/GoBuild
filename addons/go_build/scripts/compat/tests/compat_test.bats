@@ -329,3 +329,63 @@ GDSCRIPT
 	grep -q 'int(mode)' "${addon_dir}/test.gd"
 	! grep -q 'as int' "${addon_dir}/test.gd"
 }
+
+# ---------------------------------------------------------------------------
+# replace_dock_slot_bottom_43
+# ---------------------------------------------------------------------------
+
+@test "replace_dock_slot_bottom_43 replaces DOCK_SLOT_BOTTOM with DOCK_SLOT_LEFT_UR" {
+	source "${BATS_TEST_DIRNAME}/../functions/replace_dock_slot_bottom_43.sh"
+
+	cat > "${TEST_DIR}/test.gd" <<'GDSCRIPT'
+add_control_to_dock(DOCK_SLOT_BOTTOM, _uv_panel)
+add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel)
+add_control_to_dock(DOCK_SLOT_BOTTOM, _uv_panel)
+GDSCRIPT
+
+	compat::replace_dock_slot_bottom_43 "${TEST_DIR}"
+
+	grep -q 'add_control_to_dock(DOCK_SLOT_LEFT_UR, _uv_panel)' "${TEST_DIR}/test.gd"
+	grep -q 'add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel)' "${TEST_DIR}/test.gd"
+	! grep -q 'DOCK_SLOT_BOTTOM' "${TEST_DIR}/test.gd"
+}
+
+# ---------------------------------------------------------------------------
+# compat_43.sh — end-to-end (in-place on a fake addon)
+# ---------------------------------------------------------------------------
+
+@test "compat_43.sh replaces DOCK_SLOT_BOTTOM with DOCK_SLOT_LEFT_UR only" {
+	local addon_dir="${TEST_DIR}/go_build"
+	mkdir -p "${addon_dir}"
+
+	cat > "${addon_dir}/plugin.cfg" <<'CFG'
+[plugin]
+name="GoBuild"
+version="0.10.0"
+script="plugin.gd"
+CFG
+
+	cat > "${addon_dir}/test.gd" <<'GDSCRIPT'
+add_control_to_dock(DOCK_SLOT_BOTTOM, _uv_panel)
+add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel)
+for i: int in range(10):
+	pass
+var mode_int: int = mode as int
+GDSCRIPT
+
+	local script_dir="${addon_dir}/scripts/compat"
+	mkdir -p "${script_dir}/functions"
+	cp "${BATS_TEST_DIRNAME}/../compat_43.sh" "${script_dir}/"
+	cp "${BATS_TEST_DIRNAME}/../functions/replace_dock_slot_bottom_43.sh" "${script_dir}/functions/"
+	chmod +x "${script_dir}/compat_43.sh"
+
+	GIT_DIR=/nonexistent bash "${script_dir}/compat_43.sh"
+
+	# Replaces DOCK_SLOT_BOTTOM with DOCK_SLOT_LEFT_UR
+	grep -q 'add_control_to_dock(DOCK_SLOT_LEFT_UR, _uv_panel)' "${addon_dir}/test.gd"
+	! grep -q 'DOCK_SLOT_BOTTOM' "${addon_dir}/test.gd"
+	grep -q 'add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel)' "${addon_dir}/test.gd"
+	# Does NOT touch other syntax (4.3 already supports typed for-loops, as int, etc.)
+	grep -q 'for i: int in range(10):' "${addon_dir}/test.gd"
+	grep -q 'mode as int' "${addon_dir}/test.gd"
+}
