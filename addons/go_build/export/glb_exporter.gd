@@ -50,18 +50,18 @@ static func export_file(mesh_instance: GoBuildMeshInstance, path: String) -> Err
 	wrapper.add_child(temp_mi, true)
 
 	var doc := GLTFDocument.new()
-	var err: Error = doc.append_from_scene(wrapper)
+	var state := GLTFState.new()
+	var err: Error = doc.append_from_scene(wrapper, state)
 	if err != OK:
 		push_warning("GlbExporter: GLTFDocument.append_from_scene failed with error %d" % err)
 		wrapper.queue_free()
 		return err
 
-	# Ensure the target directory exists.
 	var dir_path: String = path.get_base_dir()
 	if not DirAccess.dir_exists_absolute(dir_path):
 		DirAccess.make_dirs_recursive_absolute(dir_path)
 
-	err = doc.write_to_filesystem(path)
+	err = doc.write_to_filesystem(state, path)
 	wrapper.queue_free()
 	if err != OK:
 		push_warning("GlbExporter: write_to_filesystem failed with error %d" % err)
