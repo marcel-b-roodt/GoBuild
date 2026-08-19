@@ -43,8 +43,14 @@ func _on_export_pressed(mi: GoBuildMeshInstance) -> void:
 		_file_dialog.title = "Export GLB"
 		EditorInterface.get_base_control().add_child(_file_dialog)
 		_file_dialog.file_selected.connect(_on_file_selected)
+	# Ensure the export directory exists before the dialog opens.
+	if not DirAccess.dir_exists_absolute(EXPORT_DIR):
+		var da := DirAccess.open("res://")
+		if da != null:
+			da.make_dir_recursive(EXPORT_DIR.replace("res://", ""))
 	_file_dialog.current_dir = EXPORT_DIR
 	_file_dialog.current_file = mi.name + ".glb"
+	_file_dialog.invalidate()  # force refresh of the file system view
 	_file_dialog.popup_centered_ratio(0.6)
 
 
