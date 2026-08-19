@@ -5180,11 +5180,6 @@ custom_channel_2 = Array[Color]([Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 
 faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_hbs5w"), SubResource("Resource_758m0"), SubResource("Resource_gi322"), SubResource("Resource_ybtbj"), SubResource("Resource_xkov2"), SubResource("Resource_3ell5"), SubResource("Resource_4foju"), SubResource("Resource_u6x1a"), SubResource("Resource_poi3c"), SubResource("Resource_fshkf"), SubResource("Resource_em36t"), SubResource("Resource_y3wj2"), SubResource("Resource_okf76"), SubResource("Resource_h58o8"), SubResource("Resource_k766c"), SubResource("Resource_xonm4"), SubResource("Resource_wxlli"), SubResource("Resource_py4wt"), SubResource("Resource_6blsv"), SubResource("Resource_63j4c"), SubResource("Resource_sqad0"), SubResource("Resource_kkeom"), SubResource("Resource_bf7xf"), SubResource("Resource_f1lyy"), SubResource("Resource_qx6mo"), SubResource("Resource_jslel")])
 material_slots = Array[Material]([ExtResource("8_gr644")])
 
-[sub_resource type="BoxMesh" id="BoxMesh_mh6v0"]
-
-[sub_resource type="ConcavePolygonShape3D" id="ConcavePolygonShape3D_347rb"]
-data = PackedVector3Array(-0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5, 0.5, -0.5, 0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5, -0.5)
-
 [sub_resource type="ArrayMesh" id="ArrayMesh_347rb"]
 _surfaces = [{
 "aabb": AABB(-15.408838, -4.6394968e-07, -8.594404, 24.391777, 0.48582888, 27.122206),
@@ -5903,12 +5898,6 @@ mesh = SubResource("ArrayMesh_a8ule")
 script = ExtResource("1_4gi1e")
 go_build_mesh = SubResource("Resource_wf7ok")
 use_collision = true
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1144017495]
-mesh = SubResource("BoxMesh_mh6v0")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=267621790]
-shape = SubResource("ConcavePolygonShape3D_347rb")
 
 [node name="GoBuildPolygon3" type="MeshInstance3D" parent="." unique_id=273902059]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10.346463, -1.2887491e-08, 24.153969)

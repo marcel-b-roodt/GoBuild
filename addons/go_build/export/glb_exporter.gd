@@ -39,10 +39,13 @@ static func export_file(mesh_instance: GoBuildMeshInstance, path: String) -> Err
 		return ERR_INVALID_PARAMETER
 
 	# GLTFDocument requires the node to be in the scene tree to traverse it.
-	# mesh_instance is already in the tree — we can pass it directly.
+	# Temporarily zero the transform so the exported mesh is centered at origin.
+	var orig_transform: Transform3D = mesh_instance.global_transform
+	mesh_instance.global_transform = Transform3D.IDENTITY
 	var doc := GLTFDocument.new()
 	var state := GLTFState.new()
 	var err: Error = doc.append_from_scene(mesh_instance, state)
+	mesh_instance.global_transform = orig_transform
 	if err != OK:
 		push_warning("GlbExporter: GLTFDocument.append_from_scene failed with error %d" % err)
 		return err
