@@ -168,7 +168,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 |---|---|---|
 | OBJ export | 📋 Planned | |
 | GLB export | 📋 Planned | Binary GLTF 2.0 |
-| Collision generation | 📋 Planned | Convex or concave sibling node |
+| Collision generation | ✅ Complete | Toggle on GoBuildMeshInstance creates child StaticBody3D + CollisionShape3D; concave (default) or convex; stays in sync on bake; proxy collision properties (layer, mask, disable mode, ray pickable) on GoBuildMeshInstance; hidden when use_collision=false; Inspector groups: Collision, Auto UV |
 | LOD generation | 📋 Planned | Simplified meshes at configurable ratios |
 | Batch export | 📋 Planned | All GoBuild meshes in scene |
 

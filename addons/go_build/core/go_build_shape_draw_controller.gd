@@ -618,6 +618,8 @@ func _update_crosshair() -> void:
 			_ensure_crosshair()
 		else:
 			return
+		if _crosshair == null or not is_instance_valid(_crosshair):
+			return
 	if _state != DrawState.POSITION:
 		_crosshair.visible = false
 		return
@@ -701,6 +703,8 @@ func _refresh_ghost() -> void:
 		return
 	_ghost_base_mesh = mesh
 	_ensure_ghost()
+	if _ghost == null or not is_instance_valid(_ghost):
+		return
 	_ghost.go_build_mesh = mesh
 	_ghost.bake_in_place()
 	var topology_changed: bool = (topology_key != _last_topology_key)
@@ -944,6 +948,8 @@ func _refresh_polygon_ghost() -> void:
 		_clear_polygon_vertex_markers()
 		return
 	_ensure_ghost()
+	if _ghost == null or not is_instance_valid(_ghost):
+		return
 	# Build edge lines: placed edges + preview edge to cursor + closing preview
 	var line_positions: PackedVector3Array = []
 	if _polygon_points.size() >= 2:
@@ -1049,6 +1055,8 @@ func _refresh_polygon_height_ghost() -> void:
 		_hide_ghost()
 		return
 	_ensure_ghost()
+	if _ghost == null or not is_instance_valid(_ghost):
+		return
 	var params: Dictionary = {
 		"polygon_points": _polygon_points.duplicate(),
 		"height": _drawn_height,

@@ -22,6 +22,8 @@ Primitive shapes, sub-element selection, move handles, rotate handles, and box s
 
 ## Installation
 
+**Requirements:** Godot 4.1 or later. See [Godot 4.0 compatibility](#godot-40-compatibility) if you need 4.0 support.
+
 **From the Godot Asset Library** *(once listed)*:
 1. Open **Project → AssetLib** inside Godot.
 2. Search for **GoBuild** and install.
@@ -52,6 +54,24 @@ Most code in this repository was generated with AI assistance and reviewed by th
 - **Not used:** Autonomous agents, unsupervised commits, or unsupervised merges. No outside contributors.
 
 If you have questions about how any piece of code was written or verified, please feel free to open an issue.
+
+## Godot compatibility
+
+GoBuild requires **Godot 4.3 or later**. The addon uses `DOCK_SLOT_BOTTOM` and `StaticBody3D.DisableMode` which were introduced in 4.3.
+
+For older versions, compat scripts are included:
+
+```bash
+cd addons/go_build
+./scripts/compat/compat_42.sh   # For Godot 4.2 (recommended minimum for compat)
+./scripts/compat/compat_40.sh   # For Godot 4.0 (partial — EditorInterface API remains incompatible)
+```
+
+No arguments needed — the script finds the addon root automatically and transforms files in-place. Re-download or re-extract the addon to restore the original files.
+
+- **compat_42.sh** — strips typed for-loops, replaces `DOCK_SLOT_BOTTOM`, replaces `DisableMode`
+- **compat_41.sh** — same as compat_42 (4.1 has additional EditorInterface issues, not recommended)
+- **compat_40.sh** — also strips `@export_group` (4.0 doesn't have those)
 
 ## Contributing
 

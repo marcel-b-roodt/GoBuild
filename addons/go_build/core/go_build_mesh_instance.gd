@@ -11,8 +11,10 @@ class_name GoBuildMeshInstance
 extends MeshInstance3D
 
 ## Emitted after every [method bake] (including undo/redo restores).
-## The panel subscribes to this to keep its stats label in sync.
+## The panel subscribes to this to keep the stats label in sync.
 signal mesh_changed
+
+enum CollisionType { CONCAVE, CONVEX }
 
 # Self-preload: Godot's startup script scan processes core/ files alphabetically,
 # reaching this file before selection_manager.gd.  The explicit preload forces
@@ -25,6 +27,10 @@ const _SPHERICAL_UV_SCRIPT     := preload("res://addons/go_build/uv/spherical_pr
 const _MESH_SCRIPT             := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_face.gd")
 
+# ---------------------------------------------------------------------------
+# Mesh (ungrouped)
+# ---------------------------------------------------------------------------
+
 ## The editable mesh resource. Assigning a new resource immediately bakes it.
 @export var go_build_mesh: GoBuildMesh:
 	set(value):
@@ -32,6 +38,52 @@ const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_f
 		if auto_uv_mode != GoBuildFace.UvMode.NONE and go_build_mesh != null:
 			_apply_auto_uv()
 		bake()
+
+# ---------------------------------------------------------------------------
+# Collision
+# ---------------------------------------------------------------------------
+
+@export_group("Collision")
+
+@export var use_collision: bool = false:
+	set(value):
+		use_collision = value
+		_update_collision()
+
+@export var collision_type: GoBuildMeshInstance.CollisionType = CollisionType.CONCAVE:
+	set(value):
+		collision_type = value
+		_update_collision()
+
+@export var collision_layer: int = 1:
+	set(value):
+		collision_layer = value
+		if _collision_body != null and is_instance_valid(_collision_body):
+			_collision_body.collision_layer = value
+
+@export var collision_mask: int = 1:
+	set(value):
+		collision_mask = value
+		if _collision_body != null and is_instance_valid(_collision_body):
+			_collision_body.collision_mask = value
+
+@export var collision_disable_mode: StaticBody3D.DisableMode = StaticBody3D.DISABLE_MODE_REMOVE:
+	set(value):
+		collision_disable_mode = value
+		if _collision_body != null and is_instance_valid(_collision_body):
+			_collision_body.disable_mode = value
+
+@export var collision_input_ray_pickable: bool = false:
+	set(value):
+		collision_input_ray_pickable = value
+		if _collision_body != null and is_instance_valid(_collision_body):
+			_collision_body.input_ray_pickable = value
+
+# ---------------------------------------------------------------------------
+# Auto UV
+# ---------------------------------------------------------------------------
+
+@export_group("Auto UV")
 
 ## Global auto-UV mode applied after every modelling operation.
 ##
@@ -55,6 +107,10 @@ const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_f
 ## selected. The gizmo and panel both hold a reference to this object.
 var selection: SelectionManager = SelectionManager.new()
 
+var _collision_body: StaticBody3D = null
+var _collision_shape: CollisionShape3D = null
+var _collision_debug_mesh: MeshInstance3D = null
+
 ## When true, [method bake] applies double-sided (cull-disabled) surface
 ## override materials so back-faces are visible in the editor viewport.
 ## Enabled by the plugin while this node is being edited; never exported.
@@ -75,6 +131,24 @@ func _ready() -> void:
 	if go_build_mesh != null:
 		go_build_mesh.rebuild_edges()
 	bake()
+	if use_collision:
+		_ensure_collision_nodes()
+		_update_collision_shape()
+		_update_collision_debug_overlay()
+
+
+func _exit_tree() -> void:
+	_remove_collision_nodes()
+
+
+func _validate_property(property: Dictionary) -> void:
+	if not use_collision:
+		var hidden := ["collision_type", "collision_layer", "collision_mask",
+				"collision_disable_mode", "collision_input_ray_pickable"]
+		if property.name in hidden:
+			property.usage = property.usage & ~PROPERTY_USAGE_EDITOR
+	if property.name == "collision_layer" or property.name == "collision_mask":
+		property.hint = PROPERTY_HINT_LAYERS_3D_PHYSICS
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +159,7 @@ func _ready() -> void:
 ## Call this after any mutation to the GoBuildMesh data.
 func bake() -> void:
 	_bake_internal(true)
+	_update_collision_shape()
 
 
 ## Same as [method bake] but does not emit [signal mesh_changed].
@@ -92,6 +167,7 @@ func bake() -> void:
 ## before external observers should react — avoids disconnect/reconnect dances.
 func bake_silently() -> void:
 	_bake_internal(false)
+	_update_collision_shape()
 
 
 func _bake_internal(emit_changed: bool) -> void:
@@ -124,6 +200,7 @@ func bake_in_place() -> void:
 	if _edit_cull_override:
 		_apply_cull_overrides()
 	mesh_changed.emit()
+	_update_collision_shape()
 
 
 ## Begin preview mode: allocate a persistent [ArrayMesh] and assign it to
@@ -398,3 +475,145 @@ func _ensure_vertex_alpha_materials() -> void:
 			if has_alpha:
 				bmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
+
+# ---------------------------------------------------------------------------
+# Collision
+# ---------------------------------------------------------------------------
+
+func _update_collision() -> void:
+	if use_collision:
+		if not is_inside_tree():
+			call_deferred("_ensure_collision_nodes")
+			call_deferred("_update_collision_shape")
+			call_deferred("_update_collision_debug_overlay")
+			return
+		_ensure_collision_nodes()
+		_update_collision_shape()
+		_update_collision_debug_overlay()
+		notify_property_list_changed()
+	else:
+		_remove_collision_nodes()
+		notify_property_list_changed()
+
+
+func _ensure_collision_nodes() -> void:
+	if _collision_body != null and is_instance_valid(_collision_body):
+		return
+	if not is_inside_tree():
+		return
+	_collision_body = StaticBody3D.new()
+	_collision_body.name = "StaticBody3D"
+	_collision_body.collision_layer = collision_layer
+	_collision_body.collision_mask = collision_mask
+	_collision_body.disable_mode = collision_disable_mode
+	_collision_body.input_ray_pickable = collision_input_ray_pickable
+	_collision_shape = CollisionShape3D.new()
+	_collision_shape.name = "CollisionShape3D"
+	_collision_body.add_child(_collision_shape, true)
+	# No owner — don't pollute scene saves.
+	# Editor debug overlay (Visible Collision Shapes) renders the shape.
+	add_child(_collision_body, true)
+
+
+func _remove_collision_nodes() -> void:
+	if _collision_body != null and is_instance_valid(_collision_body):
+		var parent := _collision_body.get_parent()
+		if parent != null:
+			parent.remove_child(_collision_body)
+		_collision_body.queue_free()
+	_collision_body = null
+	_collision_shape = null
+	_remove_collision_debug_overlay()
+
+
+func _update_collision_shape() -> void:
+	if not use_collision:
+		return
+	if _collision_shape == null or not is_instance_valid(_collision_shape):
+		return
+	var baked_mesh: Mesh = mesh
+	if baked_mesh == null:
+		_collision_shape.shape = null
+		return
+	var new_shape: Shape3D = null
+	if collision_type == CollisionType.CONCAVE:
+		new_shape = baked_mesh.create_trimesh_shape()
+	elif collision_type == CollisionType.CONVEX:
+		new_shape = baked_mesh.create_convex_shape()
+	_collision_shape.shape = new_shape
+	_update_collision_debug_overlay()
+
+
+func _update_collision_debug_overlay() -> void:
+	if not Engine.is_editor_hint():
+		_remove_collision_debug_overlay()
+		return
+	if not use_collision or mesh == null:
+		_remove_collision_debug_overlay()
+		return
+	if not is_inside_tree():
+		return
+	if _collision_shape == null or not is_instance_valid(_collision_shape) \
+			or _collision_shape.shape == null:
+		_remove_collision_debug_overlay()
+		return
+	var debug_mesh: Mesh = _collision_shape.shape.get_debug_mesh()
+	if _collision_debug_mesh != null and is_instance_valid(_collision_debug_mesh):
+		_collision_debug_mesh.mesh = debug_mesh
+		_collision_debug_mesh.global_transform = global_transform
+		return
+	_collision_debug_mesh = MeshInstance3D.new()
+	_collision_debug_mesh.name = "CollisionDebugOverlay"
+	_collision_debug_mesh.mesh = debug_mesh
+	_collision_debug_mesh.global_transform = global_transform
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.0, 0.6, 0.7, 0.15)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_collision_debug_mesh.material_override = mat
+	_collision_debug_mesh.owner = null
+	add_child(_collision_debug_mesh, true)
+
+
+func _remove_collision_debug_overlay() -> void:
+	if _collision_debug_mesh != null and is_instance_valid(_collision_debug_mesh):
+		var parent := _collision_debug_mesh.get_parent()
+		if parent != null:
+			parent.remove_child(_collision_debug_mesh)
+		_collision_debug_mesh.queue_free()
+	_collision_debug_mesh = null
+
+
+func _property_can_revert(property: StringName) -> bool:
+	match property:
+		&"use_collision":
+			return true
+		&"collision_type":
+			return true
+		&"collision_layer":
+			return true
+		&"collision_mask":
+			return true
+		&"collision_disable_mode":
+			return true
+		&"collision_input_ray_pickable":
+			return true
+	return false
+
+
+func _property_get_revert(property: StringName) -> Variant:
+	match property:
+		&"use_collision":
+			return false
+		&"collision_type":
+			return CollisionType.CONCAVE
+		&"collision_layer":
+			return 1
+		&"collision_mask":
+			return 1
+		&"collision_disable_mode":
+			return StaticBody3D.DISABLE_MODE_REMOVE
+		&"collision_input_ray_pickable":
+			return false
+	return false
