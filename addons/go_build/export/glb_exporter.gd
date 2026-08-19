@@ -59,7 +59,9 @@ static func export_file(mesh_instance: GoBuildMeshInstance, path: String) -> Err
 
 	var dir_path: String = path.get_base_dir()
 	if not DirAccess.dir_exists_absolute(dir_path):
-		DirAccess.make_dirs_recursive_absolute(dir_path)
+		var da := DirAccess.open("res://")
+		if da != null:
+			da.make_dir_recursive(dir_path)
 
 	err = doc.write_to_filesystem(state, path)
 	wrapper.queue_free()
