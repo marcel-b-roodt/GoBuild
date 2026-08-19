@@ -3,6 +3,9 @@
 ## Uses Godot's built-in [GLTFDocument] for full fidelity: vertex positions,
 ## normals, UVs, vertex colours, and materials are preserved.
 ##
+## The exported mesh is centered at the world origin with no transform,
+## regardless of the source node's position in the scene.
+##
 ## Usage:
 ##   [codeblock]
 ##   var err := GlbExporter.export_file(mesh_instance, "res://output.glb")
@@ -38,14 +41,30 @@ static func export_file(mesh_instance: GoBuildMeshInstance, path: String) -> Err
 		push_warning("GlbExporter: path must end with .glb, got %s" % path)
 		return ERR_INVALID_PARAMETER
 
-	# GLTFDocument requires the node to be in the scene tree to traverse it.
-	# Temporarily zero the transform so the exported mesh is centered at origin.
-	var orig_transform: Transform3D = mesh_instance.global_transform
-	mesh_instance.global_transform = Transform3D.IDENTITY
+	# Build a temporary MeshInstance3D at the world origin so the exported GLB
+	# is always centered. GLTFDocument requires the node to be in the scene tree.
+	var export_node := MeshInstance3D.new()
+	export_node.name = mesh_instance.name
+	export_node.mesh = baked_mesh
+	for i in baked_mesh.get_surface_count():
+		var mat: Material = baked_mesh.surface_get_material(i)
+		if mat != null:
+			export_node.set_surface_override_material(i, mat)
+	# Use SurfaceTool to rebake with full-precision floats, avoiding
+	# "Byte/Half formats not supported" errors on export.
+	export_node.mesh = _rebake_full_precision(baked_mesh)
+	var scene_root: Node = mesh_instance.get_tree().current_scene
+	if scene_root == null:
+		scene_root = mesh_instance.get_parent()
+	if scene_root == null:
+		push_warning("GlbExporter: cannot find a scene root to attach export node")
+		return ERR_INVALID_PARAMETER
+	scene_root.add_child(export_node, true)
+
 	var doc := GLTFDocument.new()
 	var state := GLTFState.new()
-	var err: Error = doc.append_from_scene(mesh_instance, state)
-	mesh_instance.global_transform = orig_transform
+	var err: Error = doc.append_from_scene(export_node, state)
+	export_node.queue_free()
 	if err != OK:
 		push_warning("GlbExporter: GLTFDocument.append_from_scene failed with error %d" % err)
 		return err
@@ -60,3 +79,17 @@ static func export_file(mesh_instance: GoBuildMeshInstance, path: String) -> Err
 	if err != OK:
 		push_warning("GlbExporter: write_to_filesystem failed with error %d" % err)
 	return err
+
+
+## Rebuild the mesh using SurfaceTool to ensure all vertex data uses full
+## Float32 precision. Godot's ArrayMesh can store normals and tangents as
+## half-float or byte, which GLTFDocument cannot export.
+static func _rebake_full_precision(src_mesh: Mesh) -> ArrayMesh:
+	var result := ArrayMesh.new()
+	for surf_idx in src_mesh.get_surface_count():
+		var st := SurfaceTool.new()
+		st.create_from_mesh(src_mesh, surf_idx)
+		# Ensure vertex format uses full-precision floats.
+		st.deindex()
+		st.commit(result)
+	return result
