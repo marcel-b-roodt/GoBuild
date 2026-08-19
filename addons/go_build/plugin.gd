@@ -51,6 +51,8 @@ const _SHAPE_DRAW_OVERLAY_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_shape_draw_overlay.gd")
 const _DROP_CONVERTER_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_material_drop_converter.gd")
+const _EXPORT_INSPECTOR_SCRIPT := preload(
+		"res://addons/go_build/export/go_build_export_inspector_plugin.gd")
 const _ICON                 := preload("res://addons/go_build/go_build.svg")
 
 
@@ -92,6 +94,7 @@ var _paint_brush: GoBuildVertexPaintBrush        = null
 var _project_settings: GoBuildProjectSettings    = null
 var _edited_node: GoBuildMeshInstance            = null
 var _gizmo_plugin: GoBuildGizmoPlugin            = null
+var _export_inspector: GoBuildExportInspectorPlugin = null
 var _input_controller: SelectionInputController  = null
 var _drag_controller: GoBuildDragController       = null
 var _shape_draw_controller: GoBuildShapeDrawController = null
@@ -192,6 +195,9 @@ func _enter_tree() -> void:
 	_gizmo_plugin = _GIZMO_PLUGIN_SCRIPT.new()
 	_gizmo_plugin.setup(self)
 	add_node_3d_gizmo_plugin(_gizmo_plugin)
+
+	_export_inspector = _EXPORT_INSPECTOR_SCRIPT.new()
+	add_inspector_plugin(_export_inspector)
 
 	_input_controller = _CONTROLLER_SCRIPT.new()
 	_drag_controller = _DRAG_CTRL_SCRIPT.new()
@@ -372,6 +378,10 @@ func _exit_tree() -> void:
 	if _gizmo_plugin:
 		remove_node_3d_gizmo_plugin(_gizmo_plugin)
 		_gizmo_plugin = null
+
+	if _export_inspector:
+		remove_inspector_plugin(_export_inspector)
+		_export_inspector = null
 
 	_input_controller = null
 	_object_uv_bake_scheduled = false

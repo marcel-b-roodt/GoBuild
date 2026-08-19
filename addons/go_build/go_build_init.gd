@@ -137,3 +137,9 @@ const _VC_PAINTER     := preload(
 		"res://addons/go_build/vertex_paint/go_build_vertex_painter.gd")
 const _VC_BRUSH       := preload(
 		"res://addons/go_build/vertex_paint/go_build_vertex_paint_brush.gd")
+
+# ── Layer 7: Export (depends on mesh instance) ─────────────────────────────
+
+const _GLB_EXPORTER   := preload("res://addons/go_build/export/glb_exporter.gd")
+const _EXPORT_INSP    := preload(
+		"res://addons/go_build/export/go_build_export_inspector_plugin.gd")
