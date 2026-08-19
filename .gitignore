@@ -16,6 +16,7 @@ reports/
 /.mono
 /.godot
 /.export_build
+/gobuild_export/
 
 # ── Third-party addons (install from AssetLib) ──────────────────────────
 # GdUnit4 — testing framework. Install via Project → AssetLib → "GdUnit4".
