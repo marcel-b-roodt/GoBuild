@@ -88,14 +88,21 @@ static func export_file(mesh_instance: GoBuildMeshInstance, path: String) -> Err
 	return err
 
 
-## Rebuild the mesh using SurfaceTool to ensure all vertex data uses full
-## Float32 precision. Godot's ArrayMesh can store normals and tangents as
-## half-float or byte, which GLTFDocument cannot export.
+## Rebuild the mesh with full-precision normals and tangents.
+## Godot's ArrayMesh compresses normals to half-float and tangents to bytes
+## by default, which GLTFDocument cannot export ("Byte/Half formats not supported").
+## We rebuild surface-by-surface using add_surface_from_arrays with the
+## ARRAY_FLAG_USES_FULL_NORMAL_AND_TANGENT flag to force Float32.
 static func _rebake_full_precision(src_mesh: Mesh) -> ArrayMesh:
 	var result := ArrayMesh.new()
 	for surf_idx in src_mesh.get_surface_count():
-		var st := SurfaceTool.new()
-		st.create_from(src_mesh, surf_idx)
-		st.deindex()
-		st.commit(result)
+		var arrays: Array = src_mesh.surface_get_arrays(surf_idx)
+		if arrays.is_empty():
+			continue
+		var format: int = src_mesh.surface_get_format(surf_idx)
+		format |= Mesh.ARRAY_FLAG_USES_FULL_NORMAL_AND_TANGENT
+		result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, format)
+		var mat: Material = src_mesh.surface_get_material(surf_idx)
+		if mat != null:
+			result.surface_set_material(result.get_surface_count() - 1, mat)
 	return result
