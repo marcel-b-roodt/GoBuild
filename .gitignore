@@ -1,8 +1,11 @@
 
 # ── Internal planning docs (local-only, not published with the addon) ──
 docs/internal/
+AGENTS.md
 .github/copilot-instructions.md
 opencode.json
+.opencode/
+issues/
 TODO.md
 NearTermTodos.txt
 HighLevelTodos.txt
