@@ -37,6 +37,7 @@ static func apply_faces(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 		return
 	_delete_faces_by_set(mesh, to_delete)
 	mesh.rebuild_edges()
+	mesh.validate_edge_topology()
 
 
 ## Delete all faces adjacent to the edges at [param edge_indices] from [param mesh].
@@ -58,6 +59,7 @@ static func apply_edges(mesh: GoBuildMesh, edge_indices: Array[int]) -> void:
 		return
 	_delete_faces_by_set(mesh, face_set)
 	mesh.rebuild_edges()
+	mesh.validate_edge_topology()
 
 
 ## Delete all faces that reference any vertex at [param vertex_indices] in [param mesh].
@@ -94,6 +96,7 @@ static func apply_vertices(mesh: GoBuildMesh, vertex_indices: Array[int]) -> voi
 		return
 	_delete_faces_by_set(mesh, face_set)
 	mesh.rebuild_edges()
+	mesh.validate_edge_topology()
 
 
 # ---------------------------------------------------------------------------
@@ -102,10 +105,7 @@ static func apply_vertices(mesh: GoBuildMesh, vertex_indices: Array[int]) -> voi
 
 ## Remove every face whose index is a key in [param face_set], then compact
 ## the vertex array to eliminate orphaned (unreferenced) vertices.
+## Routes through [method GoBuildMesh.delete_faces] so the persistent edge
+## topology stays in sync incrementally (no full rebuild).
 static func _delete_faces_by_set(mesh: GoBuildMesh, face_set: Dictionary) -> void:
-	var new_faces: Array[GoBuildFace] = []
-	for fi: int in mesh.faces.size():
-		if not face_set.has(fi):
-			new_faces.append(mesh.faces[fi])
-	mesh.faces = new_faces
-	mesh.compact_vertices()
+	mesh.delete_faces(face_set)

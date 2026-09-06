@@ -17,6 +17,7 @@ const _TORUS_SCRIPT := preload("res://addons/go_build/mesh/generators/torus_gene
 const _STAIR_SCRIPT := preload("res://addons/go_build/mesh/generators/staircase_generator.gd")
 const _ARCH_SCRIPT := preload("res://addons/go_build/mesh/generators/arch_generator.gd")
 const _POLYGON_SCRIPT := preload("res://addons/go_build/mesh/generators/polygon_generator.gd")
+const _DOORWAY_SCRIPT := preload("res://addons/go_build/mesh/generators/doorway_generator.gd")
 
 
 ## All registered primitive shape names, in display order.
@@ -25,7 +26,7 @@ const _POLYGON_SCRIPT := preload("res://addons/go_build/mesh/generators/polygon_
 static func all_shapes() -> Array[String]:
 	return [
 		"Cube", "Plane", "Cylinder", "Sphere",
-		"Cone", "Torus", "Staircase", "Arch", "Polygon",
+		"Cone", "Torus", "Staircase", "Arch", "Doorway", "Polygon",
 	]
 
 
@@ -88,6 +89,13 @@ static func default_params(shape_name: String) -> Dictionary:
 			}
 		"Polygon":
 			return {"height": 1.0, "cap_bottom": true, "cap_top": true}
+		"Doorway":
+			return {
+				"opening_width_ratio": 0.5,
+				"opening_height_ratio": 0.8,
+				"arched": false,
+				"segments": 8,
+			}
 		"Cube":
 			return {"width": 1.0, "height": 1.0, "depth": 1.0}
 		"Plane":
@@ -174,6 +182,19 @@ static func preview_param_specs(shape_name: String) -> Array[Dictionary]:
 					"min": 0.01, "max": 100.0, "step": 0.01,
 				},
 			]
+		"Doorway":
+			return [
+				{
+					"type": "float", "key": "opening_width_ratio", "label": "Open W",
+					"min": 0.05, "max": 0.95, "step": 0.01,
+				},
+				{
+					"type": "float", "key": "opening_height_ratio", "label": "Open H",
+					"min": 0.05, "max": 0.95, "step": 0.01,
+				},
+				{"type": "bool", "key": "arched", "label": "Arched"},
+				{"type": "int", "key": "segments", "label": "Segments", "min": 1, "max": 64, "step": 1},
+			]
 		_:
 			return []
 
@@ -202,6 +223,13 @@ static func default_non_drawable_params(shape_name: String) -> Dictionary:
 			return {"angle_degrees": 180.0, "segments": 8, "thickness": 0.2}
 		"Polygon":
 			return {"cap_bottom": true, "cap_top": true}
+		"Doorway":
+			return {
+				"opening_width_ratio": 0.5,
+				"opening_height_ratio": 0.8,
+				"arched": false,
+				"segments": 8,
+			}
 		_:
 			return {}
 
@@ -263,6 +291,19 @@ static func non_drawable_param_specs(shape_name: String) -> Array[Dictionary]:
 				{"type": "bool", "key": "cap_bottom", "label": "Cap Bottom"},
 				{"type": "bool", "key": "cap_top", "label": "Cap Top"},
 			]
+		"Doorway":
+			return [
+				{
+					"type": "float", "key": "opening_width_ratio", "label": "Open W",
+					"min": 0.05, "max": 0.95, "step": 0.01,
+				},
+				{
+					"type": "float", "key": "opening_height_ratio", "label": "Open H",
+					"min": 0.05, "max": 0.95, "step": 0.01,
+				},
+				{"type": "bool", "key": "arched", "label": "Arched"},
+				{"type": "int", "key": "segments", "label": "Segments", "min": 1, "max": 64, "step": 1},
+			]
 		_:
 			return []
 
@@ -308,6 +349,11 @@ static func normalise_params(shape_name: String, raw_params: Dictionary) -> Dict
 			p["depth"] = maxf(float(p.get("depth", 0.2)), 0.01)
 		"Polygon":
 			p["height"] = maxf(float(p.get("height", 1.0)), 0.01)
+		"Doorway":
+			p["opening_width_ratio"] = clampf(float(p.get("opening_width_ratio", 0.5)), 0.05, 0.95)
+			p["opening_height_ratio"] = clampf(float(p.get("opening_height_ratio", 0.8)), 0.05, 0.95)
+			p["arched"] = bool(p.get("arched", false))
+			p["segments"] = maxi(int(p.get("segments", 8)), 1)
 	return p
 
 
@@ -367,6 +413,19 @@ static func build_mesh(shape_name: String, params: Dictionary) -> GoBuildMesh:
 				float(p.get("angle_degrees", 180.0)),
 				int(p.get("segments", 8)),
 				float(p.get("depth", 0.2)),
+			)
+		"Doorway":
+			var dw: float = float(p.get("width", 2.0))
+			var dh: float = float(p.get("height", 2.5))
+			var dd: float = float(p.get("depth", 0.2))
+			return DoorwayGenerator.generate(
+				dw,
+				dh,
+				dd,
+				dw * float(p.get("opening_width_ratio", 0.5)),
+				dh * float(p.get("opening_height_ratio", 0.8)),
+				bool(p.get("arched", false)),
+				int(p.get("segments", 8)),
 			)
 		"Polygon":
 			var poly_normal: Vector3 = p.get("override_normal", Vector3.ZERO) as Vector3

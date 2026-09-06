@@ -381,17 +381,40 @@ func test_ring_stops_at_triangle() -> void:
 	var ei: int = _find_edge(mesh, 1, 2)
 	assert_int(ei).is_not_equal(-1)
 	LoopCutOperation.apply(mesh, [ei])
-	# The quad was cut into 2. The triangle is unchanged.
+	# The quad was cut into 2. The triangle is NOT re-partitioned, but the
+	# cut vertex on the shared edge 1↔2 IS inserted into its ring
+	# (split_edge — no T-junctions).  The tri's shape is unchanged (the new
+	# vertex is collinear on its edge).
 	# Vertex count: original 5 + 2 new cut verts (on entry edge + opposite edge) = 7.
 	assert_int(mesh.vertices.size()).is_equal(7)
 	# Face count: 1 quad → 2 quads + 1 original tri = 3.
 	assert_int(mesh.faces.size()).is_equal(3)
-	# The triangle face should still have 3 vertices.
-	var tri_found: bool = false
-	for face in mesh.faces:
-		if (face as GoBuildFace).vertex_indices.size() == 3:
-			tri_found = true
-	assert_bool(tri_found).is_true()
+	# The triangle survives as a face whose shape is preserved: its 3 ORIGINAL
+	# vertices are still in its ring, plus the shared cut vertex.  (Face
+	# order shifts — the replacement quad is appended after the tri — so the
+	# tri is located by its apex vertex 4.)
+	var tri: GoBuildFace = null
+	for face: GoBuildFace in mesh.faces:
+		if face.vertex_indices.has(4):
+			tri = face
+			break
+	assert_bool(tri != null).is_true()
+	if tri == null:
+		return
+	assert_bool(tri.vertex_indices.has(1)).is_true()
+	assert_bool(tri.vertex_indices.has(2)).is_true()
+	# T-junction regression: the shared cut vertex (midpoint of edge 1↔2 at
+	# (1, 0, 0.5)) must be in the tri's ring too.
+	var shared_idx: int = -1
+	for vi: int in mesh.vertices.size():
+		if mesh.vertices[vi].distance_to(Vector3(1.0, 0.0, 0.5)) < 0.001:
+			shared_idx = vi
+			break
+	assert_int(shared_idx).is_not_equal(-1)
+	assert_bool(tri.vertex_indices.has(shared_idx)).is_true()
+	# Every edge is used by 1 or 2 faces — no drift.
+	for e: GoBuildEdge in mesh.edges:
+		assert_int(e.face_indices.size()).is_between(1, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -417,10 +440,10 @@ func test_replacement_quads_inherit_smooth_group() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Undo-safe: rebuild_edges is called after apply
+# Edge topology consistent after apply (persistent edges)
 # ---------------------------------------------------------------------------
 
-func test_rebuild_edges_called_after_cut() -> void:
+func test_edge_topology_consistent_after_cut() -> void:
 	# After a loop cut the edge count should be consistent with the new geometry
 	# (each quad has 4 edges; shared edges counted once).  For a 2-quad result
 	# from a 1-quad input that was cut at the left boundary edge:

@@ -1,7 +1,10 @@
 ## A directed edge between two vertices in a [GoBuildMesh].
 ##
-## Edges are derived from face data and rebuilt via [method GoBuildMesh.rebuild_edges].
-## Do not modify this data directly; it is owned by the mesh.
+## Persistent topology state: maintained incrementally by the mesh's mutation
+## helpers ([method GoBuildMesh.register_face], [method GoBuildMesh.unregister_face],
+## [method GoBuildMesh.split_edge]); `rebuild_edges()` survives only as the
+## load/undo-restore path.  `hard_edge_pairs` on the mesh is the serialization
+## authority; `is_hard` is the runtime view.  Do not modify edge data directly.
 @tool
 class_name GoBuildEdge
 extends RefCounted
@@ -19,7 +22,8 @@ var face_indices: Array[int] = []
 ## When [code]true[/code] this edge acts as a normal seam.
 ## Adjacent faces sharing this edge will not average their normals at shared
 ## vertices even when they belong to the same smooth group.
-## Derived from [member GoBuildMesh.hard_edge_pairs] by [method GoBuildMesh.rebuild_edges].
+## Runtime view of [member GoBuildMesh.hard_edge_pairs] (the serialization
+## authority), synced by [method GoBuildMesh.sync_edge_hard_state].
 var is_hard: bool = false
 
 

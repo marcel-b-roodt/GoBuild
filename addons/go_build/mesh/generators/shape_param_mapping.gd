@@ -44,6 +44,8 @@ static func build_params(
 			return _arch_params(w, d, h, extra)
 		"Polygon":
 			return _polygon_params(h, extra)
+		"Doorway":
+			return _doorway_params(w, d, h, extra)
 		_:
 			return {"width": w, "height": h, "depth": d}
 
@@ -155,6 +157,19 @@ static func _polygon_params(h: float, extra: Dictionary) -> Dictionary:
 	return p
 
 
+static func _doorway_params(w: float, d: float, h: float, extra: Dictionary) -> Dictionary:
+	var p: Dictionary = {
+		"width": w,
+		"height": h,
+		"depth": d,
+		"opening_width_ratio": float(extra.get("opening_width_ratio", 0.5)),
+		"opening_height_ratio": float(extra.get("opening_height_ratio", 0.8)),
+		"arched": bool(extra.get("arched", false)),
+		"segments": int(extra.get("segments", 8)),
+	}
+	return p
+
+
 static func constrain_uniform(
 		shape_name: String,
 		drawn_width: float,
@@ -211,8 +226,6 @@ static func needs_ellipsoid_scale(shape_name: String) -> bool:
 			return true
 		_:
 			return false
-
-
 static func ellipsoid_scale(params: Dictionary) -> Vector3:
 	if not params.has("_scale_x"):
 		return Vector3.ONE

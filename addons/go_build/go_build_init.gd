@@ -40,6 +40,7 @@ const _TORUS_GEN      := preload("res://addons/go_build/mesh/generators/torus_ge
 const _ARCH_GEN       := preload("res://addons/go_build/mesh/generators/arch_generator.gd")
 const _STAIR_GEN      := preload("res://addons/go_build/mesh/generators/staircase_generator.gd")
 const _POLYGON_GEN    := preload("res://addons/go_build/mesh/generators/polygon_generator.gd")
+const _DOORWAY_GEN    := preload("res://addons/go_build/mesh/generators/doorway_generator.gd")
 const _SHAPE_CATALOG  := preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
 const _SHAPE_PARAMS   := preload("res://addons/go_build/mesh/generators/shape_param_mapping.gd")
 

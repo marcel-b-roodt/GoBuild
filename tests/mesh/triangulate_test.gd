@@ -75,7 +75,7 @@ func test_ear_clip_convex_quad() -> void:
 	for tri: Array in tris:
 		assert_int(tri.size()).is_equal(3)
 		for idx: int in tri:
-			assert_bool(idx >= 0 and idx < 4, "Index %d out of range" % idx)
+			assert_bool(idx >= 0 and idx < 4).is_true()
 
 
 func test_ear_clip_concave_polygon() -> void:
@@ -110,7 +110,7 @@ func test_ear_clip_cw_winding_fix() -> void:
 	var tris: Array = Triangulate.ear_clip(points, normal)
 	# Even though this is CW when projected to XZ, the signed-area fix
 	# should reverse the projection and find ears.
-	assert_bool(tris.size() >= 2, "Should produce at least 2 triangles for CW quad")
+	assert_bool(tris.size() >= 2).is_true()
 
 
 func test_ear_clip_line_degenerate() -> void:
@@ -123,4 +123,56 @@ func test_ear_clip_line_degenerate() -> void:
 	# Degenerate: all cross products are zero, no ears found.
 	# Should return either empty or the final 3 remaining points.
 	# We just verify it doesn't crash.
-	assert_bool(tris.size() <= 1, "Degenerate input should produce 0 or 1 triangles")
+	assert_bool(tris.size() <= 1).is_true()
+
+
+# ---------------------------------------------------------------------------
+# triangulate_face() — convexity-gated bake entry point
+# ---------------------------------------------------------------------------
+
+## Sum of triangle areas from a triangulate_face result (3D cross method).
+func _tri_area_sum(points: Array[Vector3], tris: Array) -> float:
+	var total := 0.0
+	for tri: Array in tris:
+		var a: Vector3 = points[tri[0]]
+		var b: Vector3 = points[tri[1]]
+		var c: Vector3 = points[tri[2]]
+		total += (b - a).cross(c - a).length() * 0.5
+	return total
+
+
+func test_triangulate_face_convex_quad_matches_fan() -> void:
+	var points: Array[Vector3] = [
+		Vector3(0, 0, 0), Vector3(0, 0, 1), Vector3(1, 0, 1), Vector3(1, 0, 0),
+	]
+	var tris: Array = Triangulate.triangulate_face(points)
+	assert_int(tris.size()).is_equal(2)
+	assert_int(tris[0][0]).is_equal(0)   # fan-from-0 layout for convex input
+	assert_float(_tri_area_sum(points, tris)).is_equal_approx(1.0, 0.001)
+
+
+func test_triangulate_face_concave_quad_not_fanned() -> void:
+	# Arrowhead quad, reflex vertex at index 3: ring (CCW from above, XZ)
+	# 0=(0,0) 1=(2,1) 2=(0,2) 3=(1,1).  Fan-from-0 overlaps: triangle
+	# (0,0)(1,1)(0,2) sits inside triangle (0,0)(2,1)(0,2), so fan area = 3.0
+	# while the true polygon area (shoelace) = 1.0.
+	var points: Array[Vector3] = [
+		Vector3(0.0, 0.0, 0.0), Vector3(2.0, 0.0, 1.0),
+		Vector3(0.0, 0.0, 2.0), Vector3(1.0, 0.0, 1.0),
+	]
+	var tris: Array = Triangulate.triangulate_face(points)
+	assert_int(tris.size()).is_equal(2)
+	# Area preservation fails loudly if the polygon was fanned (3.0).
+	assert_float(_tri_area_sum(points, tris)).is_equal_approx(1.0, 0.001)
+
+
+func test_triangulate_face_concave_pentagon() -> void:
+	# The chevron from the ear_clip test, through the gated entry point.
+	var points: Array[Vector3] = [
+		Vector3(0, 0, 1), Vector3(2, 0, 2), Vector3(4, 0, 1),
+		Vector3(2, 0, 0), Vector3(4, 0, -1),
+	]
+	var tris: Array = Triangulate.triangulate_face(points)
+	assert_int(tris.size()).is_equal(3)
+	for tri: Array in tris:
+		assert_int(tri.size()).is_equal(3)

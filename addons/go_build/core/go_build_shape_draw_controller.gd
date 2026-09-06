@@ -110,6 +110,21 @@ func is_active() -> bool:
 	return _state != DrawState.IDLE
 
 
+## True while Create Polygon is collecting vertices (crosshair overlay active).
+func is_polygon_state() -> bool:
+	return _state == DrawState.POLYGON
+
+
+## Camera captured during the last input event (for overlay drawing).
+func get_last_camera() -> Camera3D:
+	return _last_camera
+
+
+## Current cursor position in screen space, Vector2.INF when unknown.
+func get_cursor_screen_pos() -> Vector2:
+	return _last_screen_pos if _last_camera != null else Vector2.INF
+
+
 func is_mouse_captured() -> bool:
 	return _mouse_captured
 
@@ -1200,6 +1215,7 @@ func _commit_shape() -> void:
 	ur.create_action("Insert " + node_name)
 	ur.add_do_method(parent, "add_child", node, true)
 	ur.add_do_method(node, "set_owner", scene_root)
+	ur.add_do_method(node, "capture_pristine_state")
 	ur.add_undo_method(parent, "remove_child", node)
 	ur.add_undo_reference(node)
 	ur.commit_action()

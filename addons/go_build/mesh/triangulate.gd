@@ -22,13 +22,89 @@ extends RefCounted
 ## For a quad (vertex_count=4), the result is [[0, 2, 1], [0, 3, 2]].
 ## For a triangle (vertex_count=3), the result is [[0, 2, 1]].
 ##
-## Only correct for convex polygons. Use [method ear_clip] for concave ones.
+## Only correct for convex polygons. Use [method triangulate_face] for
+## possibly-concave polygons (the bake pipeline entry point).
 static func fan(vertex_count: int) -> Array:
 	assert(vertex_count >= 3, "Triangulate.fan: need at least 3 vertices")
 	var tris: Array = []
 	for tri: int in range(vertex_count - 2):
 		tris.append([0, tri + 2, tri + 1])
 	return tris
+
+
+## Convexity-gated triangulation — the bake pipeline entry point.
+##
+## Convex polygons (the common case) fan in O(n).  Concave ones ear-clip in
+## O(n²) — rare, and only for n-gons drawn across concave outlines, so the
+## cost is bounded.  Self-touching rings (keyhole: one vertex repeated
+## non-consecutively — the knife's single-member attachment slit) split at
+## the repeat into two simple loops, each triangulated separately.
+##
+## [param points] are the face's ring positions in ring order.  Returns
+## triangles as arrays of 3 local indices in the same CW-from-outside
+## convention as [method fan] ([0, tri+2, tri+1]).
+static func triangulate_face(points: Array[Vector3]) -> Array:
+	var vc: int = points.size()
+	if vc == 3:
+		return [[0, 2, 1]]
+	if _is_convex(points):
+		return fan(vc)
+	# ear_clip returns CCW-when-viewed-from-normal triangles; bake wants the
+	# CW-from-outside convention, so reverse each triangle.  Keyhole rings
+	# (a vertex repeated non-consecutively — the knife's attachment slit)
+	# are simple in index space; _is_ear ignores coincident twins so the
+	# clip proceeds normally.
+	var tris: Array = []
+	var normal := polygon_normal(points)
+	for tri: Array in ear_clip(points, normal):
+		tris.append([tri[0], tri[2], tri[1]])
+	return tris
+
+
+## O(n) convexity test: project onto the best-fit 2D plane and require every
+## consecutive edge triple to turn the same direction.
+static func _is_convex(points: Array[Vector3]) -> bool:
+	if points.size() <= 3:
+		return true
+	var projected := _project_to_2d(points, polygon_normal(points))
+	var n: int = projected.size()
+	var turn_sign := 0.0
+	for i: int in n:
+		var cross := _cross_2d(projected[i], projected[(i + 1) % n], projected[(i + 2) % n])
+		if absf(cross) < 1e-9:
+			continue   # Collinear — not a turn, keep scanning.
+		if turn_sign == 0.0:
+			turn_sign = cross
+		elif cross * turn_sign < 0.0:
+			return false
+	return true
+
+
+## Geometric normal of one triangle via the cross product (unit length).
+## NOT a replacement for [method GoBuildMesh.compute_face_normal] on n-gons —
+## only valid for exactly three points.
+static func triangle_normal(tri: Array[Vector3]) -> Vector3:
+	var e1: Vector3 = tri[1] - tri[0]
+	var e2: Vector3 = tri[2] - tri[0]
+	var n: Vector3 = e1.cross(e2)
+	return n.normalized() if n.length_squared() > 1e-12 else Vector3.ZERO
+
+
+## Newell normal for an arbitrary simple polygon (unit length, ZERO when
+## degenerate).  Same algorithm as [method GoBuildMesh.compute_face_normal]
+## but usable without a mesh instance.
+static func polygon_normal(points: Array[Vector3]) -> Vector3:
+	var n := Vector3.ZERO
+	var vc := points.size()
+	if vc < 3:
+		return Vector3.ZERO
+	for i in vc:
+		var cur: Vector3 = points[i]
+		var nxt: Vector3 = points[(i + 1) % vc]
+		n.x += (cur.y - nxt.y) * (cur.z + nxt.z)
+		n.y += (cur.z - nxt.z) * (cur.x + nxt.x)
+		n.z += (cur.x - nxt.x) * (cur.y + nxt.y)
+	return n.normalized() if n.length_squared() > 1e-12 else Vector3.ZERO
 
 
 ## Ear-clip triangulation for an arbitrary simple polygon.
@@ -92,7 +168,7 @@ static func ear_clip(points: Array[Vector3], normal: Vector3) -> Array:
 			if _cross_2d(projected[a], projected[b], projected[c]) <= 0.0:
 				continue
 
-			if _is_ear(projected, indices, a, b, c):
+			if _is_ear(projected, a, b, c):
 				tris.append([a, b, c])
 				indices[i] = -1
 				remaining -= 1
@@ -136,18 +212,62 @@ static func _cross_2d(a: Vector2, b: Vector2, c: Vector2) -> float:
 
 static func _is_ear(
 	projected: Array[Vector2],
-	indices: Array[int],
 	a: int, b: int, c: int,
 ) -> bool:
 	var pa: Vector2 = projected[a]
 	var pb: Vector2 = projected[b]
 	var pc: Vector2 = projected[c]
-	for idx: int in indices:
-		if idx == -1 or idx == a or idx == b or idx == c:
+	# Containment against ALL original verts: a keyhole pinch's chain can
+	# be clipped away before an overlapping ear is tested — its verts must
+	# still veto.  (For simple polygons clipped verts stay on the
+	# boundary, so this matches the classic remaining-only test.)
+	for idx: int in projected.size():
+		if idx == a or idx == b or idx == c:
 			continue
-		if _point_in_triangle(projected[idx], pa, pb, pc):
+		var p: Vector2 = projected[idx]
+		# Coincident twins of the candidate's corners (keyhole pinch: the
+		# same physical point appears twice) sit ON the triangle — they
+		# must not veto the ear.
+		if p.distance_squared_to(pa) < 1e-14 \
+				or p.distance_squared_to(pb) < 1e-14 \
+				or p.distance_squared_to(pc) < 1e-14:
+			continue
+		if _point_in_triangle(p, pa, pb, pc):
+			return false
+	# Weakly-simple rings (keyhole pinch: the polygon's chains touch at a
+	# repeated point) can have ears whose edges cross a chain segment that
+	# was already clipped away — the overlap would hide in earlier
+	# triangles.  Test against ALL ORIGINAL edges (the ear's own three
+	# edges skipped; a shared endpoint can't produce a proper crossing).
+	# For simple polygons clipped verts stay on the boundary, so this is
+	# equivalent to the classic remaining-only test.
+	var n: int = projected.size()
+	for i: int in n:
+		var d: int = i
+		var e: int = (i + 1) % n
+		if (d == a and e == b) or (d == b and e == a) \
+				or (d == b and e == c) or (d == c and e == b) \
+				or (d == c and e == a) or (d == a and e == c):
+			continue
+		var pd: Vector2 = projected[d]
+		var pe: Vector2 = projected[e]
+		if _segments_cross(pa, pb, pd, pe) or _segments_cross(pb, pc, pd, pe) \
+				or _segments_cross(pc, pa, pd, pe):
 			return false
 	return true
+
+
+## Proper (transversal) segment intersection — shared endpoints and
+## collinear touches don't count.
+static func _segments_cross(p1: Vector2, p2: Vector2, q1: Vector2, q2: Vector2) -> bool:
+	var r := p2 - p1
+	var s := q2 - q1
+	var denom: float = r.cross(s)
+	if absf(r.cross(q1 - p1)) < 1e-9 and absf(r.cross(q2 - p1)) < 1e-9:
+		return false   # Collinear — handled by vertex containment.
+	var t: float = (q1 - p1).cross(s) / r.cross(s)
+	var u: float = (q1 - p1).cross(r) / r.cross(s)
+	return t > 1e-6 and t < 1.0 - 1e-6 and u > 1e-6 and u < 1.0 - 1e-6
 
 
 static func _point_in_triangle(p: Vector2, a: Vector2, b: Vector2, c: Vector2) -> bool:

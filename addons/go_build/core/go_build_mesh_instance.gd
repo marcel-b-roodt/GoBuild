@@ -26,6 +26,7 @@ const _CYLINDRICAL_UV_SCRIPT   := preload("res://addons/go_build/uv/cylindrical_
 const _SPHERICAL_UV_SCRIPT     := preload("res://addons/go_build/uv/spherical_projection.gd")
 const _MESH_SCRIPT             := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_face.gd")
+const _SYMMETRY_SCRIPT         := preload("res://addons/go_build/core/go_build_symmetry.gd")
 
 # ---------------------------------------------------------------------------
 # Mesh (ungrouped)
@@ -103,9 +104,36 @@ const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_f
 ## Seam rotation in radians for cylindrical / spherical auto-UV projection.
 @export var auto_uv_seam_rotation: float = 0.0
 
+# ---------------------------------------------------------------------------
+# Live symmetry
+# ---------------------------------------------------------------------------
+
+@export_group("Symmetry")
+
+## When true, every modelling action is mirrored across the object-local
+## plane for [member symmetry_axis] through the mesh origin.
+@export var symmetry_enabled: bool = false
+
+## Mirror plane axis: 0 = X (YZ plane), 1 = Y (XZ plane), 2 = Z (XY plane).
+@export var symmetry_axis: int = 0
+
 ## Per-instance selection state: which mode is active and which elements are
 ## selected. The gizmo and panel both hold a reference to this object.
 var selection: SelectionManager = SelectionManager.new()
+
+## Per-instance symmetry partner map (vertex index → mirrored vertex index),
+## rebuilt after bakes / face-count changes when symmetry is enabled.
+var _symmetry_partner_map: Dictionary = {}
+
+## Snapshot of the mesh as generated (pristine state), or empty when the node
+## has been structurally edited (or undo returned it past the generated state).
+## Lets the param popup re-edit generator parameters of untouched shapes.
+## Set by the create flow via [method capture_pristine_state].
+var _pristine_state: Dictionary = {}
+
+## True while applying an undo/redo restore, so the restore of the pristine
+## snapshot itself does not clear the pristine state.
+var _restoring: bool = false
 
 var _collision_body: StaticBody3D = null
 var _collision_shape: CollisionShape3D = null
@@ -130,6 +158,7 @@ func _ready() -> void:
 	# very first frame.
 	if go_build_mesh != null:
 		go_build_mesh.rebuild_edges()
+	_refresh_symmetry_partner_map()
 	bake()
 	if use_collision:
 		_ensure_collision_nodes()
@@ -292,10 +321,31 @@ func apply_operation(
 ## Execute [param operation] and rebake. Called by the undo/redo system.
 func _do_operation(operation: Callable) -> void:
 	operation.call()
+	if symmetry_enabled:
+		_symmetry_materialize()
 	if auto_uv_mode != GoBuildFace.UvMode.NONE:
 		_apply_auto_uv()
 	bake()
 	update_gizmos()
+
+
+## Append mirrored twins for any face without one (undoable — caller wraps in
+## an undo action).  Returns the number of faces added.
+func _symmetry_materialize() -> int:
+	if go_build_mesh == null:
+		return 0
+	var added: int = _SYMMETRY_SCRIPT.materialize(go_build_mesh, symmetry_axis)
+	if added > 0:
+		_refresh_symmetry_partner_map()
+	return added
+
+
+## Rebuild the symmetry partner map from current mesh state.
+func _refresh_symmetry_partner_map() -> void:
+	_symmetry_partner_map.clear()
+	if not symmetry_enabled or go_build_mesh == null:
+		return
+	_symmetry_partner_map = _SYMMETRY_SCRIPT.build_partner_map(go_build_mesh, symmetry_axis)
 
 
 ## Apply the global auto-UV mode to every face that has not been explicitly
@@ -392,9 +442,47 @@ func needs_world_space_uv_refresh() -> bool:
 ## Calls [method Node3D.update_gizmos] so the selection-highlight gizmo overlay
 ## is refreshed to match the restored vertex positions.
 func restore_and_bake(snapshot: Dictionary) -> void:
+	_restoring = true
 	go_build_mesh.restore_snapshot(snapshot)
 	bake()
 	update_gizmos()
+	_restoring = false
+	# If we restored back to the exact pristine state (undo returning to the
+	# un-edited shape), the mesh is generated-pristine again.
+	if not _pristine_state.is_empty() and _state_matches(_pristine_state):
+		return
+	_pristine_state = {}
+
+
+## Capture the current mesh state as the generator-pristine baseline.
+## Called by the create flow right after generation.
+func capture_pristine_state() -> void:
+	if go_build_mesh == null:
+		return
+	_pristine_state = go_build_mesh.take_snapshot()
+
+
+## True when the current mesh still matches the captured pristine state.
+func is_pristine_state_valid() -> bool:
+	return not _pristine_state.is_empty() and _state_matches(_pristine_state)
+
+
+## Get the pristine snapshot (empty dict if none).
+func get_pristine_state() -> Dictionary:
+	return _pristine_state
+
+
+func _state_matches(snapshot: Dictionary) -> bool:
+	if go_build_mesh == null or snapshot.is_empty():
+		return false
+	if go_build_mesh.vertices.size() != (snapshot["vertices"] as Array).size():
+		return false
+	for i: int in go_build_mesh.vertices.size():
+		if not go_build_mesh.vertices[i].is_equal_approx(snapshot["vertices"][i]):
+			return false
+	if go_build_mesh.faces.size() != (snapshot["faces"] as Array).size():
+		return false
+	return true
 
 
 # ---------------------------------------------------------------------------

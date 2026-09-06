@@ -47,8 +47,12 @@ const _DRAG_OP_SCRIPT       := preload(
 		"res://addons/go_build/core/go_build_drag_operation.gd")
 const _SHAPE_DRAW_CTRL_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_shape_draw_controller.gd")
+const _KNIFE_CTRL_SCRIPT := preload(
+		"res://addons/go_build/core/go_build_knife_controller.gd")
 const _SHAPE_DRAW_OVERLAY_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_shape_draw_overlay.gd")
+const _CURSOR_OVERLAY := preload(
+		"res://addons/go_build/core/go_build_cursor_overlay.gd")
 const _DROP_CONVERTER_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_material_drop_converter.gd")
 const _EXPORT_INSPECTOR_SCRIPT := preload(
@@ -98,6 +102,8 @@ var _export_inspector: GoBuildExportInspectorPlugin = null
 var _input_controller: SelectionInputController  = null
 var _drag_controller: GoBuildDragController       = null
 var _shape_draw_controller: GoBuildShapeDrawController = null
+## Knife tool controller; active only while the user is cutting (Face mode).
+var _knife_controller: GoBuildKnifeController = null
 var _draw_overlay: Control = null
 ## True while a Godot drag-and-drop is in progress over the viewport.
 ## Used to detect the end of a drag so we can apply the cached material.
@@ -204,6 +210,7 @@ func _enter_tree() -> void:
 	_drag_controller.setup(self)
 	_shape_draw_controller = _SHAPE_DRAW_CTRL_SCRIPT.new()
 	_input_controller.setup(_gizmo_plugin, _panel, self, _drag_controller)
+	_knife_controller = _KNIFE_CTRL_SCRIPT.new()
 
 	_build_toolbar()
 	_build_draw_overlay()
@@ -284,7 +291,47 @@ func _build_toolbar() -> void:
 	_snap_mode_btn.item_selected.connect(_on_snap_mode_selected)
 	_toolbar.add_child(_snap_mode_btn)
 
+	_toolbar.add_child(VSeparator.new())
+
+	var print_sel_btn := Button.new()
+	print_sel_btn.text = "Print Selection"
+	print_sel_btn.flat = true
+	print_sel_btn.pressed.connect(_on_print_selection)
+	_toolbar.add_child(print_sel_btn)
+
 	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar)
+
+
+## Dump the current selection (vertices, edges, faces) with positions/rings
+## to the Output panel — debug aid for geometry tooling.
+func _on_print_selection() -> void:
+	if _edited_node == null or not is_instance_valid(_edited_node) \
+			or _edited_node.go_build_mesh == null:
+		print("[Selection] no GoBuild object selected")
+		return
+	var gbm: GoBuildMesh = _edited_node.go_build_mesh
+	var sel := _edited_node.selection
+	var verts: Array[int] = sel.get_selected_vertices()
+	if not verts.is_empty():
+		var parts: Array[String] = []
+		for vi: int in verts:
+			parts.append("%d@%s" % [vi, gbm.vertices[vi]])
+		print("[Selection] verts (%d): %s" % [verts.size(), ", ".join(parts)])
+	var edges: Array[int] = sel.get_selected_edges()
+	if not edges.is_empty():
+		var e_parts: Array[String] = []
+		for ei: int in edges:
+			var e: GoBuildEdge = gbm.edges[ei]
+			e_parts.append("%d[%d→%d]" % [ei, e.vertex_a, e.vertex_b])
+		print("[Selection] edges (%d): %s" % [edges.size(), ", ".join(e_parts)])
+	var faces: Array[int] = sel.get_selected_faces()
+	if not faces.is_empty():
+		var f_parts: Array[String] = []
+		for fi: int in faces:
+			f_parts.append("%d ring=%s" % [fi, gbm.faces[fi].vertex_indices])
+		print("[Selection] faces (%d): %s" % [faces.size(), "; ".join(f_parts)])
+	if verts.is_empty() and edges.is_empty() and faces.is_empty():
+		print("[Selection] nothing selected")
 
 
 func _build_draw_overlay() -> void:
@@ -531,6 +578,38 @@ func _notification(what: int) -> void:
 		_on_editor_focus_regained()
 
 
+## While the knife is cutting, route viewport mouse/key events to the knife
+## controller.  Returns true when the event was consumed.
+func _route_knife_input(event: InputEvent) -> bool:
+	if _knife_controller == null or not _knife_controller.is_active() \
+			or _edited_node == null:
+		return false
+	if event is InputEventKey and (event as InputEventKey).keycode == KEY_K:
+		GoBuildDebug.log("[Knife] K seen in global _input while cutting — toggling off")
+	if not (event is InputEventMouseButton or event is InputEventKey):
+		return false
+	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var cam: Camera3D = vp.get_camera_3d() if vp != null else null
+	if cam == null:
+		return false
+	# Global _input positions are WINDOW-space; the knife's pick maths needs
+	# SubViewport-local (same rebase the shape-draw controller applies).
+	# Without it the recorded point displaces by the dock/panel offset —
+	# the "clicks jump across the face" bug (always toward +x here).
+	var routed: InputEvent = event
+	if event is InputEventMouseButton:
+		var vp_parent: Control = vp.get_parent() as Control
+		if vp_parent != null:
+			routed = event.duplicate()
+			(routed as InputEventMouseButton).position -= \
+					vp_parent.get_global_rect().position
+	if _knife_controller.handle_input(cam, routed, _edited_node) != 0:
+		update_overlays()
+		get_viewport().set_input_as_handled()
+		return true
+	return false
+
+
 ## Global input handler.  When a param preview or gizmo drag is active
 ## (MOUSE_MODE_CAPTURED), the viewport stops forwarding events through
 ## _forward_3d_gui_input, so the plugin intercepts them globally and delegates
@@ -550,6 +629,9 @@ func _input(event: InputEvent) -> void:
 				if vp_parent != null:
 					_drag_mouse_pos = (event as InputEventMouseMotion).position \
 							- vp_parent.get_global_rect().position
+	# Knife tool: while cutting, route mouse + key events (Escape/Enter).
+	if _route_knife_input(event):
+		return
 	if _shape_draw_controller != null and _shape_draw_controller.is_active():
 		if event is InputEventKey:
 			var key := event as InputEventKey
@@ -600,47 +682,8 @@ func _input(event: InputEvent) -> void:
 	# never reach the editor's built-in shortcuts (e.g. S = nav).
 	# Also intercept Alt+Q/W/E/R to toggle RGBA channel masks,
 	# and Alt+1–5 to select target channel.
-	if _paint_brush != null and _vc_painter != null and _vc_painter.is_paint_mode():
-		if event is InputEventKey:
-			var key := event as InputEventKey
-			if key.pressed and not key.echo and key.alt_pressed:
-				var handled := true
-				match key.keycode:
-					KEY_Q: _vc_painter.toggle_channel_r()
-					KEY_W: _vc_painter.toggle_channel_g()
-					KEY_E: _vc_painter.toggle_channel_b()
-					KEY_R: _vc_painter.toggle_channel_a()
-					KEY_T: _vc_painter.toggle_isolate()
-					KEY_1: _vc_painter.select_target_channel(0)
-					KEY_2: _vc_painter.select_target_channel(1)
-					KEY_3: _vc_painter.select_target_channel(2)
-					KEY_4: _vc_painter.select_target_channel(3)
-					KEY_5: _vc_painter.select_target_channel(4)
-					_: handled = false
-				if not handled and (key.keycode == KEY_S or key.keycode == KEY_D):
-					var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
-					var camera: Camera3D = vp.get_camera_3d() if vp != null else null
-					if camera != null and _edited_node != null:
-						var result: int = _paint_brush.handle_input(camera, event, _edited_node)
-						if result != 0:
-							update_overlays()
-							get_viewport().set_input_as_handled()
-							return
-					handled = true
-				if handled:
-					get_viewport().set_input_as_handled()
-					return
-		if _paint_brush.is_resizing():
-			if event is InputEventMouseMotion or event is InputEventMouseButton or event is InputEventKey:
-				if _edited_node != null and _vc_painter != null:
-					var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
-					var camera: Camera3D = vp.get_camera_3d() if vp != null else null
-					if camera != null:
-						var result: int = _paint_brush.handle_input(camera, event, _edited_node)
-						if result != 0:
-							update_overlays()
-							get_viewport().set_input_as_handled()
-							return
+	if _route_paint_input(event):
+		return
 	if _input_controller == null:
 		return
 	if _input_controller.handle_global_input(event):
@@ -651,8 +694,61 @@ func _input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if key.echo or not key.pressed:
 		return
+	# Knife toggle: K works wherever the editor focus is (mirrors 1-4 mode
+	# switches, which use this global path because _forward_3d_gui_input only
+	# fires when the mouse is over the 3D viewport).
+	if key.keycode == KEY_K and not _text_input_has_focus():
+		_handle_knife_key()
+		if _edited_node != null:
+			get_viewport().set_input_as_handled()
+		return
 	if _handle_mode_switch_in_global(key):
 		get_viewport().set_input_as_handled()
+
+
+## While the vertex painter is active, route its input (paint mode keys and
+## resize drag).  Returns true when the event was consumed.
+func _route_paint_input(event: InputEvent) -> bool:
+	if _paint_brush == null or _vc_painter == null or not _vc_painter.is_paint_mode():
+		return false
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if key.pressed and not key.echo and key.alt_pressed:
+			var handled := true
+			match key.keycode:
+				KEY_Q: _vc_painter.toggle_channel_r()
+				KEY_W: _vc_painter.toggle_channel_g()
+				KEY_E: _vc_painter.toggle_channel_b()
+				KEY_R: _vc_painter.toggle_channel_a()
+				KEY_T: _vc_painter.toggle_isolate()
+				KEY_1: _vc_painter.select_target_channel(0)
+				KEY_2: _vc_painter.select_target_channel(1)
+				KEY_3: _vc_painter.select_target_channel(2)
+				KEY_4: _vc_painter.select_target_channel(3)
+				KEY_5: _vc_painter.select_target_channel(4)
+				_: handled = false
+			if not handled and (key.keycode == KEY_S or key.keycode == KEY_D):
+				var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+				var camera: Camera3D = vp.get_camera_3d() if vp != null else null
+				if camera != null and _edited_node != null:
+					if _paint_brush.handle_input(camera, event, _edited_node) != 0:
+						update_overlays()
+						get_viewport().set_input_as_handled()
+						return true
+				handled = true
+			if handled:
+				get_viewport().set_input_as_handled()
+				return true
+	if _paint_brush.is_resizing():
+		if event is InputEventMouseMotion or event is InputEventMouseButton or event is InputEventKey:
+			if _edited_node != null and _vc_painter != null:
+				var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+				var camera: Camera3D = vp.get_camera_3d() if vp != null else null
+				if camera != null and _paint_brush.handle_input(camera, event, _edited_node) != 0:
+					update_overlays()
+					get_viewport().set_input_as_handled()
+					return true
+	return false
 
 
 ## Return [code]true[/code] if [param event] occurred inside the 3D editor viewport.
@@ -786,10 +882,14 @@ func _edit(object: Object) -> void:
 			% [str(object), str(_edited_node == null)])
 
 	if _edited_node != null:
-		_edited_node.selection.selection_changed.connect(_on_selection_changed)
-		_edited_node.selection.mode_changed.connect(_on_mode_changed)
-		_edited_node.tree_exiting.connect(_on_edited_node_removed)
-		_edited_node.mesh_changed.connect(_on_mesh_changed)
+		if not _edited_node.selection.selection_changed.is_connected(_on_selection_changed):
+			_edited_node.selection.selection_changed.connect(_on_selection_changed)
+		if not _edited_node.selection.mode_changed.is_connected(_on_mode_changed):
+			_edited_node.selection.mode_changed.connect(_on_mode_changed)
+		if not _edited_node.tree_exiting.is_connected(_on_edited_node_removed):
+			_edited_node.tree_exiting.connect(_on_edited_node_removed)
+		if not _edited_node.mesh_changed.is_connected(_on_mesh_changed):
+			_edited_node.mesh_changed.connect(_on_mesh_changed)
 		_force_gizmo_redraw_deferred(_edited_node)
 		if _gizmo_plugin:
 			remove_node_3d_gizmo_plugin(_gizmo_plugin)
@@ -807,6 +907,8 @@ func _edit(object: Object) -> void:
 		_uv_panel.set_target(_edited_node)
 	if _vc_painter:
 		_vc_painter.set_target(_edited_node)
+	if _panel != null and _panel.get_create_drawer() != null:
+		_panel.get_create_drawer().maybe_open_param_popup(_edited_node)
 	_refresh_panel_context()
 
 
@@ -853,6 +955,17 @@ func _make_visible(visible: bool) -> void:
 # ---------------------------------------------------------------------------
 
 func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
+	# Knife tool swallows viewport input while cutting (Esc/right-click exits).
+	if _knife_controller != null and _knife_controller.is_active():
+		var knife_result: int = _knife_controller.handle_input(
+				camera, event, _edited_node)
+		if knife_result != 0:
+			update_overlays()
+			return knife_result
+	if event is InputEventKey and (event as InputEventKey).keycode == KEY_K \
+			and (event as InputEventKey).pressed:
+		GoBuildDebug.log("[Knife] K seen in _forward_3d_gui_input (echo=%s editing=%s)" % [
+				str((event as InputEventKey).echo), str(_edited_node != null)])
 	if _shape_draw_controller != null and _shape_draw_controller.is_active():
 		var result: int = _shape_draw_controller.handle_input(camera, event)
 		if result != 0:
@@ -900,6 +1013,10 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 	_draw_selection_dims(overlay)
 	_draw_shape_draw_overlay(overlay)
 	_draw_brush_cursor_overlay(overlay)
+	if _knife_controller != null and _knife_controller.is_active():
+		var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+		var cam: Camera3D = vp.get_camera_3d() if vp != null else null
+		_knife_controller.draw_overlay(overlay, cam)
 
 
 func _draw_shape_draw_overlay(overlay: Control) -> void:
@@ -928,6 +1045,39 @@ func _draw_shape_draw_overlay(overlay: Control) -> void:
 				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2, Color(0.0, 0.0, 0.0, 0.55))
 		overlay.draw_string(font2, pos2, dims_text,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2, Color(0.65, 1.0, 0.65, 0.90))
+	# Polygon step: crosshair + rubber band at the cursor (same language as
+	# the knife tool).
+	if _shape_draw_controller.is_polygon_state():
+		_draw_polygon_cursor_overlay(overlay)
+
+
+# ---------------------------------------------------------------------------
+# Polygon cursor overlay (Create Polygon — shared with knife)
+# ---------------------------------------------------------------------------
+
+## Crosshair + rubber band for Create Polygon's polygon step: rubber band from
+## the last placed vertex to the cursor, closing preview when near the start.
+func _draw_polygon_cursor_overlay(overlay: Control) -> void:
+	var cam := _shape_draw_controller.get_last_camera()
+	var cursor := _shape_draw_controller.get_cursor_screen_pos()
+	if cam == null or cursor == Vector2.INF:
+		return
+	var points: Array[Vector3] = _shape_draw_controller.get_polygon_points()
+	if points.is_empty():
+		_CURSOR_OVERLAY.draw_crosshair(overlay, cursor, false)
+		return
+	if cam.is_position_behind(points[points.size() - 1]):
+		_CURSOR_OVERLAY.draw_crosshair(overlay, cursor, false)
+		return
+	var last_screen: Vector2 = cam.unproject_position(points[points.size() - 1])
+	_CURSOR_OVERLAY.draw_crosshair(overlay, cursor, false)
+	_CURSOR_OVERLAY.draw_rubber_band(overlay, last_screen, cursor)
+	if points.size() >= 2 and not cam.is_position_behind(points[0]):
+		var first_screen: Vector2 = cam.unproject_position(points[0])
+		if first_screen.distance_to(cursor) < 14.0:
+			_CURSOR_OVERLAY.draw_rubber_band(overlay, last_screen, first_screen)
+		else:
+			_CURSOR_OVERLAY.draw_closing_preview(overlay, cursor, first_screen)
 
 
 # ---------------------------------------------------------------------------
@@ -1118,9 +1268,26 @@ func _handle_action_key(keycode: Key) -> int:
 		KEY_R:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.SCALE)
 		KEY_V:             return _handle_rip_key()
 		KEY_N:             return _handle_normal_vis_key()
+		KEY_K:             return _handle_knife_key()
 	# Element-mode action keys — handled by helpers to keep return count low.
 	var result: int = _handle_element_action_key(keycode)
 	return result
+
+
+## K toggles the knife tool when a GoBuild object is edited (Object or Face
+## mode — the cut applies to faces under the picked path).  Esc/right-click
+## cancels.  Pass through otherwise.
+func _handle_knife_key() -> int:
+	GoBuildDebug.log("[Knife] _handle_knife_key: edited=%s controller=%s" % [
+			str(_edited_node != null), str(_knife_controller != null)])
+	if _edited_node == null or _knife_controller == null:
+		return 0
+	if _knife_controller.is_active():
+		_knife_controller.cancel()
+	else:
+		_knife_controller.start(_edited_node, self)
+	update_overlays()
+	return 1
 
 
 ## Handle Delete/X/M/F shortcuts that operate on the current element selection.
@@ -1233,6 +1400,12 @@ func _require_shortcut(es: EditorSettings, setting: String, default_key: Key) ->
 ## Used by the panel and operations to access the global palette library.
 func get_project_settings() -> GoBuildProjectSettings:
 	return _project_settings
+
+
+## The plugin's gizmo plugin (X-ray mode state etc.) — input controllers
+## read it to keep their picking semantics in step with selection.
+func get_gizmo_plugin() -> GoBuildGizmoPlugin:
+	return _gizmo_plugin
 
 
 ## Toggle X-Ray mode on the gizmo plugin and force all gizmos to redraw.

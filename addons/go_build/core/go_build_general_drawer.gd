@@ -35,6 +35,7 @@ var _auto_uv_u_offset_spin: GoBuildUndoSpinBox = null
 var _auto_uv_v_offset_spin: GoBuildUndoSpinBox = null
 var _auto_uv_seam_rot_spin: GoBuildUndoSpinBox = null
 var _auto_uv_param_rows: VBoxContainer = null
+var _sym_option: OptionButton = null
 
 # Auto UV parameter live-edit state.
 var _auto_uv_editing: bool = false
@@ -121,6 +122,30 @@ func _ready() -> void:
 	vtx_n_check.toggled.connect(_on_vertex_normals_toggled)
 	normal_row.add_child(vtx_n_check)
 	_vtx_n_check = vtx_n_check
+
+	# ── Live symmetry ────────────────────────────────────────────────────
+	var sym_row := HBoxContainer.new()
+	_content.add_child(sym_row)
+
+	var sym_lbl := Label.new()
+	sym_lbl.text = "Symmetry:"
+	sym_lbl.add_theme_font_size_override("font_size", 11)
+	sym_row.add_child(sym_lbl)
+
+	_sym_option = OptionButton.new()
+	_sym_option.flat = true
+	_sym_option.add_item("Off", -1)
+	_sym_option.add_item("X", 0)
+	_sym_option.add_item("Y", 1)
+	_sym_option.add_item("Z", 2)
+	_sym_option.add_theme_font_size_override("font_size", 11)
+	_sym_option.tooltip_text = (
+		"Mirror edits live across the chosen object-local plane through the\n"
+		+ "mesh origin.  On enable, the mesh is completed with mirrored twins\n"
+		+ "so existing geometry becomes symmetric (undoable)."
+	)
+	_sym_option.item_selected.connect(_on_symmetry_selected)
+	sym_row.add_child(_sym_option)
 
 	# ── Auto UV mode selector ────────────────────────────────────────────
 	var uv_row := HBoxContainer.new()
@@ -246,6 +271,44 @@ func set_target(target: GoBuildMeshInstance) -> void:
 			_auto_uv_option.selected = target.auto_uv_mode
 		# Sync Auto UV params and show/hide.
 		_sync_auto_uv_params(target)
+		# Sync symmetry selector to reflect the new target.
+		_sync_symmetry_option(target)
+
+
+# ---------------------------------------------------------------------------
+# Live symmetry handlers
+# ---------------------------------------------------------------------------
+
+func _sync_symmetry_option(target: GoBuildMeshInstance) -> void:
+	if _sym_option == null or target == null:
+		return
+	if target.symmetry_enabled:
+		_sym_option.selected = target.symmetry_axis + 1  # Off is index 0.
+	else:
+		_sym_option.selected = 0
+
+
+func _on_symmetry_selected(index: int) -> void:
+	if _target == null or _plugin == null:
+		return
+	var axis: int = _sym_option.get_item_id(index)
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	if axis < 0:
+		_target.symmetry_enabled = false
+		_target._refresh_symmetry_partner_map()
+		return
+	# Enabling: materialize mirrored twins first (undoable), then turn on.
+	var snapshot: Dictionary = _target.go_build_mesh.take_snapshot()
+	_target.symmetry_axis = axis
+	_target.symmetry_enabled = true
+	_target._symmetry_materialize()
+	var after: Dictionary = _target.go_build_mesh.take_snapshot()
+	_target.bake()
+	_target.update_gizmos()
+	ur.create_action("Enable Symmetry %s" % ["X", "Y", "Z"][axis])
+	ur.add_do_method(_target, "restore_and_bake", after)
+	ur.add_undo_method(_target, "restore_and_bake", snapshot)
+	ur.commit_action()
 
 
 # ---------------------------------------------------------------------------

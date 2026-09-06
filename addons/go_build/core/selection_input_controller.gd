@@ -687,7 +687,8 @@ func _begin_inset_drag(
 
 	# Inset at amount=0: creates inner-ring verts at same positions as outer.
 	var centroids_out: Dictionary = {}
-	InsetOperation.apply(gbm, faces, 0.0, centroids_out)
+	var normals_out: Dictionary = {}
+	InsetOperation.apply(gbm, faces, 0.0, centroids_out, normals_out)
 	edited_node.bake()
 
 	# Build initial_verts from all affected vertices.
@@ -721,6 +722,7 @@ func _begin_inset_drag(
 		edited_node.restore_and_bake(pre_snap)
 		return false
 	_drag_controller.begin(op, false)
+	_drag_controller.set_inset_normals(normals_out)
 	_seed_drag_controller_viewport()
 	return true
 
@@ -1733,6 +1735,9 @@ func _show_context_menu(edited_node: GoBuildMeshInstance, at: Vector2) -> bool:
 	popup.add_child(shape_submenu)
 	popup.add_submenu_item("Add Shape", shape_submenu.get_name())
 
+	# Knife entry: available in every mode when a GoBuildMeshInstance is edited.
+	popup.add_item("Knife", 60)
+
 	if mode != SelectionManager.Mode.OBJECT:
 		popup.add_item("Select All", 1)
 		if not sel.is_empty():
@@ -1842,8 +1847,8 @@ func _on_context_menu_pressed(
 	# and the 3D viewport has reclaimed input focus.  Without deferral,
 	# MOUSE_MODE_CAPTURED is set while the popup still owns focus, so motion
 	# events never reach _forward_3d_gui_input and the drag is dead.
-	if id in _DEFERRED_OPS:
-		call_deferred("_deferred_context_op", id)
+	if id in _DEFERRED_OPS or id == 60:
+		call_deferred("_deferred_context_op", id, edited_node)
 		return
 	match id:
 		1:  # Select All
@@ -1987,7 +1992,7 @@ func _insert_shape_at_cursor(
 				shape_name, camera, _right_click_press_pos, edited_node)
 
 
-func _deferred_context_op(id: int) -> void:
+func _deferred_context_op(id: int, edited_node: GoBuildMeshInstance) -> void:
 	if _panel == null:
 		return
 	match id:
@@ -1996,6 +2001,19 @@ func _deferred_context_op(id: int) -> void:
 		23:  _panel.trigger_loop_cut()
 		30:  _panel.trigger_extrude()
 		31:  _panel.trigger_inset()
+		60:  _start_knife(edited_node)
+
+
+## Start the knife tool via the plugin's controller (Face mode flow).
+func _start_knife(edited_node: GoBuildMeshInstance) -> void:
+	if _editor_plugin == null:
+		return
+	var controller = _editor_plugin.get("_knife_controller")
+	if controller == null:
+		return
+	controller.cancel()
+	controller.start(edited_node, _editor_plugin)
+	_editor_plugin.update_overlays()
 
 
 # ---------------------------------------------------------------------------

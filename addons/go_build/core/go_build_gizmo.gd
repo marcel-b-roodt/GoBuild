@@ -33,6 +33,7 @@ const _EDGE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_edge
 const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 # SelectionManager: same scan-order issue within core/ ('go' < 'se').
 const _SEL_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.gd")
+const _TRIANGULATE_SCRIPT := preload("res://addons/go_build/mesh/triangulate.gd")
 
 ## Handle ID base for the 3-axis transform handles.
 ## Must be large enough to never collide with vertex or face-centre handle IDs.
@@ -496,7 +497,7 @@ func _draw_vertices(
 ##
 ## - Unselected faces: a billboard centre dot (teal) so the user can see all
 ##   faces even when none are selected.
-## - Selected faces: a fan-triangulated semi-transparent filled mesh so the
+## - Selected faces: an ear-clipped semi-transparent filled mesh so the
 ##   entire face surface is highlighted, plus no centre dot (the fill is
 ##   visually sufficient).
 ##
@@ -520,12 +521,16 @@ func _draw_face_centres(
 			continue
 
 		if sel.is_face_selected(idx):
-			# Fan-triangulate the face to build the fill mesh.
-			var v0: Vector3 = gbm.vertices[face.vertex_indices[0]]
-			for tri: int in range(face.vertex_indices.size() - 2):
-				fill_verts.append(v0)
-				fill_verts.append(gbm.vertices[face.vertex_indices[tri + 1]])
-				fill_verts.append(gbm.vertices[face.vertex_indices[tri + 2]])
+			# Ear-clip the face ring for the fill mesh — a naive fan emits
+			# diagonals that cross concave dents (island cuts) and the
+			# highlight spills over neighbouring geometry.
+			var positions: Array[Vector3] = []
+			for vi: int in face.vertex_indices:
+				positions.append(gbm.vertices[vi])
+			for tri: Array in _TRIANGULATE_SCRIPT.triangulate_face(positions):
+				fill_verts.append(positions[tri[0]])
+				fill_verts.append(positions[tri[1]])
+				fill_verts.append(positions[tri[2]])
 		else:
 			# Centre dot for unselected faces.
 			var centre := Vector3.ZERO

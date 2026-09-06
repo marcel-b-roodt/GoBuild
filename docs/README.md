@@ -14,6 +14,9 @@
 | [architecture.md](architecture.md) | Codebase structure and key design decisions |
 | [controls.md](controls.md) | Full keyboard / mouse control scheme (current + planned) |
 | [uv-texture-insert.md](uv-texture-insert.md) | UV texture insert, visibility dropdown, face isolation — design doc |
+| [knife-cut-design.md](knife-cut-design.md) | Knife cut (arbitrary polygon cut + snapping) — design doc, approval-gated |
+| [ux-rework-design.md](ux-rework-design.md) | Viewport toolbar rework (drawer → MenuButton toolbar, icons, viewport modes) — design doc |
+| [persistent-edges-design.md](persistent-edges-design.md) | BMesh-style persistent edge topology migration — design doc |
 
 ---
 

@@ -116,6 +116,7 @@ func _ready() -> void:
 	# ── Palette material list ────────────────────────────────────────────
 	_pal_materials_vbox = VBoxContainer.new()
 	_pal_materials_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_pal_materials_vbox.custom_minimum_size.y = 64.0
 	_content.add_child(_pal_materials_vbox)
 
 	# ── Consolidate button ──────────────────────────────────────────────
@@ -428,6 +429,43 @@ func _rebuild_pal_material_list() -> void:
 		remove_btn.add_theme_font_size_override("font_size", 10)
 		remove_btn.pressed.connect(_on_slot_remove_pressed.bind(i))
 		row.add_child(remove_btn)
+
+
+# ---------------------------------------------------------------------------
+# Drag-and-drop — accept Texture2D / Material files onto the palette list
+# ---------------------------------------------------------------------------
+
+func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:
+	if not _cond_palette_selected():
+		return false
+	if data is Dictionary and data.get("type") == &"files":
+		for f: String in data.get("files", []):
+			var ext: String = f.to_lower()
+			if ext.ends_with(".png") or ext.ends_with(".jpg") \
+					or ext.ends_with(".jpeg") or ext.ends_with(".svg") \
+					or ext.ends_with(".webp") or ext.ends_with(".bmp") \
+					or ext.ends_with(".tres") or ext.ends_with(".res"):
+				return true
+	return false
+
+
+func _drop_data(_at_position: Vector2, data: Variant) -> void:
+	if not _cond_palette_selected():
+		return
+	if not (data is Dictionary) or data.get("type") != &"files":
+		return
+	var files: Array = data.get("files", [])
+	if files.is_empty():
+		return
+	var pal: GoBuildMaterialPalette = _discovered_palettes[_palette_option.selected]
+	var mat := GoBuildMaterialPalette.material_from_file(files[0])
+	if mat == null:
+		push_warning("GoBuild: Could not load material or texture: %s" % files[0])
+		return
+	pal.materials.append(mat)
+	ResourceSaver.save(pal, pal.resource_path)
+	EditorInterface.get_resource_filesystem().update_file(pal.resource_path)
+	_rebuild_pal_material_list()
 
 
 func _make_material_preview(mat: Material) -> Control:

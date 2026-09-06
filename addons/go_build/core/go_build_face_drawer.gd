@@ -41,6 +41,7 @@ var _subdivide_btn: Button = null
 var _flip_btn:      Button = null
 var _dissolve_btn:    Button = null
 var _triangulate_btn: Button = null
+var _knife_btn:       Button = null
 
 
 func _ready() -> void:
@@ -91,6 +92,15 @@ func _ready() -> void:
 	_triangulate_btn.pressed.connect(_on_triangulate_pressed)
 	grid.add_child(_triangulate_btn)
 	_register_op(_triangulate_btn, _cond_face_any)
+
+	_knife_btn = _op_button("Knife",
+		"Cut the mesh along a drawn polygon: click points on the surface,\n"
+		+ "close the loop to split faces along the path (K shortcut).\n"
+		+ "Snaps to vertices; Esc/right-click cancels.")
+	_knife_btn.pressed.connect(_on_knife_pressed)
+	grid.add_child(_knife_btn)
+	# Knife is usable in Object mode too — the gate is "mesh being edited".
+	_register_op(_knife_btn, _cond_has_mesh)
 
 
 # ---------------------------------------------------------------------------
@@ -222,8 +232,8 @@ func _on_inset_pressed() -> void:
 	preview.action_name = "Inset Face"
 	preview.param_label = "Amount"
 	preview.param_start = _INSET_DEFAULT_AMOUNT
-	preview.param_min   = 0.0
-	preview.param_max   = 1.0
+	preview.param_min   = -100.0
+	preview.param_max   = 100.0
 	preview.radial      = false
 	preview.snap_step   = 0.1
 	preview.apply_fn    = func(p: float) -> void: \
@@ -286,3 +296,23 @@ func _on_triangulate_pressed() -> void:
 	faces_to_triangulate.assign(sel_faces)
 	_run_op("Triangulate Faces",
 			func(): TriangulateOperation.apply(_target.go_build_mesh, faces_to_triangulate))
+
+
+func _on_knife_pressed() -> void:
+	if _target == null or _plugin == null:
+		return
+	var controller = _plugin.get("_knife_controller")
+	if controller == null:
+		return
+	if controller.is_active():
+		controller.cancel()
+	else:
+		controller.start(_target, _plugin)
+	# ponytail: direct print so this is visible regardless of the Debug toggle
+	print("[Knife] drawer button: active=%s target=%s" % [
+			controller.is_active(), _target.name if _target != null else "null"])
+	_plugin.update_overlays()
+
+
+func _cond_has_mesh() -> bool:
+	return _target != null and _target.go_build_mesh != null

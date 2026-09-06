@@ -27,8 +27,10 @@
 ##   ring walk in that direction without cutting the face.  Triangular or
 ##   n-gon faces are left unchanged.
 ##
-## [method GoBuildMesh.rebuild_edges] is called automatically inside
-## [method apply].
+## Edge topology is maintained incrementally: cut vertices are inserted into
+## EVERY face ring containing the crossed edge via [method GoBuildMesh.split_edge]
+## (no T-junctions), and rewritten faces go through
+## [method GoBuildMesh.unregister_face] / [method GoBuildMesh.register_face].
 @tool
 class_name LoopCutOperation
 extends RefCounted
@@ -44,7 +46,6 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 ## [param t] is the fractional cut position along each edge (0 = vertex_a,
 ## 1 = vertex_b, 0.5 = midpoint).  Values outside [0, 1] are clamped.
 ## Invalid or out-of-range edge indices are silently skipped.
-## [method GoBuildMesh.rebuild_edges] is called automatically on completion.
 static func apply(
 		mesh: GoBuildMesh,
 		edge_indices: Array[int],
@@ -75,7 +76,11 @@ static func apply(
 			continue
 		_cut_ring(mesh, ring, t, cut_faces)
 
-	mesh.rebuild_edges()
+	# Reconcile: split_edge + register/unregister mutated rings and edges —
+	# drop orphaned edge objects and refresh face refs (knife's pattern).
+	mesh.compact_edges()
+	mesh.refresh_edge_face_indices()
+	mesh.validate_edge_topology()
 
 
 # ---------------------------------------------------------------------------
@@ -272,21 +277,23 @@ static func _walk_half(
 ## va→vb is the ring-directed entry edge; opp_va→opp_vb is the ring-directed
 ## far edge.  lerp(va, vb, t) and lerp(opp_va, opp_vb, t) are consistent across
 ## all faces so moving t moves the cut line uniformly around the ring.
+##
+## Cut vertices are created once per crossed edge and inserted into EVERY
+## face ring containing that edge via [method GoBuildMesh.split_edge] —
+## neighbouring faces outside the ring stay watertight (no T-junctions).
+## Replacement faces are the two arcs of the (already split) ring between
+## the two cut vertices, so winding and n-gon extras are preserved whatever
+## the ring shape.
 static func _cut_ring(
 		mesh: GoBuildMesh,
 		ring: Array,
 		t: float,
 		cut_faces: Dictionary,
 ) -> void:
-	# Cache key: "%d_%d_%d_%.6f" % [min(a,b), max(a,b), ring_dir_a, t]
-	# ring_dir_a: the lower-indexed of the two vertices when the ring says lerp(a→b,t).
-	# This encodes both the canonical edge identity AND the ring-directed t, so
-	# two faces that share an edge but have it in opposite ring-directions produce
-	# different keys and never collide.  That is correct: they want the same 3D
-	# position (lerp(a,b,t) == lerp(b,a,1-t) only at t=0.5), but the cache is
-	# just a deduplication aid for the case when the SAME ring direction is used
-	# (adjacent faces sharing an edge always approach it from the same direction
-	# because opp_va/opp_vb from face N become va/vb for face N+1).
+	# Canonical edge key → cut vertex index.  Both faces sharing an edge
+	# approach it with the same ring-directed t (adjacent ring entries hand
+	# opp_va/opp_vb forward as va/vb); keys normalise vertex order so
+	# opposite directions also dedupe.
 	var cut_verts: Dictionary = {}
 
 	for entry in ring:
@@ -297,85 +304,102 @@ static func _cut_ring(
 		var ovb: int     = entry["opp_vb"]
 		var face: GoBuildFace = mesh.faces[fi]
 
-		# Entry-edge cut: lerp(va→vb, t).  Key is canonical (min,max) + low vertex
-		# so that the same directed edge always maps to the same key.
-		var key_entry: String = "%d_%d_%d_%.6f" % [mini(va, vb), maxi(va, vb), mini(va, vb), t]
-		if not cut_verts.has(key_entry):
-			var pos_e: Vector3 = mesh.vertices[va].lerp(mesh.vertices[vb], t)
-			cut_verts[key_entry] = mesh.append_vertex_lerp(va, vb, pos_e, t)
-		var m_entry: int = cut_verts[key_entry]
+		# Entry-edge cut: lerp(va→vb, t); far-edge cut: lerp(opp_va→opp_vb, t).
+		var m_entry := _get_or_create_cut_vertex(mesh, va, vb, t, cut_verts)
+		var m_far := _get_or_create_cut_vertex(mesh, ova, ovb, t, cut_verts)
 
-		# Far-edge cut: lerp(opp_va→opp_vb, t).
-		var key_far: String = "%d_%d_%d_%.6f" % [mini(ova, ovb), maxi(ova, ovb), mini(ova, ovb), t]
-		if not cut_verts.has(key_far):
-			var pos_f: Vector3 = mesh.vertices[ova].lerp(mesh.vertices[ovb], t)
-			cut_verts[key_far] = mesh.append_vertex_lerp(ova, ovb, pos_f, t)
-		var m_far: int = cut_verts[key_far]
-
-		# Determine winding.
-		# The face is stored CCW-from-outside.  Find va's position in the face to
-		# decide which replacement-quad order preserves that winding.
-		# forward=true : va→vb runs in the face's CCW direction (v_k → v_{k+1}).
-		#   Quad A: [va,  m_entry, m_far,  opp_va]
-		#   Quad B: [m_entry, vb,  ovb,   m_far ]  (note: ovb==opp_vb)
-		# forward=false: va→vb runs against CCW (v_k → v_{k-1}).
-		#   Swap order to keep CCW winding:
-		#   Quad A: [m_entry, va,  opp_va, m_far]  (reversed A)
-		#   Quad B: [vb, m_entry, m_far,  ovb  ]  (reversed B)
-		var pos_va: int = face.vertex_indices.find(va)
-		var vc_cut: int = face.vertex_indices.size()
-		var forward: bool = face.vertex_indices[(pos_va + 1) % vc_cut] == vb
+		# The entry/far edges are now split in the face's ring: … va m_entry vb …
+		# and … ova m_far ovb ….  Split the ring into its two arcs at the cut
+		# vertices; each arc is one replacement face (CCW preserved by
+		# construction, 5-gon bevel extras land on the correct arc).
+		var ring2: Array[int] = []
+		ring2.assign(face.vertex_indices)
+		var arc_a := _ring_arc(ring2, m_entry, m_far)
+		var arc_b := _ring_arc(ring2, m_far, m_entry)
 
 		var qa := GoBuildFace.new()
 		var qb := GoBuildFace.new()
-		if vc_cut == 4:
-			if forward:
-				qa.vertex_indices = [va,      m_entry, m_far, ova]
-				qa.uvs = [Vector2(0.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(0.0, 1.0)]
-				qb.vertex_indices = [m_entry, vb,      ovb,   m_far]
-				qb.uvs = [Vector2(t, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(t, 1.0)]
+		qa.vertex_indices = arc_a
+		qb.vertex_indices = arc_b
+		# Interpolated UVs: cut vertices get lerp of their edge neighbours' UVs;
+		# original ring vertices keep their slot UVs.
+		for arc: Array[int] in [arc_a, arc_b]:
+			var uvs: Array[Vector2] = []
+			uvs.resize(arc.size())
+			for k: int in arc.size():
+				var vi: int = arc[k]
+				if vi == m_entry or vi == m_far:
+					var edge: Vector2i = _cut_vertex_edge(ring2, vi)
+					var u_a: Vector2 = face.uvs[ring2.find(edge.x)] \
+							if ring2.find(edge.x) < face.uvs.size() else Vector2.ZERO
+					var u_b: Vector2 = face.uvs[ring2.find(edge.y)] \
+							if ring2.find(edge.y) < face.uvs.size() else Vector2.ZERO
+					uvs[k] = u_a.lerp(u_b, t)
+				else:
+					var slot: int = ring2.find(vi)
+					uvs[k] = face.uvs[slot] if slot < face.uvs.size() else Vector2.ZERO
+			if arc == arc_a:
+				qa.uvs = uvs
 			else:
-				qa.vertex_indices = [m_entry, va,  ova,  m_far]
-				qa.uvs = [Vector2(t, 0.0), Vector2(0.0, 0.0), Vector2(0.0, 1.0), Vector2(t, 1.0)]
-				qb.vertex_indices = [vb, m_entry, m_far, ovb]
-				qb.uvs = [Vector2(1.0, 0.0), Vector2(t, 0.0), Vector2(t, 1.0), Vector2(1.0, 1.0)]
-		else:
-			# 5-gon: collect vertices between the far edge and the entry edge
-			# (the "cap" side) to preserve the extra bevel vertex.
-			# Find positions of ova and ovb in the face.
-			# For a 5-gon [v0..v4] with entry v0→v1 (forward), far is v4→v3.
-			# Side A (contains ova=v4):       [v0, m_entry, m_far, v4]
-			# Side B (contains extra vertex): [m_entry, v1, v2, v3, m_far]
-			# Collect vertices "between" far and entry on each side.
-			var pos_ova: int = face.vertex_indices.find(ova)
-			# Walk from pos_ova toward pos_va (step -1 in forward case or +1).
-			var side_a_vis: Array[int] = [va, m_entry, m_far, ova]
-			# Side B: from ovb to vb, including middle vertices.
-			var pos_ovb: int = face.vertex_indices.find(ovb)
-			var pos_vb: int  = face.vertex_indices.find(vb)
-			var side_b_vis: Array[int] = [m_entry]
-			# Walk from vb toward ovb (the "between" vertices).
-			var walk: int = pos_vb
-			var step_dir: int = 1 if forward else -1
-			for _s: int in vc_cut:
-				side_b_vis.append(face.vertex_indices[walk])
-				if walk == pos_ovb:
-					break
-				walk = (walk + step_dir + vc_cut) % vc_cut
-			side_b_vis.append(m_far)
-			qa.vertex_indices = side_a_vis
-			qb.vertex_indices = side_b_vis
-			qa.uvs = []
-			for _u: int in side_a_vis.size():
-				qa.uvs.append(Vector2.ZERO)
-			qb.uvs = []
-			for _u: int in side_b_vis.size():
-				qb.uvs.append(Vector2.ZERO)
+				qb.uvs = uvs
 		qa.material_index = face.material_index
 		qa.smooth_group   = face.smooth_group
 		qb.material_index = face.material_index
 		qb.smooth_group   = face.smooth_group
 
+		# Replace the face: detach from edge topology, write, re-register.
+		mesh.unregister_face(fi)
 		mesh.faces[fi] = qa
+		mesh.register_face(fi)
 		mesh.faces.append(qb)
+		mesh.register_face(mesh.faces.size() - 1)
 		cut_faces[fi] = true
+
+
+## Walk [param ring] from [param from_vi] to [param to_vi] inclusive in ring
+## order (both are ring members).
+static func _ring_arc(ring: Array[int], from_vi: int, to_vi: int) -> Array[int]:
+	var start: int = ring.find(from_vi)
+	var end_i: int = ring.find(to_vi)
+	if start == -1 or end_i == -1:
+		return []
+	var arc: Array[int] = []
+	var k: int = start
+	while true:
+		arc.append(ring[k])
+		if k == end_i:
+			break
+		k = (k + 1) % ring.size()
+	return arc
+
+
+## The pair of ring neighbours (in the pre-split order) that produced
+## [param cut_vi] — used to interpolate its UV.  Returns the ring slots of
+## the two neighbours as (prev_slot, next_slot).
+static func _cut_vertex_edge(ring: Array[int], cut_vi: int) -> Vector2i:
+	var pos: int = ring.find(cut_vi)
+	var prev: int = ring[(pos - 1 + ring.size()) % ring.size()]
+	var next: int = ring[(pos + 1) % ring.size()]
+	return Vector2i(prev, next)
+
+
+## Get (or create) the cut vertex on edge va→vb at ring-directed [param t].
+## The vertex is inserted into EVERY face ring containing the edge
+## ([method GoBuildMesh.split_edge]) so neighbours stay watertight.
+## Keys are canonical (sorted pair + t) — opposite ring directions map to
+## the same 3D position via lerp symmetry, so they share the vertex.
+static func _get_or_create_cut_vertex(
+		mesh: GoBuildMesh,
+		va: int,
+		vb: int,
+		t: float,
+		cut_verts: Dictionary,
+) -> int:
+	var key := "%d_%d_%.6f" % [mini(va, vb), maxi(va, vb), t]
+	if cut_verts.has(key):
+		return cut_verts[key]
+	var pos: Vector3 = mesh.vertices[va].lerp(mesh.vertices[vb], t)
+	var vi: int = mesh.append_vertex_lerp(va, vb, pos, t)
+	mesh.split_edge(va, vb, vi)
+	cut_verts[key] = vi
+	return vi

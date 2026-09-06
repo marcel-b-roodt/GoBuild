@@ -18,3 +18,26 @@ extends Resource
 ## values — [code]materials[0][/code] is applied to faces with
 ## [code]material_index == 0[/code], etc.
 @export var materials: Array[Material] = []
+
+
+## Return a [code]StandardMaterial3D[/code] with [param path]'s resource as
+## albedo — texture files get wrapped fresh, material resources load as-is.
+## Reuses [code]resource_name[/code] already on the material.
+## Returns [code]null[/code] when the path is not a loadable texture or material.
+static func material_from_file(path: String) -> Material:
+	if path.is_empty():
+		return null
+	var lower := path.to_lower()
+	if lower.ends_with(".tres") or lower.ends_with(".res"):
+		var loaded: Resource = load(path)
+		return loaded as Material
+	var tex := load(path) as Texture2D
+	if tex == null:
+		return null
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = tex
+	var tex_name: String = tex.resource_name
+	if tex_name == "":
+		tex_name = path.get_file().get_basename()
+	mat.resource_name = tex_name
+	return mat

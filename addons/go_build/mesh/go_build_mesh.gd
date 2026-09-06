@@ -264,7 +264,11 @@ func build_vertex_position_buffers() -> Array[PackedByteArray]:
 			if face.material_index != mat_idx:
 				continue
 			var vc: int = face.vertex_indices.size()
-			var local_tris: Array = Triangulate.fan(vc)
+			var face_points: Array[Vector3] = []
+			face_points.resize(vc)
+			for k: int in vc:
+				face_points[k] = vertices[face.vertex_indices[k]]
+			var local_tris: Array = Triangulate.triangulate_face(face_points)
 			for tri: Array in local_tris:
 				for li: int in tri:
 					verts.append(vertices[face.vertex_indices[li]])
@@ -319,12 +323,16 @@ func _build_surface(
 		var fn: Vector3 = face_normals[fi]
 		var vc: int = face.vertex_indices.size()
 
-		# Fan triangulation from vertex 0.
-		# Triangulate.fan returns CW-from-outside indices ([0, tri+2, tri+1])
+		# Convexity-gated triangulation (Triangulate.triangulate_face returns
+		# CW-from-outside indices)
 		# which is the front-facing convention in Godot 4's Vulkan renderer.
 		# face.vertex_indices deliberately remains CCW-from-outside so that
 		# compute_face_normal() (Newell) returns the correct outward normal.
-		var local_tris: Array = Triangulate.fan(vc)
+		var face_points: Array[Vector3] = []
+		face_points.resize(vc)
+		for k: int in vc:
+			face_points[k] = vertices[face.vertex_indices[k]]
+		var local_tris: Array = Triangulate.triangulate_face(face_points)
 		for tri: Array in local_tris:
 			for li: int in tri:
 				var vi: int = face.vertex_indices[li]
@@ -435,6 +443,311 @@ func compute_face_area(face: GoBuildFace) -> float:
 ## Rebuild [member edges] from the current [member faces] data, then rebuild
 ## [member coincident_groups] so the two derived structures stay in sync.
 ## Call this after any operation that adds, removes, or modifies faces.
+	rebuild_coincident_groups()
+	_sync_vertex_colors()
+
+
+# ---------------------------------------------------------------------------
+# Incremental edge topology maintenance (BMesh-style persistent edges)
+# ---------------------------------------------------------------------------
+# These helpers keep `edges` + adjacency caches in sync WITHOUT a full
+# rebuild.  Structural operations must use them instead of mutating face
+# rings directly; `rebuild_edges()` remains the load/undo-restore path.
+# A debug validation pass (`validate_edge_topology`) catches drift.
+
+## Canonical key for an undirected edge between two vertex indices.
+static func edge_key(va: int, vb: int) -> String:
+	return "%d_%d" % [mini(va, vb), maxi(va, vb)]
+
+
+## Insert a face into the topology as a NEW face: registers it in
+## `_vertex_to_faces` and creates/updates edge objects for its ring.
+## Call AFTER appending the face to [member faces] (pass its index).
+## Does NOT touch faces whose edges already exist — shared edges gain this
+## face in their [member GoBuildEdge.face_indices].
+func register_face(fi: int) -> void:
+	var face: GoBuildFace = faces[fi]
+	var vc: int = face.vertex_indices.size()
+	while _face_to_edges.size() <= fi:
+		_face_to_edges.append([])
+	for i: int in vc:
+		var va: int = face.vertex_indices[i]
+		var vb: int = face.vertex_indices[(i + 1) % vc]
+		if not _vertex_to_faces.has(va):
+			_vertex_to_faces[va] = []
+		(_vertex_to_faces[va] as Array).append(fi)
+		_register_half_edge(fi, va, vb)
+
+
+## Remove a face from the topology: drops its edge references, deleting
+## edges that end up with no faces.  Call BEFORE removing from [member faces]
+## (pass its index); compaction of `edges` is deferred to
+## [method compact_edges].
+func unregister_face(fi: int) -> void:
+	if fi < 0 or fi >= _face_to_edges.size():
+		return
+	for ei: int in _face_to_edges[fi]:
+		if ei < 0 or ei >= edges.size():
+			continue
+		var edge: GoBuildEdge = edges[ei]
+		edge.face_indices.erase(fi)
+		var key := edge_key(edge.vertex_a, edge.vertex_b)
+		if edge.face_indices.is_empty():
+			_edge_lookup.erase(key)
+			if _vertex_to_edges.has(edge.vertex_a):
+				(_vertex_to_edges[edge.vertex_a] as Array).erase(ei)
+			if _vertex_to_edges.has(edge.vertex_b):
+				(_vertex_to_edges[edge.vertex_b] as Array).erase(ei)
+	_face_to_edges[fi].clear()
+	for vi: int in faces[fi].vertex_indices:
+		if _vertex_to_faces.has(vi):
+			(_vertex_to_faces[vi] as Array).erase(fi)
+
+
+## Insert [param cut_vi] into EVERY face ring that contains edge (va, vb).
+## Edge objects are NOT mutated here — the caller rewrites the affected
+## faces (register/unregister), and `compact_edges()` / `refresh_edge_face_indices()`
+## reconcile the edge objects.  This split only guarantees no ring keeps an
+## unbroken va—vb edge (the T-junction killer).
+func split_edge(va: int, vb: int, cut_vi: int, t_hint: float = 0.5) -> void:
+	var key := edge_key(va, vb)
+	if not _edge_lookup.has(key):
+		return   # Unknown edge — caller should rebuild_edges().
+	var ei: int = _edge_lookup[key]
+	var affected: Array[int] = []
+	affected.assign(edges[ei].face_indices)
+	# Insert cut_vi into each face's ring between va and vb.
+	for fi: int in affected:
+		var f_ring: Array[int] = faces[fi].vertex_indices
+		for k: int in f_ring.size():
+			var is_fwd: bool = f_ring[k] == va and f_ring[(k + 1) % f_ring.size()] == vb
+			var is_bwd: bool = f_ring[k] == vb and f_ring[(k + 1) % f_ring.size()] == va
+			if is_fwd or is_bwd:
+				f_ring.insert(k + 1, cut_vi)
+				faces[fi].vertex_indices = f_ring
+				# Keep uvs aligned with the ring: insert a lerped UV at the
+				# same slot (t measured from the slot holding va).
+				var uvs: Array[Vector2] = faces[fi].uvs
+				if uvs.size() == f_ring.size() - 1 and uvs.size() >= 2:
+					var ua: Vector2 = uvs[k]
+					var ub: Vector2 = uvs[(k + 1) % uvs.size()]
+					uvs.insert(k + 1, ua.lerp(ub, t_hint))
+					faces[fi].uvs = uvs
+				break
+	# Hard-edge pairs: replace (va,vb) with (va,cut) + (cut,vb).
+	if hard_edge_pairs.has(Vector2i(mini(va, vb), maxi(va, vb))):
+		hard_edge_pairs.erase(Vector2i(mini(va, vb), maxi(va, vb)))
+		hard_edge_pairs.append(Vector2i(mini(va, cut_vi), maxi(va, cut_vi)))
+		hard_edge_pairs.append(Vector2i(mini(cut_vi, vb), maxi(cut_vi, vb)))
+
+
+## Replace every occurrence of [param old_vi] in all face rings with
+## [param new_vi] (weld helper), then drop the now-unused vertex.
+## Full edge rebuild is performed (welds are rare and structural).
+func replace_vertex_in_rings(old_vi: int, new_vi: int) -> void:
+	for face: GoBuildFace in faces:
+		for k: int in face.vertex_indices.size():
+			if face.vertex_indices[k] == old_vi:
+				face.vertex_indices[k] = new_vi
+	compact_edges()
+
+
+## Remove faces by index set, drop their edge references, and compact
+## vertices (orphans removed).  Replaces the delete-op pattern of direct
+## face array rewrites + compact_vertices.
+func delete_faces(face_set: Dictionary) -> void:
+	for fi: int in face_set:
+		if fi >= 0 and fi < faces.size():
+			unregister_face(fi)
+	var new_faces: Array[GoBuildFace] = []
+	for fi: int in faces.size():
+		if not face_set.has(fi):
+			new_faces.append(faces[fi])
+	faces = new_faces
+	compact_edges()
+	compact_vertices()
+	# Refresh every edge's face_indices from the current rings (indices
+	# shifted during compaction) and drop faceless edges.
+	refresh_edge_face_indices()
+
+
+## Recompute every edge's face_indices from the current face rings and drop
+## faceless edges.  The cheap, robust way to reconcile persistent edges
+## after index-shifting mutations (delete/compact).
+func refresh_edge_face_indices() -> void:
+	for edge: GoBuildEdge in edges:
+		edge.face_indices.clear()
+	for fi: int in faces.size():
+		var face: GoBuildFace = faces[fi]
+		var vc: int = face.vertex_indices.size()
+		for i: int in vc:
+			var key := edge_key(face.vertex_indices[i],
+					face.vertex_indices[(i + 1) % vc])
+			if _edge_lookup.has(key):
+				var ei: int = _edge_lookup[key]
+				if not edges[ei].face_indices.has(fi):
+					edges[ei].face_indices.append(fi)
+			else:
+				# Edge object missing (ring bypassed helpers) — create it.
+				var va: int = face.vertex_indices[i]
+				var vb: int = face.vertex_indices[(i + 1) % vc]
+				_register_half_edge(fi, va, vb)
+	# Drop faceless edges.
+	var survivors: Array[GoBuildEdge] = []
+	var remap: Dictionary = {}
+	for ei: int in edges.size():
+		if edges[ei].face_indices.is_empty():
+			_edge_lookup.erase(edge_key(edges[ei].vertex_a, edges[ei].vertex_b))
+			continue
+		remap[ei] = survivors.size()
+		survivors.append(edges[ei])
+	edges = survivors
+	var new_lookup: Dictionary = {}
+	for key: String in _edge_lookup:
+		if remap.has(_edge_lookup[key]):
+			new_lookup[key] = remap[_edge_lookup[key]]
+	_edge_lookup = new_lookup
+	# Rebuild _face_to_edges from the surviving edges.
+	_face_to_edges.clear()
+	_face_to_edges.resize(faces.size())
+	for fi: int in faces.size():
+		_face_to_edges[fi] = []
+	for ei: int in edges.size():
+		for fi: int in edges[ei].face_indices:
+			if fi < _face_to_edges.size():
+				(_face_to_edges[fi] as Array).append(ei)
+	# _vertex_to_edges may hold stale refs — rebuild that cache too.
+	_vertex_to_edges.clear()
+	for vi: int in vertices.size():
+		_vertex_to_edges[vi] = []
+	for ei: int in edges.size():
+		var e: GoBuildEdge = edges[ei]
+		(_vertex_to_edges[e.vertex_a] as Array).append(ei)
+		if not (_vertex_to_edges[e.vertex_b] as Array).has(ei):
+			(_vertex_to_edges[e.vertex_b] as Array).append(ei)
+	# _vertex_to_faces: face indices shifted during compaction — rebuild.
+	_vertex_to_faces.clear()
+	for vi: int in vertices.size():
+		_vertex_to_faces[vi] = []
+	for fi: int in faces.size():
+		for vi: int in faces[fi].vertex_indices:
+			if _vertex_to_faces.has(vi):
+				(_vertex_to_faces[vi] as Array).append(fi)
+
+
+## Sync [member GoBuildEdge.is_hard] on every edge object from
+## [member hard_edge_pairs] (the serialization authority).  Called after
+## any operation that edits hard_edge_pairs directly.
+func sync_edge_hard_state() -> void:
+	var hard_set: Dictionary = {}
+	for pair: Vector2i in hard_edge_pairs:
+		hard_set[pair] = true
+	for edge: GoBuildEdge in edges:
+		edge.is_hard = hard_set.has(
+				Vector2i(mini(edge.vertex_a, edge.vertex_b), maxi(edge.vertex_a, edge.vertex_b)))
+
+
+## Recompute face_indices on every edge from the current face rings, and
+## drop edges with no faces.  Needed after ring edits that bypass
+## [method register_face] (e.g. direct ring rewrites in bulk ops).
+## Drop faceless edges (ring edits that bypass helpers can orphan them) and
+## remap the edge lookup.  Face-index reconciliation lives in
+## [method refresh_edge_face_indices] — call that first when indices shifted.
+func compact_edges() -> void:
+	# Drop faceless edges.
+	var survivors: Array[GoBuildEdge] = []
+	var remap: Dictionary = {}
+	for ei: int in edges.size():
+		if edges[ei].face_indices.is_empty():
+			_edge_lookup.erase(edge_key(edges[ei].vertex_a, edges[ei].vertex_b))
+			continue
+		remap[ei] = survivors.size()
+		survivors.append(edges[ei])
+	edges = survivors
+	var new_lookup: Dictionary = {}
+	for key: String in _edge_lookup:
+		if remap.has(_edge_lookup[key]):
+			new_lookup[key] = remap[_edge_lookup[key]]
+	_edge_lookup = new_lookup
+
+
+func _ring_contains_edge(ring: Array[int], a: int, b: int) -> bool:
+	for k: int in ring.size():
+		if ring[k] == a and ring[(k + 1) % ring.size()] == b:
+			return true
+		if ring[k] == b and ring[(k + 1) % ring.size()] == a:
+			return true
+	return false
+
+
+## Debug-only consistency check: the persistent edge set must exactly match
+## a from-scratch rebuild of the current face rings.  Any drift (an op that
+## mutated faces without the incremental helpers) fails loudly with the
+## offending edge.  Called after structural ops in debug builds; no-op in
+## release.
+func validate_edge_topology() -> void:
+	if not OS.is_debug_build():
+		return
+	var expected: Dictionary = {}   # canonical key → [va, vb, faces]
+	for fi: int in faces.size():
+		var face: GoBuildFace = faces[fi]
+		var vc: int = face.vertex_indices.size()
+		for i: int in vc:
+			var va: int = face.vertex_indices[i]
+			var vb: int = face.vertex_indices[(i + 1) % vc]
+			var key := edge_key(va, vb)
+			if not expected.has(key):
+				expected[key] = {"a": va, "b": vb, "faces": []}
+			if not (expected[key]["faces"] as Array).has(fi):
+				(expected[key]["faces"] as Array).append(fi)
+	var actual: Dictionary = {}
+	for ei: int in edges.size():
+		var e: GoBuildEdge = edges[ei]
+		actual[edge_key(e.vertex_a, e.vertex_b)] = e.face_indices
+	for key: String in expected:
+		if not actual.has(key):
+			push_error("Edge topology drift: edge %s missing from persistent set" % key)
+			return
+		if (actual[key] as Array).size() != (expected[key]["faces"] as Array).size():
+			push_error("Edge topology drift: edge %s face count %d != %d" % [
+					key, (actual[key] as Array).size(),
+					(expected[key]["faces"] as Array).size()])
+			return
+	for key: String in actual:
+		if not expected.has(key):
+			push_error("Edge topology drift: stale edge %s in persistent set" % key)
+			return
+
+
+## Create/update the edge object for face [param fi]'s ring edge va→vb.
+func _register_half_edge(fi: int, va: int, vb: int) -> void:
+	var key := edge_key(va, vb)
+	if _edge_lookup.has(key):
+		var ei: int = _edge_lookup[key]
+		if not edges[ei].face_indices.has(fi):
+			edges[ei].face_indices.append(fi)
+		if not (_face_to_edges[fi] as Array).has(ei):
+			(_face_to_edges[fi] as Array).append(ei)
+		return
+	var ei: int = edges.size()
+	var edge := GoBuildEdge.new()
+	edge.vertex_a = va
+	edge.vertex_b = vb
+	edge.face_indices.append(fi)
+	var pair := Vector2i(mini(va, vb), maxi(va, vb))
+	edge.is_hard = hard_edge_pairs.has(pair)
+	_edge_lookup[key] = ei
+	edges.append(edge)
+	if not (_face_to_edges[fi] as Array).has(ei):
+		(_face_to_edges[fi] as Array).append(ei)
+	if not _vertex_to_edges.has(va):
+		_vertex_to_edges[va] = []
+	(_vertex_to_edges[va] as Array).append(ei)
+	if not _vertex_to_edges.has(vb):
+		_vertex_to_edges[vb] = []
+	(_vertex_to_edges[vb] as Array).append(ei)
+
+
 func rebuild_edges() -> void:
 	edges.clear()
 	_vertex_to_faces.clear()
@@ -683,7 +996,7 @@ func compute_aabb() -> AABB:
 ## Return the edge index of the edge connecting [param va] and [param vb],
 ## or -1 if no such edge exists.  Uses the O(1) [member _edge_lookup] cache.
 func find_edge(va: int, vb: int) -> int:
-	var key: String = "%d_%d" % [min(va, vb), max(va, vb)]
+	var key := edge_key(va, vb)
 	if _edge_lookup.has(key):
 		return int(_edge_lookup[key])
 	return -1

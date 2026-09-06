@@ -22,12 +22,15 @@ const _DRAW_CTRL_SCRIPT_CR := \
 		preload("res://addons/go_build/core/go_build_shape_draw_controller.gd")
 const _MESH_IMPORT_SCRIPT_CR := \
 		preload("res://addons/go_build/mesh/mesh_import.gd")
+const _DRAW_PARAM_POPUP_SCRIPT_CR := \
+		preload("res://addons/go_build/core/go_build_draw_param_popup.gd")
 const _DEFAULT_MAT := preload("res://addons/go_build/go_build_material.tres")
 
 var _align_to_surface_cb: CheckBox = null
 var _parent_mode_option: OptionButton = null
 var _param_strip: VBoxContainer = null
 var _param_controls: Dictionary = {}
+var _draw_param_popup: GoBuildDrawParamPopup = null
 
 
 func _ready() -> void:
@@ -89,6 +92,12 @@ func _ready() -> void:
 	_register_op(import_btn, _cond_has_mesh_instance)
 
 
+func _exit_tree() -> void:
+	if _draw_param_popup != null and is_instance_valid(_draw_param_popup):
+		_draw_param_popup.queue_free()
+	_draw_param_popup = null
+
+
 # ---------------------------------------------------------------------------
 # Shape button handler
 # ---------------------------------------------------------------------------
@@ -145,6 +154,7 @@ func _show_param_strip(shape_name: String, draw_ctrl: GoBuildShapeDrawController
 	var specs: Array[Dictionary] = ShapeCreationCatalog.non_drawable_param_specs(shape_name)
 	if specs.is_empty():
 		_param_strip.visible = false
+		_close_draw_param_popup()
 		return
 	var bool_row := HBoxContainer.new()
 	for spec: Dictionary in specs:
@@ -182,6 +192,29 @@ func _show_param_strip(shape_name: String, draw_ctrl: GoBuildShapeDrawController
 	if bool_row.get_child_count() > 0:
 		_param_strip.add_child(bool_row)
 	_param_strip.visible = true
+	_open_draw_param_popup(shape_name, draw_ctrl)
+
+
+func _open_draw_param_popup(shape_name: String, draw_ctrl: GoBuildShapeDrawController) -> void:
+	if not Engine.is_editor_hint():
+		return
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var vp_parent := sv.get_parent() as Control
+	if sv == null or vp_parent == null:
+		return
+	if _draw_param_popup == null or not is_instance_valid(_draw_param_popup):
+		_draw_param_popup = _DRAW_PARAM_POPUP_SCRIPT_CR.new()
+		_draw_param_popup.z_index = 100
+		EditorInterface.get_base_control().add_child(_draw_param_popup)
+	var vp_screen_pos: Vector2 = vp_parent.get_global_rect().position
+	_draw_param_popup.open(
+			shape_name, draw_ctrl,
+			Rect2(vp_screen_pos, vp_parent.get_global_rect().size))
+
+
+func _close_draw_param_popup() -> void:
+	if _draw_param_popup != null and is_instance_valid(_draw_param_popup):
+		_draw_param_popup.close()
 
 
 func _clear_param_strip() -> void:
@@ -211,6 +244,7 @@ func _on_param_spin_changed(
 
 func hide_param_strip() -> void:
 	_clear_param_strip()
+	_close_draw_param_popup()
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +299,7 @@ func insert_shape(
 	ur.create_action("Insert " + node_name)
 	ur.add_do_method(parent, "add_child", node, true)
 	ur.add_do_method(node, "set_owner", scene_root)
+	ur.add_do_method(node, "capture_pristine_state")
 	ur.add_undo_method(parent, "remove_child", node)
 	ur.add_undo_reference(node)
 	ur.commit_action()
@@ -324,6 +359,45 @@ func start_shape_draw_at(
 	_show_param_strip(shape_name, draw_ctrl)
 
 
+## Open the viewport param popup in re-edit mode when [param node] is a
+## pristine generated shape.  Called by the plugin on node selection.
+func maybe_open_param_popup(node: GoBuildMeshInstance) -> void:
+	if not Engine.is_editor_hint():
+		return
+	if _draw_param_popup == null or not is_instance_valid(_draw_param_popup):
+		_draw_param_popup = _DRAW_PARAM_POPUP_SCRIPT_CR.new()
+		_draw_param_popup.z_index = 100
+		EditorInterface.get_base_control().add_child(_draw_param_popup)
+	var shape_name: String = _infer_shape_name(node)
+	if shape_name.is_empty() or not node.is_pristine_state_valid():
+		_draw_param_popup.close()
+		return
+	var sv: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	if sv == null:
+		return
+	var vp_parent := sv.get_parent() as Control
+	if vp_parent == null:
+		return
+	_draw_param_popup.open_for_edit(
+			node, shape_name,
+			Rect2(vp_parent.get_global_rect().position, vp_parent.get_global_rect().size))
+
+
+## Infer the created shape name from a node name ("GoBuildStaircase" →
+## "Staircase"); empty when the node is not a generated shape.
+func _infer_shape_name(node: GoBuildMeshInstance) -> String:
+	if node == null or node.name.is_empty():
+		return ""
+	var n: String = node.name
+	if not n.begins_with("GoBuild"):
+		return ""
+	var candidate: String = n.trim_prefix("GoBuild")
+	for shape: String in ShapeCreationCatalog.all_shapes():
+		if shape == candidate:
+			return shape
+	return ""
+
+
 # ---------------------------------------------------------------------------
 # Import from MeshInstance3D
 # ---------------------------------------------------------------------------
@@ -381,6 +455,7 @@ func _on_import_mesh_pressed() -> void:
 	ur.create_action("Import Mesh to GoBuild")
 	ur.add_do_method(parent, "add_child", node, true)
 	ur.add_do_method(node, "set_owner", scene_root)
+	ur.add_do_method(node, "capture_pristine_state")
 	ur.add_undo_method(parent, "remove_child", node)
 	ur.add_undo_reference(node)
 	ur.commit_action()

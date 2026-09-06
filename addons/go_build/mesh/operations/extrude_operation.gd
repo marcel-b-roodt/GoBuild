@@ -13,8 +13,8 @@
 ## implementation.  Shared-edge merging (needed to avoid internal gaps when
 ## two adjacent faces are co-selected) is deferred to a later pass.
 ##
-## Call [method GoBuildMesh.rebuild_edges] after the operation to keep edge
-## topology in sync — this class calls it automatically inside [method apply].
+## Edge topology is maintained incrementally via [method GoBuildMesh.register_face]
+## / [method GoBuildMesh.unregister_face] — no rebuild needed.
 @tool
 class_name ExtrudeOperation
 extends RefCounted
@@ -33,7 +33,6 @@ const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 ##
 ## Invalid (out-of-range) indices are silently skipped.
 ## Degenerate faces (fewer than 3 vertices) are silently skipped.
-## [method GoBuildMesh.rebuild_edges] is called automatically on completion.
 static func apply(mesh: GoBuildMesh, face_indices: Array[int], distance: float) -> void:
 	if mesh == null or face_indices.is_empty():
 		return
@@ -50,8 +49,6 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int], distance: float) 
 	for fi: int in valid_indices:
 		_extrude_single_face(mesh, fi, distance)
 
-	mesh.rebuild_edges()
-
 
 ## Extrude a single face by [param distance] along its outward face normal.
 ##
@@ -65,6 +62,8 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int], distance: float) 
 ##      normal for each side face (verified in the unit tests).
 ##   4. Replace the original face's vertex_indices with the new top-ring
 ##      indices.  The original UVs are preserved on the extruded top face.
+##      The face is unregistered before the ring rewrite and re-registered
+##      after (persistent edges).
 ##
 ## Side-face UV convention: simple planar (0,0)→(1,1) mapping per quad.
 static func _extrude_single_face(mesh: GoBuildMesh, face_index: int, distance: float) -> void:
@@ -83,9 +82,12 @@ static func _extrude_single_face(mesh: GoBuildMesh, face_index: int, distance: f
 		var orig_pos: Vector3 = mesh.vertices[face.vertex_indices[k]]
 		new_indices[k] = mesh.append_vertex_from(face.vertex_indices[k], orig_pos + offset)
 
-	# ── 2. Create side faces ────────────────────────────────────────────────
-	# Winding [bottom_a, bottom_b, top_b, top_a] is CCW from outside.
-	# Verified by Newell's method in the unit tests (test_extrude_side_face_normals).
+	# ── 2. Detach the original face from edge topology before rewriting ───
+	mesh.unregister_face(face_index)
+
+	# ── 3. Create side faces — winding [bottom_a, bottom_b, top_b, top_a]
+	# is CCW from outside (verified by Newell's method in the unit tests:
+	# test_extrude_side_face_normals).
 	for k: int in vc:
 		var k_next: int = (k + 1) % vc
 		var side := GoBuildFace.new()
@@ -100,8 +102,10 @@ static func _extrude_single_face(mesh: GoBuildMesh, face_index: int, distance: f
 		# Simple planar UV for the side quad: bottom-left → bottom-right → top-right → top-left.
 		side.uvs = [Vector2(0.0, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(0.0, 1.0)]
 		mesh.faces.append(side)
+		mesh.register_face(mesh.faces.size() - 1)
 
-	# ── 3. Update original face to use the new top-ring vertices ───────────
+	# ── 4. Update original face to use the new top-ring vertices ───────────
 	# Original UVs are preserved (they map the extruded top face the same way).
 	face.vertex_indices.assign(new_indices)
+	mesh.register_face(face_index)
 

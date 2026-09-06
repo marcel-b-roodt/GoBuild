@@ -24,9 +24,14 @@ const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh
 const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _TRANSFORM_HELPERS_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_transform_helpers.gd")
+const _SYMMETRY_SCRIPT := preload("res://addons/go_build/core/go_build_symmetry.gd")
 
 ## Precision multiplier applied when Shift is held during a drag.
 const _PRECISION_MULTIPLIER_VAL: float = 0.1
+
+## Widened on-plane threshold for symmetry snapping during drags (must absorb
+## float noise from prior transforms).
+const _SYM_EPSILON: float = 0.01
 
 var _op: GoBuildDragOperation = null
 var _tracker: GoBuildMouseTracker = GoBuildMouseTracker.new()
@@ -52,10 +57,40 @@ var _raw_angle: float = 0.0
 var _raw_scale: float = 1.0
 var _raw_inset: float = 0.0
 
+## Inner-ring vertex index → face normal (local space).  Used by [method _apply_inset]
+## for the negative (depth) side of an inset drag.  Set via [method set_inset_normals].
+var _inset_normals: Dictionary = {}
+
+## Live-symmetry state cached at drag begin: { vertex_index: partner_index },
+## or empty when symmetry is off.  Partner moves mirror the dragged vertex.
+var _sym_partners: Dictionary = {}
+## Mesh-local axis index (0/1/2) of the active symmetry plane; -1 = off.
+var _sym_axis: int = -1
+
 var _overlay_anchor: Vector2 = Vector2.ZERO
 var _overlay_vp_size: Vector2 = Vector2.ZERO
 
 var _editor_plugin: EditorPlugin = null
+
+
+## Cache live-symmetry state for [param op] at drag start: only vertices in
+## [member initial_vertex_positions] participate.
+func _cache_symmetry(op: GoBuildDragOperation) -> void:
+	if op.node == null or not is_instance_valid(op.node):
+		return
+	if not op.node.symmetry_enabled:
+		return
+	_sym_axis = op.node.symmetry_axis
+	for idx: int in op.initial_vertex_positions:
+		var partner: int = op.node._symmetry_partner_map.get(idx, -1)
+		# Partner must also be part of the mesh — always true — but must not
+		# duplicate the dragged vertex itself unless it is on the plane.
+		if partner >= 0 and not op.initial_vertex_positions.has(partner):
+			_sym_partners[idx] = partner
+		elif partner >= 0 and partner == idx \
+				and not _SYMMETRY_SCRIPT.on_plane(op.initial_vertex_positions[idx], _sym_axis, _SYM_EPSILON):
+			# Self-partner only valid for on-plane verts; drop off-plane self matches.
+			_sym_partners[idx] = -1
 
 
 func setup(editor_plugin: EditorPlugin) -> void:
@@ -75,6 +110,10 @@ func begin(op: GoBuildDragOperation, overlay_only: bool = false) -> void:
 	_raw_angle = 0.0
 	_raw_scale = 1.0
 	_raw_inset = 0.0
+	_inset_normals = {}
+	_sym_partners = {}
+	_sym_axis = -1
+	_cache_symmetry(op)
 
 	_compute_initial_world_size(op)
 
@@ -503,7 +542,7 @@ func _compute_frame_result(
 			frame_result = GoBuildDeltaStrategy.inset_frame(
 					frame_delta, precision_mult)
 			_raw_inset += frame_result.float_value
-			var result_val: float = clampf(_raw_inset, 0.0, 1.0)
+			var result_val: float = clampf(_raw_inset, -100.0, 1.0)
 			if snap_enabled:
 				result_val = snappedf(result_val, snap_step)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
@@ -597,6 +636,33 @@ func _apply_vertex_translate(
 	var gbm: GoBuildMesh = node.go_build_mesh
 	for idx: int in op.initial_vertex_positions:
 		gbm.vertices[idx] = op.initial_vertex_positions[idx] + delta_local
+	_symmetry_apply_translation(gbm, op, delta_local)
+
+
+## Move symmetry partners + pin on-plane verts.  Called after every vertex-
+## level _apply_*; safe no-op when symmetry is off this drag.
+func _symmetry_apply_translation(
+		gbm: GoBuildMesh,
+		op: GoBuildDragOperation,
+		delta: Vector3,
+) -> void:
+	if _sym_axis < 0:
+		return
+	var mirrored_delta: Vector3 = _SYMMETRY_SCRIPT.mirror_delta(delta, _sym_axis)
+	for idx: int in _sym_partners:
+		var partner: int = _sym_partners[idx]
+		if partner < 0:
+			# On-plane vertex: pin to the plane.
+			var pos: Vector3 = gbm.vertices[idx]
+			match _sym_axis:
+				0: pos.x = 0.0
+				1: pos.y = 0.0
+				2: pos.z = 0.0
+			gbm.vertices[idx] = pos
+		else:
+			var init_pos: Vector3 = op.initial_vertex_positions[idx]
+			gbm.vertices[partner] = _SYMMETRY_SCRIPT.mirror_point(init_pos, _sym_axis) \
+					+ mirrored_delta
 
 
 func _apply_vertex_rotate(
@@ -610,6 +676,26 @@ func _apply_vertex_rotate(
 	for idx: int in op.initial_vertex_positions:
 		var local_pos: Vector3 = op.initial_vertex_positions[idx] - local_centroid
 		gbm.vertices[idx] = local_centroid + local_pos.rotated(local_axis, angle)
+	_symmetry_pin_partners(gbm, op)
+
+
+## Mirror every dragged vertex's position onto its partner (partner gets the
+## mirrored final position).  Used by rotate/scale where per-delta mirroring
+## degenerates; mirrors the RESULT instead.
+func _symmetry_pin_partners(gbm: GoBuildMesh, _op: GoBuildDragOperation) -> void:
+	if _sym_axis < 0:
+		return
+	for idx: int in _sym_partners:
+		var partner: int = _sym_partners[idx]
+		if partner < 0:
+			var pos: Vector3 = gbm.vertices[idx]
+			match _sym_axis:
+				0: pos.x = 0.0
+				1: pos.y = 0.0
+				2: pos.z = 0.0
+			gbm.vertices[idx] = pos
+		else:
+			gbm.vertices[partner] = _SYMMETRY_SCRIPT.mirror_point(gbm.vertices[idx], _sym_axis)
 
 
 func _apply_vertex_scale_axis(
@@ -626,6 +712,7 @@ func _apply_vertex_scale_axis(
 		var along: float = local_pos.dot(local_axis)
 		var perp: Vector3 = local_pos - local_axis * along
 		gbm.vertices[idx] = local_centroid + perp + local_axis * along * scale_ratio
+	_symmetry_pin_partners(op.node.go_build_mesh, op)
 
 
 func _apply_vertex_scale_uniform(
@@ -639,6 +726,7 @@ func _apply_vertex_scale_uniform(
 	for idx: int in op.initial_vertex_positions:
 		gbm.vertices[idx] = local_centroid \
 				+ (op.initial_vertex_positions[idx] - local_centroid) * scale_ratio
+	_symmetry_pin_partners(gbm, op)
 
 
 func _apply_inset(op: GoBuildDragOperation, amount: float) -> void:
@@ -648,8 +736,18 @@ func _apply_inset(op: GoBuildDragOperation, amount: float) -> void:
 	for idx: int in op.initial_vertex_positions:
 		if op.inset_centroids.has(idx):
 			var init_pos: Vector3 = op.initial_vertex_positions[idx]
-			var centroid: Vector3 = op.inset_centroids[idx]
-			gbm.vertices[idx] = lerp(init_pos, centroid, amount)
+			if amount >= 0.0:
+				var centroid: Vector3 = op.inset_centroids[idx]
+				gbm.vertices[idx] = lerp(init_pos, centroid, amount)
+			elif _inset_normals.has(idx):
+				gbm.vertices[idx] = init_pos - _inset_normals[idx] * (-amount)
+	_symmetry_pin_partners(gbm, op)
+
+
+## Set the inner-ring normals used for the negative (depth) side of an inset
+## drag.  Must be called after [method begin] so it survives the reset.
+func set_inset_normals(normals: Dictionary) -> void:
+	_inset_normals = normals.duplicate()
 
 
 func _schedule_gizmo_apply(node: GoBuildMeshInstance) -> void:
