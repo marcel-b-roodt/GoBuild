@@ -76,15 +76,16 @@ func undo_last_point() -> void:
 func _show_popup() -> void:
 	_hide_popup()
 	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
-	if vp == null:
+	var vp_parent := vp.get_parent() as Control
+	var container: Control = EditorInterface.get_base_control()
+	if vp == null or vp_parent == null or container == null:
 		return
-	var container: Control = vp.get_parent() as Control
-	if container == null:
-		return
+	# Popup lives above the viewport wrapper (base control), rect in
+	# base-control coords — see GoBuildPopupServer parenting contract.
 	_popup = _POPUP_SERVER.show_popup(container, "Knife", [
 		{"label": "Undo Point (Backspace)", "on_pressed": undo_last_point},
 		{"label": "Close Loop (Ctrl+Enter)", "on_pressed": func() -> void: _confirm(true)},
-	], Rect2(Vector2.ZERO, container.size))
+	], Rect2(vp_parent.get_global_rect().position, vp_parent.get_global_rect().size))
 
 
 func _hide_popup() -> void:

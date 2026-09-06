@@ -5,6 +5,13 @@
 ## title plus label/button rows, anchored to a corner of the 3D viewport.
 ## The caller owns the returned panel's lifetime (hide via [method hide_popup],
 ## or free the container's child when the tool ends).
+##
+## Parenting contract: [param container] must be the editor base control
+## ([code]EditorInterface.get_base_control()[/code]) and [param vp_rect] the
+## 3D viewport's rect in that control's coordinates — popups parented to the
+## viewport control itself draw with no background and never receive input
+## (the viewport is not a container and sits above its children in the
+## editor's input routing).
 @tool
 class_name GoBuildPopupServer
 extends RefCounted
@@ -34,13 +41,17 @@ static func show_popup(
 		vbox.add_child(btn)
 	popup.add_child(vbox)
 	container.add_child(popup)
-	var size := popup.get_minimum_size()
+	popup.z_index = 100
+	# Panel is now inside the tree/theme: shrink to its content size
+	# (the caller's container is not a Container — no auto-layout).
+	popup.reset_size()
+	var size := popup.get_combined_minimum_size()
 	var pos := Vector2(_POPUP_MARGIN, _POPUP_MARGIN)
 	if anchor.contains("right"):
 		pos.x = vp_rect.size.x - size.x - _POPUP_MARGIN
 	if anchor.contains("bottom"):
 		pos.y = vp_rect.size.y - size.y - _POPUP_MARGIN
-	popup.position = pos
+	popup.position = vp_rect.position + pos
 	popup.show()
 	return popup
 
