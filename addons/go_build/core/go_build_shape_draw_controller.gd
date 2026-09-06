@@ -1,10 +1,15 @@
-## Interactive shape draw controller — 3-click primitive insertion.
+## Interactive shape draw controller — click-based primitive insertion.
 ##
-## Manages the [DrawState] finite state machine (IDLE → POSITION → BASE/POLYGON
-## → HEIGHT → commit), raycasts against the scene to find placement surfaces,
-## spawns a wireframe ghost that updates in real-time, applies grid snap, and
-## finally commits the shape via the canonical [code]insert_shape()[/code] path
-## on [GoBuildCreateDrawer].
+## Manages the [DrawState] finite state machine (IDLE → POSITION → WIDTH →
+## LENGTH → HEIGHT → commit), raycasts against the scene to find placement
+## surfaces, spawns a wireframe ghost that updates in real-time, applies grid
+## snap, and finally commits the shape via the canonical [code]insert_shape()[/code]
+## path on [GoBuildCreateDrawer].
+##
+## Orientation is geometry-derived: click 2 fixes the width segment — its
+## direction on the surface plane becomes the shape's local +X — and click 3
+## fixes the length/depth on the perpendicular axis (signed along the derived
+## local +Z).  No more fixed axis-aligned insertion.
 ##
 ## For polygon shapes, the flow is IDLE → POSITION → POLYGON → HEIGHT → commit.
 ## During POLYGON state, each left-click adds a vertex; clicking near the first
@@ -16,7 +21,7 @@
 class_name GoBuildShapeDrawController
 extends RefCounted
 
-enum DrawState { IDLE, POSITION, BASE, HEIGHT, POLYGON }
+enum DrawState { IDLE, POSITION, WIDTH, LENGTH, HEIGHT, POLYGON }
 
 enum ParentMode { CHILD, SIBLING, ROOT }
 
@@ -79,6 +84,7 @@ var _drawn_depth: float = 0.0
 var _drawn_height: float = 0.0
 var _drag_dir_x: float = 1.0
 var _drag_dir_z: float = 1.0
+var _width_point: Vector3 = Vector3.ZERO
 
 var _polygon_points: Array[Vector3] = []
 var _polygon_close_threshold: float = 0.3
@@ -320,8 +326,11 @@ func _handle_mouse_motion(camera: Camera3D, event: InputEventMouseMotion) -> voi
 			_update_placement(camera, screen_pos)
 			_update_crosshair()
 			_ghost_dirty = true
-		DrawState.BASE:
-			_update_base(camera, screen_pos, Input.is_key_pressed(KEY_SHIFT),
+		DrawState.WIDTH:
+			_update_width(camera, screen_pos, Input.is_key_pressed(KEY_CTRL))
+			_ghost_dirty = true
+		DrawState.LENGTH:
+			_update_length(camera, screen_pos, Input.is_key_pressed(KEY_SHIFT),
 					Input.is_key_pressed(KEY_CTRL))
 			_ghost_dirty = true
 		DrawState.HEIGHT:
@@ -350,17 +359,27 @@ func _handle_mouse_button(camera: Camera3D, event: InputEventMouseButton) -> boo
 					_drawn_height = 0.0
 					_hide_ghost()
 				else:
-					_state = DrawState.BASE
+					_state = DrawState.WIDTH
 					_drawn_width = 0.0
 					_drawn_depth = 0.0
 					_drawn_height = 0.0
 					_drag_dir_x = 1.0
 					_drag_dir_z = 1.0
+					_width_point = _anchor_world
 					_hide_ghost()
-					_capture_mouse(event.position)
 				return true
-		DrawState.BASE:
-			if not event.pressed:
+		DrawState.WIDTH:
+			if event.pressed and _drawn_width > _MIN_DIM:
+				_width_point = _current_hit_pos(camera, event.position)
+				_lock_width_basis()
+				_state = DrawState.LENGTH
+				_drawn_depth = 0.0
+				_last_drawn_key = ""
+				_last_topology_key = ""
+				_last_edge_count = -1
+				return true
+		DrawState.LENGTH:
+			if event.pressed and _drawn_depth > _MIN_DIM:
 				if not _MAPPING_SCRIPT.needs_height_step(_shape_name):
 					_commit_shape()
 					return true
@@ -441,6 +460,13 @@ func _update_placement(camera: Camera3D, screen_pos: Vector2) -> void:
 		_hit_did_hit = false
 		_hit_parent = null
 		_hit_normal = Vector3.UP
+	# Width/length states own the basis (orientation from the drawn
+	# segment); placement only refreshes the surface normal.
+	if _state == DrawState.WIDTH or _state == DrawState.LENGTH \
+			or _state == DrawState.HEIGHT:
+		if not _align_to_surface:
+			_surface_basis = Basis.IDENTITY
+		return
 	if _align_to_surface:
 		_surface_basis = _SHAPE_PLACEMENT_SCRIPT._align_y_to_normal(_hit_normal)
 	else:
@@ -494,10 +520,33 @@ func _project_height(camera: Camera3D, screen_pos: Vector2) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Base and height computation
+# Width / length / height computation
 # ---------------------------------------------------------------------------
 
-func _update_base(
+## WIDTH step: the segment anchor→cursor (projected on the surface plane)
+## sets the width and its direction previews the shape's local +X.
+func _update_width(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> void:
+	var target: Vector3 = _project_to_surface_plane(camera, screen_pos)
+	var diff: Vector3 = target - _anchor_world
+	var w: float = diff.length()
+	if w < _MIN_DIM:
+		return
+	if ctrl_held:
+		var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
+		if step > 0.0:
+			w = snappedf(w, step)
+	_drawn_width = maxf(w, _MIN_DIM)
+	# Preview basis from the current cursor direction; locked at click.
+	var n: Vector3 = _hit_normal if _hit_did_hit else Vector3.UP
+	var u := diff.normalized() if w > _MIN_DIM else Vector3.RIGHT
+	_surface_basis = _basis_from_width_dir(u, n)
+	_drag_dir_x = 1.0
+	_drag_dir_z = 1.0
+
+
+## LENGTH step: the perpendicular distance from the width segment (signed
+## along the derived local +Z) sets the depth.  Shift = square, Ctrl = snap.
+func _update_length(
 		camera: Camera3D,
 		screen_pos: Vector2,
 		shift_held: bool,
@@ -505,29 +554,41 @@ func _update_base(
 ) -> void:
 	var target: Vector3 = _project_to_surface_plane(camera, screen_pos)
 	var diff: Vector3 = target - _anchor_world
-	if diff.is_zero_approx():
-		return
-	var right: Vector3 = _surface_basis.x if _align_to_surface else Vector3.RIGHT
-	var fwd: Vector3 = -_surface_basis.z if _align_to_surface else Vector3.FORWARD
-	var signed_w: float = diff.dot(right)
-	var signed_d: float = diff.dot(fwd)
-	var w: float = absf(signed_w)
-	var d: float = absf(signed_d)
-	if w < _MIN_DIM and d < _MIN_DIM:
-		return
+	var z_axis: Vector3 = _surface_basis.z
+	var signed_d: float = diff.dot(z_axis)
 	if shift_held:
-		var m: float = maxf(w, d)
-		w = m
-		d = m
+		signed_d = _drawn_width * signf(signed_d) if absf(signed_d) > _MIN_DIM \
+				else _drawn_width
 	if ctrl_held:
 		var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 		if step > 0.0:
-			w = snappedf(w, step)
-			d = snappedf(d, step)
-	_drawn_width = maxf(w, _MIN_DIM)
-	_drawn_depth = maxf(d, _MIN_DIM)
-	_drag_dir_x = signf(signed_w) if not is_zero_approx(signed_w) else 1.0
-	_drag_dir_z = signf(signed_d) if not is_zero_approx(signed_d) else 1.0
+			signed_d = snappedf(signed_d, step) if absf(signed_d) > _MIN_DIM \
+					else signed_d
+	if absf(signed_d) < _MIN_DIM:
+		return
+	_drawn_depth = maxf(absf(signed_d), _MIN_DIM)
+	_drag_dir_z = signf(signed_d)
+	# Keep the width basis' magnitude-free: length only changes depth.
+	_drag_dir_x = 1.0
+
+
+## Lock the orientation from the width segment: local +X along the segment,
+## local +Z = u × n (perpendicular in the surface plane), +Y = surface up.
+func _lock_width_basis() -> void:
+	var n: Vector3 = _hit_normal if _hit_did_hit else Vector3.UP
+	var u: Vector3 = _width_point - _anchor_world
+	if u.length() < _MIN_DIM:
+		return
+	_surface_basis = _basis_from_width_dir(u.normalized(), n)
+
+
+func _basis_from_width_dir(u: Vector3, n: Vector3) -> Basis:
+	var x := u.normalized()
+	var y := n.normalized()
+	if absf(x.dot(y)) > 0.999:
+		y = Vector3.UP if absf(x.dot(Vector3.UP)) < 0.999 else Vector3.RIGHT
+	var z := x.cross(y).normalized()
+	return Basis(x, y, z)
 
 
 func _update_height(
@@ -698,7 +759,8 @@ func _refresh_ghost() -> void:
 	if _MAPPING_SCRIPT.needs_polygon_step(_shape_name) and _state == DrawState.HEIGHT:
 		_refresh_polygon_height_ghost()
 		return
-	if _state == DrawState.BASE and _drawn_width < _MIN_DIM and _drawn_depth < _MIN_DIM:
+	if (_state == DrawState.WIDTH or _state == DrawState.LENGTH) \
+			and _drawn_width < _MIN_DIM and _drawn_depth < _MIN_DIM:
 		_hide_ghost()
 		return
 	var params: Dictionary = _MAPPING_SCRIPT.build_params(
