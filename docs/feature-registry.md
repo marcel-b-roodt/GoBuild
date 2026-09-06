@@ -31,9 +31,9 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Sphere (UV) | ✅ Complete | Radius, lat rings, lon segments |
 | Cone | ✅ Complete | Radius, height, sides, optional base cap |
 | Torus | ✅ Complete | Major/minor radius, ring + tube segments |
-| Staircase | ✅ Complete | Steps, rise/run/width; closed solid |
+| Staircase | ✅ Complete | Steps, rise/run/width; closed solid, all faces outward-wound (ray-parity clean) |
 | Arch | ✅ Complete | Outer radius, thickness, angle, segments, depth |
-| Doorway | ✅ Complete | `DoorwayGenerator.generate(width, height, depth, opening_width, opening_height, arched, segments)`; AABB wall with rectangular or arched centred opening cut through full depth; decomposed pieces (jambs / spandrels / arc head) butt cleanly with no overlapping solids; registered in `ShapeCreationCatalog` with Open W/H ratios, Arched toggle, Segments in the param strip; 16 unit tests |
+| Doorway | ✅ Complete | `DoorwayGenerator.generate(width, height, depth, opening_width, opening_height, arched, segments)`; AABB wall with rectangular or arched centred opening cut through full depth; decomposed pieces (jambs / spandrels / arc head) butt cleanly with no overlapping solids or buried coplanar faces (`_add_box_x` skip param — no z-fighting); registered in `ShapeCreationCatalog` with Open W/H ratios, Arched toggle, Segments in the param strip; 16 unit tests |
 | Shape insert toolbar | ✅ Complete | One-click creation in GoBuildPanel; full undo/redo |
 | Viewport param popup during draw | ✅ Complete | `GoBuildDrawParamPopup` (PanelContainer over 3D viewport, top-right); floats over viewport during 3-click draw so structural params (steps/sides/caps) are editable without focusing the dock; shown/hidden by `GoBuildCreateDrawer` alongside the dock strip; plain PanelContainer (not PopupPanel) so outside clicks keep reaching the draw flow |
 | Generator parameter preview (pre-commit) | ✅ Complete | Panel-native live preview + Accept/Cancel for Cylinder/Cone/Sphere/Staircase/Torus/Arch with configurable counts (sides/segments/steps/rings) and size params; defaults/schema/build dispatch moved into `ShapeCreationCatalog`; final commit inserts a normal node via undo/redo |

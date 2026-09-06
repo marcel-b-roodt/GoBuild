@@ -17,8 +17,9 @@ const _DOORWAY_SCRIPT := preload("res://addons/go_build/mesh/generators/doorway_
 # ---------------------------------------------------------------------------
 
 func test_rect_face_count() -> void:
-	# 2 jamb boxes (6 faces each) + header box (6) = 18
-	assert_int(_DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, false).faces.size()).is_equal(18)
+	# 2 jamb boxes (6 faces each) + header box (4 — sides buried against
+	# the jambs are skipped to avoid coplanar z-fighting) = 16
+	assert_int(_DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, false).faces.size()).is_equal(16)
 
 
 func test_rect_vertex_count() -> void:
@@ -27,7 +28,7 @@ func test_rect_vertex_count() -> void:
 	# finalize() welds coincident verts; jamb/header share seams so the
 	# welded count is lower — just assert within a sane range.
 	assert_int(mesh.vertices.size()).is_greater(0)
-	assert_int(mesh.faces.size()).is_equal(18)
+	assert_int(mesh.faces.size()).is_equal(16)
 
 
 func test_rect_all_normals_point_outward() -> void:

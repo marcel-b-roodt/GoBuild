@@ -86,9 +86,11 @@ static func _generate_rectangular(
 	_add_box_x(mesh, base, top, depth, hw - jamb_w, hw, material_index)             # right
 	_add_box_x(mesh, base, top, depth, -hw, -hw + jamb_w, material_index)           # left
 
-	# Header slab above the opening.
+	# Header slab above the opening.  Its side faces (±X) are buried
+	# against the jamb columns' inner faces — skip them (z-fighting).
 	if header_h > 0.0:
-		_add_box_x(mesh, y_open_top, top, depth, -hw + jamb_w, hw - jamb_w, material_index)
+		_add_box_x(mesh, y_open_top, top, depth, -hw + jamb_w, hw - jamb_w,
+				material_index, ["left", "right"] as Array[String])
 
 	mesh.finalize()
 	return mesh
@@ -122,13 +124,19 @@ static func _generate_arched(
 	var radius := ow * 0.5
 	var spring_y: float = maxf(base + oh - radius, base)  # arc centre height
 
-	# Jamb columns: base → spring line, outside the opening.
-	_add_box_x(mesh, base, spring_y, depth, radius, hw, material_index)       # right
-	_add_box_x(mesh, base, spring_y, depth, -hw, -radius, material_index)     # left
+	# Jamb columns: base → spring line, outside the opening.  Their top
+	# faces are buried against the spandrel boxes above — skip them.
+	_add_box_x(mesh, base, spring_y, depth, radius, hw, material_index,
+			["top"] as Array[String])       # right
+	_add_box_x(mesh, base, spring_y, depth, -hw, -radius, material_index,
+			["top"] as Array[String])       # left
 
-	# Spandrel boxes: spring line → wall top, same x bands.
-	_add_box_x(mesh, spring_y, top, depth, radius, hw, material_index)        # right
-	_add_box_x(mesh, spring_y, top, depth, -hw, -radius, material_index)      # left
+	# Spandrel boxes: spring line → wall top, same x bands.  Their bottom
+	# faces are buried against the jambs below — skip them.
+	_add_box_x(mesh, spring_y, top, depth, radius, hw, material_index,
+			["bottom"] as Array[String])    # right
+	_add_box_x(mesh, spring_y, top, depth, -hw, -radius, material_index,
+			["bottom"] as Array[String])    # left
 
 	# ── Arc head: semicircle from -90° (left flank at (-radius, spring_y))
 	# to +90° (right flank), apex at (0, spring_y + radius) = opening top.
@@ -189,6 +197,9 @@ static func _generate_arched(
 ## Add a closed rectangular box spanning [param y0, param y1] × full depth ×
 ## [param x0, param x1].
 ## Used for jamb columns / header / side slabs — all axis-aligned boxes.
+## [param skip] omits named faces ("front", "back", "top", "bottom",
+## "left", "right") when they are buried against a neighbouring box —
+## coincident coplanar faces z-fight.
 ## Skipped silently when either extent is degenerate.
 static func _add_box_x(
 		mesh: GoBuildMesh,
@@ -198,31 +209,38 @@ static func _add_box_x(
 		x0: float,
 		x1: float,
 		material_index: int,
+		skip: Array[String] = [],
 ) -> void:
 	if x1 - x0 < 0.0001 or y1 - y0 < 0.0001:
 		return
 	var hd := depth * 0.5
 	# Front (Z+)
-	MeshGeneratorUtils.add_quad_grid(mesh,
-		Vector3(x0, y0, hd), Vector3(x1, y0, hd),
-		Vector3(x1, y1, hd), Vector3(x0, y1, hd), 1, 1, material_index)
+	if not skip.has("front"):
+		MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3(x0, y0, hd), Vector3(x1, y0, hd),
+			Vector3(x1, y1, hd), Vector3(x0, y1, hd), 1, 1, material_index)
 	# Back (Z-)
-	MeshGeneratorUtils.add_quad_grid(mesh,
-		Vector3(x1, y0, -hd), Vector3(x0, y0, -hd),
-		Vector3(x0, y1, -hd), Vector3(x1, y1, -hd), 1, 1, material_index)
+	if not skip.has("back"):
+		MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3(x1, y0, -hd), Vector3(x0, y0, -hd),
+			Vector3(x0, y1, -hd), Vector3(x1, y1, -hd), 1, 1, material_index)
 	# Top (Y+)
-	MeshGeneratorUtils.add_quad_grid(mesh,
-		Vector3(x0, y1, hd), Vector3(x1, y1, hd),
-		Vector3(x1, y1, -hd), Vector3(x0, y1, -hd), 1, 1, material_index)
+	if not skip.has("top"):
+		MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3(x0, y1, hd), Vector3(x1, y1, hd),
+			Vector3(x1, y1, -hd), Vector3(x0, y1, -hd), 1, 1, material_index)
 	# Bottom (Y-)
-	MeshGeneratorUtils.add_quad_grid(mesh,
-		Vector3(x0, y0, -hd), Vector3(x1, y0, -hd),
-		Vector3(x1, y0, hd), Vector3(x0, y0, hd), 1, 1, material_index)
+	if not skip.has("bottom"):
+		MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3(x0, y0, -hd), Vector3(x1, y0, -hd),
+			Vector3(x1, y0, hd), Vector3(x0, y0, hd), 1, 1, material_index)
 	# Right (X+, at x1)
-	MeshGeneratorUtils.add_quad_grid(mesh,
-		Vector3(x1, y0, hd), Vector3(x1, y0, -hd),
-		Vector3(x1, y1, -hd), Vector3(x1, y1, hd), 1, 1, material_index)
+	if not skip.has("right"):
+		MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3(x1, y0, hd), Vector3(x1, y0, -hd),
+			Vector3(x1, y1, -hd), Vector3(x1, y1, hd), 1, 1, material_index)
 	# Left (X-, at x0)
-	MeshGeneratorUtils.add_quad_grid(mesh,
-		Vector3(x0, y0, -hd), Vector3(x0, y0, hd),
-		Vector3(x0, y1, hd), Vector3(x0, y1, -hd), 1, 1, material_index)
+	if not skip.has("left"):
+		MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3(x0, y0, -hd), Vector3(x0, y0, hd),
+			Vector3(x0, y1, hd), Vector3(x0, y1, -hd), 1, 1, material_index)

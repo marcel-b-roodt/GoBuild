@@ -106,8 +106,8 @@ static func generate(
 		var z0: float = float(i)     * step_depth
 		var z1: float = float(i + 1) * step_depth
 		MeshGeneratorUtils.add_quad_grid(mesh,
-			Vector3( hw, 0.0, z0), Vector3(-hw, 0.0, z0),
-			Vector3(-hw, 0.0, z1), Vector3( hw, 0.0, z1),
+			Vector3(-hw, 0.0, z0), Vector3( hw, 0.0, z0),
+			Vector3( hw, 0.0, z1), Vector3(-hw, 0.0, z1),
 			1, 1, material_index)
 
 	# ── Back strips (normal +Z) ───────────────────────────────────────────
