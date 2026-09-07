@@ -25,7 +25,6 @@ const _DEBUG_SCRIPT := preload("res://addons/go_build/core/go_build_debug.gd")
 const _CURSOR_OVERLAY := preload("res://addons/go_build/core/go_build_cursor_overlay.gd")
 const _TRANSFORM_HELPERS_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_transform_helpers.gd")
-const _POPUP_SERVER := preload("res://addons/go_build/core/go_build_popup_server.gd")
 
 const _RAY_LENGTH: float = 4000.0
 const _CLOSE_THRESHOLD_PX: float = 14.0
@@ -72,7 +71,14 @@ func undo_last_point() -> void:
 	_update_markers()
 
 
-## Show the stroke popup (Undo Point / Close Loop) via the popup server.
+## Show the stroke popup (Undo Point / Close Loop) while cutting.
+##
+## PopupPanel used as a plain container (shown via [code]visible[/code],
+## never [code]popup()[/code]): keeps the themed panel chrome and a
+## stable content-driven size without registering as a transient
+## popup — transient popups close on outside clicks, which swallows
+## the tool's anchor clicks.  The panel exists only while the knife
+## stroke is active; cancel/confirm hide it.
 func _show_popup() -> void:
 	_hide_popup()
 	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
@@ -80,16 +86,33 @@ func _show_popup() -> void:
 	var container: Control = EditorInterface.get_base_control()
 	if vp == null or vp_parent == null or container == null:
 		return
-	# Popup lives above the viewport wrapper (base control), rect in
-	# base-control coords — see GoBuildPopupServer parenting contract.
-	_popup = _POPUP_SERVER.show_popup(container, "Knife", [
-		{"label": "Undo Point (Backspace)", "on_pressed": undo_last_point},
-		{"label": "Close Loop (Ctrl+Enter)", "on_pressed": func() -> void: _confirm(true)},
-	], Rect2(vp_parent.get_global_rect().position, vp_parent.get_global_rect().size))
+	var panel := PopupPanel.new()
+	var vbox := VBoxContainer.new()
+	var title := Label.new()
+	title.text = "Knife"
+	title.add_theme_font_size_override("font_size", 11)
+	vbox.add_child(title)
+	var undo_btn := Button.new()
+	undo_btn.text = "Undo Point (Backspace)"
+	undo_btn.pressed.connect(undo_last_point)
+	vbox.add_child(undo_btn)
+	var close_btn := Button.new()
+	close_btn.text = "Close Loop (Ctrl+Enter)"
+	close_btn.pressed.connect(func() -> void: _confirm(true))
+	vbox.add_child(close_btn)
+	panel.add_child(vbox)
+	container.add_child(panel)
+	var vp_rect: Rect2 = vp_parent.get_global_rect()
+	panel.position = vp_rect.position + Vector2(
+			vp_rect.size.x - 160.0, 16.0)
+	panel.visible = true
+	panel.reset_size()
+	_popup = panel
 
 
 func _hide_popup() -> void:
-	_POPUP_SERVER.hide_popup(_popup)
+	if _popup != null and is_instance_valid(_popup):
+		_popup.queue_free()
 	_popup = null
 
 
@@ -133,6 +156,7 @@ func _clear_hover() -> void:
 
 func cancel() -> void:
 	_clear_markers()
+	_hide_popup()
 	_state = State.IDLE
 	_hit_points.clear()
 	_clear_hover()
