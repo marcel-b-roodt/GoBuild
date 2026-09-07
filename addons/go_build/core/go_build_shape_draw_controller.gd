@@ -25,6 +25,10 @@ enum DrawState { IDLE, POSITION, WIDTH, LENGTH, HEIGHT, POLYGON }
 
 enum ParentMode { CHILD, SIBLING, ROOT }
 
+# Mirror of GoBuildDragOperation.SnapMode — WORLD_GRID snaps click
+# positions to the absolute world grid, DELTA_GRID snaps dimensions.
+enum DrawSnapMode { WORLD_GRID, DELTA_GRID }
+
 # Self-preloads — dependency order.
 const _MESH_SCRIPT := \
 		preload("res://addons/go_build/mesh/go_build_mesh.gd")
@@ -45,6 +49,8 @@ const _RAY_LENGTH: float = 4000.0
 const _MIN_DIM: float = 0.01
 const _CROSSHAIR_SIZE: float = 0.15
 const _DIM_SNAP: float = 0.02
+
+var snap_mode: int = DrawSnapMode.WORLD_GRID
 
 var _state: int = DrawState.IDLE
 var _shape_name: String = ""
@@ -500,6 +506,12 @@ func _project_to_surface_plane(camera: Camera3D, screen_pos: Vector2) -> Vector3
 	return _anchor_world
 
 
+## Snap a world position to the full 3D world grid (Ctrl + World Snap).
+func _world_snap(pos: Vector3, step: float) -> Vector3:
+	return Vector3(snappedf(pos.x, step), snappedf(pos.y, step),
+			snappedf(pos.z, step))
+
+
 func _project_height(camera: Camera3D, screen_pos: Vector2) -> float:
 	var normal_dir: Vector3 = _surface_basis.y if _align_to_surface else Vector3.UP
 	var cam_forward: Vector3 = -camera.global_basis.z.normalized()
@@ -512,6 +524,12 @@ func _project_height(camera: Camera3D, screen_pos: Vector2) -> float:
 	var hit := plane.intersects_ray(ray_origin, ray_dir)
 	if hit == null:
 		return _drawn_height
+	# World Snap mode: snap the height-plane hit to the world grid so the
+	# top face lands on grid heights; Delta mode snaps the height value.
+	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
+	if Input.is_key_pressed(KEY_CTRL) and step > 0.0 \
+			and snap_mode == DrawSnapMode.WORLD_GRID:
+		return ((hit as Vector3) - _world_snap(_anchor_world, step)).dot(normal_dir)
 	var diff: Vector3 = (hit as Vector3) - _anchor_world
 	var h: float = diff.dot(normal_dir)
 	if h < _MIN_DIM:
@@ -525,16 +543,21 @@ func _project_height(camera: Camera3D, screen_pos: Vector2) -> float:
 
 ## WIDTH step: the segment anchor→cursor (projected on the surface plane)
 ## sets the width and its direction previews the shape's local +X.
+## Ctrl + World Snap: the cursor position lands on the world grid, so the
+## width segment and its orientation are grid-aligned by construction.
 func _update_width(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> void:
 	var target: Vector3 = _project_to_surface_plane(camera, screen_pos)
+	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
+	if ctrl_held and step > 0.0 \
+			and snap_mode == DrawSnapMode.WORLD_GRID:
+		target = _world_snap(target, step)
 	var diff: Vector3 = target - _anchor_world
 	var w: float = diff.length()
 	if w < _MIN_DIM:
 		return
-	if ctrl_held:
-		var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
-		if step > 0.0:
-			w = snappedf(w, step)
+	if ctrl_held and step > 0.0 \
+			and snap_mode != DrawSnapMode.WORLD_GRID:
+		w = snappedf(w, step)
 	_drawn_width = maxf(w, _MIN_DIM)
 	# Preview basis from the current cursor direction; locked at click.
 	var n: Vector3 = _hit_normal if _hit_did_hit else Vector3.UP
@@ -545,7 +568,10 @@ func _update_width(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> vo
 
 
 ## LENGTH step: the perpendicular distance from the width segment (signed
-## along the derived local +Z) sets the depth.  Shift = square, Ctrl = snap.
+## along the derived local +Z) sets the depth.  Shift = square.
+## Ctrl + World Snap: the cursor position lands on the world grid before
+## the depth is derived (grid-aligned far edge); Delta mode snaps the
+## depth value itself.
 func _update_length(
 		camera: Camera3D,
 		screen_pos: Vector2,
@@ -553,17 +579,20 @@ func _update_length(
 		ctrl_held: bool,
 ) -> void:
 	var target: Vector3 = _project_to_surface_plane(camera, screen_pos)
+	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
+	if ctrl_held and step > 0.0 \
+			and snap_mode == DrawSnapMode.WORLD_GRID:
+		target = _world_snap(target, step)
 	var diff: Vector3 = target - _anchor_world
 	var z_axis: Vector3 = _surface_basis.z
 	var signed_d: float = diff.dot(z_axis)
 	if shift_held:
 		signed_d = _drawn_width * signf(signed_d) if absf(signed_d) > _MIN_DIM \
 				else _drawn_width
-	if ctrl_held:
-		var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
-		if step > 0.0:
-			signed_d = snappedf(signed_d, step) if absf(signed_d) > _MIN_DIM \
-					else signed_d
+	if ctrl_held and step > 0.0 \
+			and snap_mode != DrawSnapMode.WORLD_GRID:
+		signed_d = snappedf(signed_d, step) if absf(signed_d) > _MIN_DIM \
+				else signed_d
 	if absf(signed_d) < _MIN_DIM:
 		return
 	_drawn_depth = maxf(absf(signed_d), _MIN_DIM)
@@ -601,11 +630,10 @@ func _update_height(
 	if not _MAPPING_SCRIPT.needs_polygon_step(_shape_name) and shift_held:
 		var m: float = maxf(_drawn_width, _drawn_depth)
 		h = m
-	if ctrl_held:
+	if ctrl_held and snap_mode != DrawSnapMode.WORLD_GRID:
 		var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 		if step > 0.0:
 			h = snappedf(h, step)
-	var old_h: float = _drawn_height
 	_drawn_height = maxf(h, _MIN_DIM)
 
 

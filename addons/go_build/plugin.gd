@@ -209,6 +209,7 @@ func _enter_tree() -> void:
 	_drag_controller = _DRAG_CTRL_SCRIPT.new()
 	_drag_controller.setup(self)
 	_shape_draw_controller = _SHAPE_DRAW_CTRL_SCRIPT.new()
+	_shape_draw_controller.snap_mode = GoBuildDragOperation.SnapMode.WORLD_GRID
 	_input_controller.setup(_gizmo_plugin, _panel, self, _drag_controller)
 	_knife_controller = _KNIFE_CTRL_SCRIPT.new()
 
@@ -1703,6 +1704,8 @@ func _on_snap_mode_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
 	_gizmo_plugin.snap_mode_override = index
+	if _shape_draw_controller != null:
+		_shape_draw_controller.snap_mode = index
 
 
 func _on_transform_space_selected(index: int) -> void:
