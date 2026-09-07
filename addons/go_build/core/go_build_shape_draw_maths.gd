@@ -45,15 +45,14 @@ static func width_result(
 		normal: Vector3,
 		step: float,
 		ctrl_held: bool,
-		snap_mode: int,
 ) -> Dictionary:
-	if ctrl_held and step > 0.0 and snap_mode == SnapMode.WORLD_GRID:
+	if ctrl_held and step > 0.0:
 		target = world_snap(target, step)
 	var diff: Vector3 = target - anchor
 	var w: float = diff.length()
 	if w < _MIN_DIM:
 		return {}
-	if ctrl_held and step > 0.0 and snap_mode != SnapMode.WORLD_GRID:
+	if ctrl_held and step > 0.0:
 		w = snappedf(w, step)
 	var u := diff.normalized()
 	return {"width": maxf(w, _MIN_DIM), "basis": basis_from_width_dir(u, normal)}
@@ -69,17 +68,15 @@ static func length_result(
 		shift_held: bool,
 		ctrl_held: bool,
 		step: float,
-		snap_mode: int,
 ) -> Dictionary:
-	if ctrl_held and step > 0.0 and snap_mode == SnapMode.WORLD_GRID:
+	if ctrl_held and step > 0.0:
 		target = world_snap(target, step)
 	var signed_d: float = (target - anchor).dot(basis.z)
 	if shift_held:
 		signed_d = width * signf(signed_d) if absf(signed_d) > _MIN_DIM \
 				else width
-	if ctrl_held and step > 0.0 and snap_mode != SnapMode.WORLD_GRID:
-		signed_d = snappedf(signed_d, step) if absf(signed_d) > _MIN_DIM \
-				else signed_d
+	if ctrl_held and step > 0.0 and absf(signed_d) > _MIN_DIM:
+		signed_d = snappedf(signed_d, step)
 	if absf(signed_d) < _MIN_DIM:
 		return {}
 	return {"depth": absf(signed_d), "drag_dir_z": signf(signed_d)}
@@ -93,16 +90,13 @@ static func height_result(
 		normal_dir: Vector3,
 		ctrl_held: bool,
 		step: float,
-		snap_mode: int,
 ) -> Dictionary:
 	var raw_h: float = (plane_hit - anchor).dot(normal_dir)
 	if ctrl_held and step > 0.0:
-		if snap_mode == SnapMode.WORLD_GRID:
-			# Snap the TOP face's absolute coordinate to the world grid:
-			# the shape's top lands on a grid plane even from off-grid
-			# surfaces.
-			var anchor_h: float = anchor.dot(normal_dir)
-			raw_h = snappedf(anchor_h + raw_h, step) - anchor_h
-		else:
-			raw_h = snappedf(raw_h, step)
+		# Snap the TOP face's absolute coordinate to the world grid:
+		# the shape's top lands on a grid plane even from off-grid
+		# surfaces.  (The value itself is then also grid-quantized
+		# whenever the anchor is.)
+		var anchor_h: float = anchor.dot(normal_dir)
+		raw_h = snappedf(anchor_h + raw_h, step) - anchor_h
 	return {"height": maxf(raw_h, _MIN_DIM)}

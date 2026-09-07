@@ -43,12 +43,11 @@ const _TRANSFORM_HELPERS_SCRIPT := \
 const _MATHS_SCRIPT := \
 		preload("res://addons/go_build/core/go_build_shape_draw_maths.gd")
 
+
 const _RAY_LENGTH: float = 4000.0
 const _MIN_DIM: float = 0.01
 const _CROSSHAIR_SIZE: float = 0.15
 const _DIM_SNAP: float = 0.02
-
-var snap_mode: int = _MATHS_SCRIPT.SnapMode.WORLD_GRID
 
 # Modifier state cached from the last input event (entry points
 # handle_input / handle_* update it) — per-frame paths read the cache
@@ -538,7 +537,7 @@ func _project_height(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> 
 	var normal_dir: Vector3 = _surface_basis.y if _align_to_surface else Vector3.UP
 	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 	return _MATHS_SCRIPT.height_result(
-			_anchor_world, hit, normal_dir, ctrl_held, step, snap_mode)["height"]
+			_anchor_world, hit, normal_dir, ctrl_held, step)["height"]
 
 
 
@@ -555,7 +554,7 @@ func _update_width(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> vo
 	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 	var n: Vector3 = _hit_normal if _hit_did_hit else Vector3.UP
 	var result := _MATHS_SCRIPT.width_result(
-			_anchor_world, target, n, step, ctrl_held, snap_mode)
+			_anchor_world, target, n, step, ctrl_held)
 	if result.is_empty():
 		return
 	_drawn_width = result["width"]
@@ -580,7 +579,7 @@ func _update_length(
 	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 	var result := _MATHS_SCRIPT.length_result(
 			_anchor_world, target, _surface_basis, _drawn_width,
-			shift_held, ctrl_held, step, snap_mode)
+			shift_held, ctrl_held, step)
 	if result.is_empty():
 		return
 	_drawn_depth = result["depth"]
@@ -608,10 +607,6 @@ func _update_height(
 	if not _MAPPING_SCRIPT.needs_polygon_step(_shape_name) and shift_held:
 		var m: float = maxf(_drawn_width, _drawn_depth)
 		h = m
-	if ctrl_held and snap_mode != _MATHS_SCRIPT.SnapMode.WORLD_GRID:
-		var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
-		if step > 0.0:
-			h = snappedf(h, step)
 	_drawn_height = maxf(h, _MIN_DIM)
 
 
