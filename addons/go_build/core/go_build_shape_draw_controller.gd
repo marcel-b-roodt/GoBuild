@@ -614,47 +614,6 @@ func _update_height(
 # Flush offset — positions shape so it sits on the surface
 # ---------------------------------------------------------------------------
 
-## Compute the offset from the anchor point to the shape origin so the
-## shape sits flush on the surface (bottom face touching the surface).
-##
-## In our convention, [member _surface_basis].y points outward from the surface.
-## The shape's local -Y face should touch the surface, so we push the origin
-## along the outward normal by the distance from origin to the -Y face.
-func _compute_draw_offset(aabb: AABB) -> Vector3:
-	var bottom_dist: float = maxf(0.0, -aabb.position.y)
-	if _align_to_surface:
-		return _surface_basis.y * bottom_dist
-	return Vector3.UP * bottom_dist
-
-
-## Compute the offset that positions the mesh so the AABB edge on the anchor
-## side aligns with the anchor point.  This accounts for shapes whose local
-## origin is not at the AABB center (e.g. arch, which is centered horizontally
-## but offset vertically).
-##
-## Uses the ghost's basis to transform local AABB offsets to world space.
-## The drag direction determines which edge of the AABB aligns with the anchor:
-## positive drag → the min edge aligns (shape extends in the positive direction).
-## For Z, the drag direction uses "fwd" (toward camera = -Z), so a positive
-## _drag_dir_z means the user dragged toward the camera (-Z world), and the
-## shape should extend in that direction. Since local +Z maps to world +Z
-## (opposite to fwd on flat ground), the Z condition is inverted relative
-## to X.
-func _compute_center_offset(aabb: AABB) -> Vector3:
-	var basis: Basis = _surface_basis if _align_to_surface else Basis.IDENTITY
-	var neg_x_local: float
-	if _drag_dir_x >= 0.0:
-		neg_x_local = -aabb.position.x
-	else:
-		neg_x_local = -(aabb.position.x + aabb.size.x)
-	var neg_z_local: float
-	if _drag_dir_z < 0.0:
-		neg_z_local = -aabb.position.z
-	else:
-		neg_z_local = -(aabb.position.z + aabb.size.z)
-	return basis * Vector3(neg_x_local, 0.0, neg_z_local)
-
-
 # ---------------------------------------------------------------------------
 # Ghost management
 # ---------------------------------------------------------------------------
@@ -792,6 +751,7 @@ func _refresh_ghost() -> void:
 	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh(_shape_name, params)
 	if mesh == null:
 		return
+	_pivot_to_base_centre(mesh)
 	_ghost_base_mesh = mesh
 	_ensure_ghost()
 	if _ghost == null or not is_instance_valid(_ghost):
@@ -958,11 +918,29 @@ func _position_ghost(ellipsoid_scale: Vector3) -> void:
 	_ghost_aabb.visible = true
 
 
+## Shift mesh data so the base-centre (bottom face centre) of its AABB
+## becomes the local origin — the node pivot convention.
+func _pivot_to_base_centre(mesh: GoBuildMesh) -> void:
+	var aabb: AABB = mesh.compute_aabb()
+	var pivot: Vector3 = Vector3(
+		aabb.position.x + aabb.size.x * 0.5,
+		aabb.position.y,
+		aabb.position.z + aabb.size.z * 0.5)
+	var all_idx: Array[int] = []
+	all_idx.resize(mesh.vertices.size())
+	for i: int in all_idx.size():
+		all_idx[i] = i
+	mesh.translate_vertices(all_idx, -pivot)
+
+
 func _position_ghost_from_aabb(scaled_aabb: AABB) -> void:
-	var draw_offset: Vector3 = _compute_draw_offset(scaled_aabb)
-	var anchor: Vector3 = _anchor_world
-	var center_offset: Vector3 = _compute_center_offset(scaled_aabb)
-	_ghost.global_position = anchor + draw_offset + center_offset
+	# Pivot at base-centre: origin sits half-extents along the drag
+	# directions from the anchor (bottom already at local y=0).
+	var half: Vector3 = scaled_aabb.size * 0.5
+	var offset: Vector3 = Vector3(half.x * _drag_dir_x, 0.0,
+			half.z * _drag_dir_z)
+	var basis: Basis = _surface_basis if _align_to_surface else Basis.IDENTITY
+	_ghost.global_position = _anchor_world + basis * offset
 	if not _surface_basis.is_equal_approx(Basis.IDENTITY):
 		_ghost.global_basis = _surface_basis
 	else:
@@ -1223,6 +1201,14 @@ func _commit_shape() -> void:
 	var node := GoBuildMeshInstance.new()
 	node.name = node_name
 	node.go_build_mesh = _CATALOG_SCRIPT.build_mesh(_shape_name, params)
+	# Pivot convention: every inserted node's origin sits at the BASE
+	# CENTRE (bottom face centre) of the mesh — consistent gizmo/snap
+	# behaviour regardless of each generator's authored origin.  Shift
+	# the mesh data so the base-centre becomes the local origin (the
+	# ellipsoid node scale is applied after, and scales the shift with
+	# it — pivot stays at the scaled base-centre).
+	if not is_polygon and node.go_build_mesh != null:
+		_pivot_to_base_centre(node.go_build_mesh)
 	var scene_root: Node = _ensure_scene_root()
 	if scene_root == null:
 		cancel()
@@ -1239,10 +1225,11 @@ func _commit_shape() -> void:
 		var scaled_aabb: AABB = AABB(
 			aabb.position * ellipsoid_scale,
 			aabb.size * ellipsoid_scale)
-		var draw_offset: Vector3 = _compute_draw_offset(scaled_aabb)
-		var anchor: Vector3 = _anchor_world
-		var center_offset: Vector3 = _compute_center_offset(scaled_aabb)
-		world_pos = anchor + draw_offset + center_offset
+		var half: Vector3 = scaled_aabb.size * 0.5
+		var offset: Vector3 = Vector3(half.x * _drag_dir_x, 0.0,
+				half.z * _drag_dir_z)
+		var basis: Basis = _surface_basis if _align_to_surface else Basis.IDENTITY
+		world_pos = _anchor_world + basis * offset
 	var parent: Node = scene_root
 	var local_pos: Vector3 = world_pos
 	var local_basis: Basis = world_basis
