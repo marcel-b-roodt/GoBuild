@@ -512,7 +512,9 @@ func _world_snap(pos: Vector3, step: float) -> Vector3:
 			snappedf(pos.z, step))
 
 
-func _project_height(camera: Camera3D, screen_pos: Vector2) -> float:
+## Raw cursor hit on the height plane (camera-facing through the anchor).
+## Vector3.INF when the ray misses the plane.
+func _project_height_plane_hit(camera: Camera3D, screen_pos: Vector2) -> Vector3:
 	var normal_dir: Vector3 = _surface_basis.y if _align_to_surface else Vector3.UP
 	var cam_forward: Vector3 = -camera.global_basis.z.normalized()
 	var plane_normal: Vector3 = cam_forward
@@ -523,18 +525,29 @@ func _project_height(camera: Camera3D, screen_pos: Vector2) -> float:
 	var ray_dir: Vector3 = camera.project_ray_normal(screen_pos)
 	var hit := plane.intersects_ray(ray_origin, ray_dir)
 	if hit == null:
+		return Vector3.INF
+	return hit
+
+
+func _project_height(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> float:
+	var hit: Vector3 = _project_height_plane_hit(camera, screen_pos)
+	if hit == Vector3.INF:
 		return _drawn_height
-	# World Snap mode: snap the height-plane hit to the world grid so the
-	# top face lands on grid heights; Delta mode snaps the height value.
+	var normal_dir: Vector3 = _surface_basis.y if _align_to_surface else Vector3.UP
+	var raw_h: float = (hit - _anchor_world).dot(normal_dir)
 	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
-	if Input.is_key_pressed(KEY_CTRL) and step > 0.0 \
-			and snap_mode == DrawSnapMode.WORLD_GRID:
-		return ((hit as Vector3) - _world_snap(_anchor_world, step)).dot(normal_dir)
-	var diff: Vector3 = (hit as Vector3) - _anchor_world
-	var h: float = diff.dot(normal_dir)
-	if h < _MIN_DIM:
-		h = _MIN_DIM
-	return h
+	if ctrl_held and step > 0.0:
+		if snap_mode == DrawSnapMode.WORLD_GRID:
+			# Snap the TOP face's absolute coordinate to the world grid:
+			# h = grid(anchor_h + raw_h) - anchor_h, so the shape's top
+			# lands on a grid plane even from off-grid surfaces.
+			var anchor_h: float = _anchor_world.dot(normal_dir)
+			return maxf(snappedf(anchor_h + raw_h, step) - anchor_h, _MIN_DIM)
+		return maxf(snappedf(raw_h, step), _MIN_DIM)
+	if raw_h < _MIN_DIM:
+		raw_h = _MIN_DIM
+	return raw_h
+
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +639,7 @@ func _update_height(
 		shift_held: bool,
 		ctrl_held: bool,
 ) -> void:
-	var h: float = _project_height(camera, screen_pos)
+	var h: float = _project_height(camera, screen_pos, ctrl_held)
 	if not _MAPPING_SCRIPT.needs_polygon_step(_shape_name) and shift_held:
 		var m: float = maxf(_drawn_width, _drawn_depth)
 		h = m
