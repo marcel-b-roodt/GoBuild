@@ -152,7 +152,8 @@ func handle_input(camera: Camera3D, event: InputEvent, edited_node: GoBuildMeshI
 		cancel()
 		return 0
 	if event is InputEventMouseMotion:
-		_handle_hover(camera, (event as InputEventMouseMotion).position)
+		_handle_hover(camera, (event as InputEventMouseMotion).position,
+				(event as InputEventMouseMotion).ctrl_pressed)
 		return 1
 	if event is InputEventKey:
 		var key := event as InputEventKey
@@ -189,14 +190,16 @@ func handle_input(camera: Camera3D, event: InputEvent, edited_node: GoBuildMeshI
 			cancel()
 			return 1
 		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
-			return _handle_click(camera, mb.position, edited_node)
+			return _handle_click(camera, mb.position, edited_node,
+					mb.ctrl_pressed)
 	return 0
 
 
 ## LMB click: snap (vertex → edge → raw) and record the point.
 ## Blender semantics: vertices and edges SNAP the point (stroke continues);
 ## completion is only a close-click near the first point or Enter.
-func _handle_click(camera: Camera3D, screen_pos: Vector2, edited_node: GoBuildMeshInstance) -> int:
+func _handle_click(camera: Camera3D, screen_pos: Vector2,
+		edited_node: GoBuildMeshInstance, ctrl_held: bool) -> int:
 	var node := edited_node if edited_node != null else _edited_node
 	if node == null or node.go_build_mesh == null:
 		return 0
@@ -213,7 +216,7 @@ func _handle_click(camera: Camera3D, screen_pos: Vector2, edited_node: GoBuildMe
 				return _confirm(true)
 
 	# Reuse the hover snap resolution (same pick → snap chain as this click).
-	_handle_hover(camera, screen_pos)
+	_handle_hover(camera, screen_pos, ctrl_held)
 	if _hover.is_empty():
 		return 0   # Missed the mesh — ignore click.
 	var face_index: int = _hover["face_index"]
@@ -252,7 +255,7 @@ func _handle_click(camera: Camera3D, screen_pos: Vector2, edited_node: GoBuildMe
 ## does NOT require the cursor inside a face — Blender's knife snaps to
 ## vertices/edges slightly outside the silhouette too.
 ## Result stored in _hover; empty when the cursor misses the mesh.
-func _handle_hover(camera: Camera3D, screen_pos: Vector2) -> void:
+func _handle_hover(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> void:
 	_last_screen_pos = screen_pos
 	_has_screen_pos = true
 	var node := _edited_node
@@ -330,7 +333,8 @@ func _handle_hover(camera: Camera3D, screen_pos: Vector2) -> void:
 		_clear_hover()
 		return
 	var hit_point: Vector3 = ctx["position"]
-	hit_point = _apply_grid_snap(camera, node, node.global_transform * hit_point)
+	hit_point = _apply_grid_snap(camera, node, node.global_transform * hit_point,
+			ctrl_held)
 	_hover = {
 		"face_index": ctx["face_index"], "position": node.global_transform.affine_inverse() * hit_point,
 		"snapped_vertex": -1, "edge_index": -1,
@@ -365,8 +369,9 @@ static func _ray_line_hit(
 ## Grid-snap a raw surface hit when Ctrl is held (Create Shape/Polygon
 ## convention): x/z quantised to the editor grid step in WORLD space, y kept.
 ## Vertex/edge snaps stay exact.
-func _apply_grid_snap(_camera: Camera3D, _node: GoBuildMeshInstance, world_pos: Vector3) -> Vector3:
-	if not Input.is_key_pressed(KEY_CTRL):
+func _apply_grid_snap(_camera: Camera3D, _node: GoBuildMeshInstance,
+		world_pos: Vector3, ctrl_held: bool) -> Vector3:
+	if not ctrl_held:
 		return world_pos
 	var snap: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step()
 	return Vector3(

@@ -52,6 +52,12 @@ const _DIM_SNAP: float = 0.02
 
 var snap_mode: int = DrawSnapMode.WORLD_GRID
 
+# Modifier state cached from the last input event (entry points
+# handle_input / handle_* update it) — per-frame paths read the cache
+# instead of polling Input.
+var _shift_held: bool = false
+var _ctrl_held: bool = false
+
 var _state: int = DrawState.IDLE
 var _shape_name: String = ""
 var _extra_params: Dictionary = {}
@@ -314,6 +320,8 @@ func build_dims_label() -> String:
 # ---------------------------------------------------------------------------
 
 func _handle_mouse_motion(camera: Camera3D, event: InputEventMouseMotion) -> void:
+	_shift_held = event.shift_pressed
+	_ctrl_held = event.ctrl_pressed
 	var screen_pos: Vector2
 	if _mouse_captured:
 		if _capture_filter_count > 0:
@@ -333,21 +341,23 @@ func _handle_mouse_motion(camera: Camera3D, event: InputEventMouseMotion) -> voi
 			_update_crosshair()
 			_ghost_dirty = true
 		DrawState.WIDTH:
-			_update_width(camera, screen_pos, Input.is_key_pressed(KEY_CTRL))
+			_update_width(camera, screen_pos, event.ctrl_pressed)
 			_ghost_dirty = true
 		DrawState.LENGTH:
-			_update_length(camera, screen_pos, Input.is_key_pressed(KEY_SHIFT),
-					Input.is_key_pressed(KEY_CTRL))
+			_update_length(camera, screen_pos,
+					event.shift_pressed, event.ctrl_pressed)
 			_ghost_dirty = true
 		DrawState.HEIGHT:
-			_update_height(camera, screen_pos, Input.is_key_pressed(KEY_SHIFT),
-					Input.is_key_pressed(KEY_CTRL))
+			_update_height(camera, screen_pos,
+					event.shift_pressed, event.ctrl_pressed)
 			_ghost_dirty = true
 		DrawState.POLYGON:
 			_ghost_dirty = true
 
 
 func _handle_mouse_button(camera: Camera3D, event: InputEventMouseButton) -> bool:
+	_shift_held = event.shift_pressed
+	_ctrl_held = event.ctrl_pressed
 	if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		cancel()
 		return true
@@ -486,7 +496,7 @@ func _current_hit_pos(camera: Camera3D, screen_pos: Vector2) -> Vector3:
 	if placement != null:
 		if _align_to_surface:
 			var snap: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
-			if snap > 0.0 and Input.is_key_pressed(KEY_CTRL):
+			if snap > 0.0 and _ctrl_held:
 				var snapped: Vector3 = Vector3(
 					snappedf(placement.world_pos.x, snap),
 					placement.world_pos.y,
@@ -1017,7 +1027,7 @@ func _get_current_ghost_pos() -> Vector3:
 	if placement != null:
 		if _align_to_surface:
 			var snap: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
-			if snap > 0.0 and Input.is_key_pressed(KEY_CTRL):
+			if snap > 0.0 and _ctrl_held:
 				return Vector3(
 					snappedf(placement.world_pos.x, snap),
 					placement.world_pos.y,

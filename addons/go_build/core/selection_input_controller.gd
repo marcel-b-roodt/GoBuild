@@ -151,6 +151,10 @@ var _preview_virtual_pos: Vector2              = Vector2.ZERO
 ## virtual position / anchor are reset so precision toggling doesn't
 ## cause a jump.
 var _preview_prev_shift: bool                   = false
+# Modifier state cached from the last input event — decision helpers
+# read the cache instead of polling Input.
+var _shift_held: bool                           = false
+var _ctrl_held: bool                            = false
 ## Accumulated parameter contribution from previous precision segments.
 ## On each Shift toggle, the amount consumed at the previous precision rate
 ## is folded into this offset so that the visual indicator (anchor-to-cursor
@@ -315,17 +319,12 @@ func begin_param_preview(preview: GoBuildParamPreview, edited_node: GoBuildMeshI
 	_preview_saved_mouse_mode = Input.mouse_mode
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# Defer accepting motion so button-release events in this frame drain first.
-	_preview_active          = true
-	_preview_accepting_motion = false
-	_preview_filter_count     = 2
-	_preview_prev_shift      = Input.is_key_pressed(KEY_SHIFT)
-	# Defer accepting motion so button-release events drain before accumulation
-	# starts.  Filter count skips any large synthetic events that arrive on the
+	# Filter count skips any large synthetic events that arrive on the
 	# first frame (e.g. from a context menu popup close).
 	_preview_active          = true
 	_preview_accepting_motion = false
 	_preview_filter_count     = 2
-	_preview_prev_shift      = Input.is_key_pressed(KEY_SHIFT)
+	_preview_prev_shift      = _shift_held
 	# Sync the drag controller's viewport anchor so its overlay matches ours.
 	if _drag_controller != null and _drag_controller.is_active():
 		_drag_controller.set_viewport_info(_preview_anchor_vp, _preview_vp_size)
@@ -458,6 +457,8 @@ func _handle_mouse_button(
 		camera: Camera3D,
 		mb: InputEventMouseButton,
 ) -> int:
+	_shift_held = mb.shift_pressed
+	_ctrl_held = mb.ctrl_pressed
 	if mb.button_index == MOUSE_BUTTON_RIGHT:
 		if _context_menu_open:
 			return 1
@@ -598,7 +599,7 @@ func _handle_mouse_motion(
 ## Conditions: Shift held + Face mode + Translate gizmo + faces selected
 ## + the pressed handle is a translate-type handle (axis, plane, or view-plane).
 func _should_extrude_drag(edited_node: GoBuildMeshInstance) -> bool:
-	if not Input.is_key_pressed(KEY_SHIFT):
+	if not _shift_held:
 		return false
 	var ok_mode: bool = \
 		edited_node.selection.get_mode() == SelectionManager.Mode.FACE \
@@ -658,7 +659,7 @@ func _begin_extrude_drag(
 ## Returns true when a scale drag should inset instead of scale.
 ## Conditions: Shift held + Face mode + Scale gizmo + faces selected + scale handle.
 func _should_inset_drag(edited_node: GoBuildMeshInstance) -> bool:
-	if not Input.is_key_pressed(KEY_SHIFT):
+	if not _shift_held:
 		return false
 	if _gizmo_plugin.transform_mode != GoBuildGizmoPlugin.TransformMode.SCALE:
 		return false
@@ -735,7 +736,7 @@ func _begin_inset_drag(
 ## Conditions: Shift held + Edge mode + Translate gizmo + at least one boundary
 ## edge selected + the pressed handle is a translate-type handle.
 func _should_edge_extrude_drag(edited_node: GoBuildMeshInstance) -> bool:
-	if not Input.is_key_pressed(KEY_SHIFT):
+	if not _shift_held:
 		return false
 	if _gizmo_plugin.transform_mode != GoBuildGizmoPlugin.TransformMode.TRANSLATE:
 		return false

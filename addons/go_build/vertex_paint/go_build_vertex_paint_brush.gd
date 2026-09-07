@@ -269,7 +269,7 @@ func _handle_click(camera: Camera3D, event: InputEvent, node: GoBuildMeshInstanc
 		return 0
 	if _resizing_radius or _resizing_strength:
 		return 1
-	if Input.is_key_pressed(KEY_ALT):
+	if mb.alt_pressed:
 		if mb.pressed:
 			_eyedrop(camera, mb.position, node)
 		return 1

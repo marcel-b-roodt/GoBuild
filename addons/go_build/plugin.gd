@@ -112,6 +112,11 @@ var _drag_was_active: bool = false
 var _drag_mouse_pos: Vector2 = Vector2.ZERO
 ## Whether Ctrl was held during the drag (for surface-slot assignment).
 var _drag_ctrl_held: bool = false
+# Modifier cache — refreshed in _input on every event; per-frame paths
+# read these instead of polling Input.
+var _mod_shift: bool = false
+var _mod_ctrl: bool = false
+var _mod_alt: bool = false
 ## Cached material that Godot's editor set during a drag.
 var _drag_cached_material: Material = null
 ## Snapshot of the GoBuildMesh before the drag preview started.
@@ -491,7 +496,7 @@ func _process(_delta: float) -> void:
 	# on the node (successful drop), we apply.  If not (cancel), we cancel.
 	var dragging: bool = get_viewport().gui_is_dragging()
 	if dragging:
-		_drag_ctrl_held = Input.is_key_pressed(KEY_CTRL)
+		_drag_ctrl_held = _mod_ctrl
 		_drag_awaiting_drop = false
 		if _edited_node != null and is_instance_valid(_edited_node) \
 				and _edited_node.go_build_mesh != null:
@@ -621,6 +626,12 @@ func _route_knife_input(event: InputEvent) -> bool:
 ## consume these keys before [method _forward_3d_gui_input] is called.  The global
 ## _input callback runs first, letting us intercept and mark them handled.
 func _input(event: InputEvent) -> void:
+	# Modifier state cache — refreshed on every event; per-frame overlay
+	# and preview paths read the cache (no Input polling outside input).
+	if event is InputEventWithModifiers:
+		_mod_shift = (event as InputEventWithModifiers).shift_pressed
+		_mod_ctrl = (event as InputEventWithModifiers).ctrl_pressed
+		_mod_alt = (event as InputEventWithModifiers).alt_pressed
 	# Track mouse position in SubViewport-local coords during drags for raycasting.
 	if event is InputEventMouseMotion:
 		if get_viewport().gui_is_dragging():
@@ -1023,9 +1034,7 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 func _draw_shape_draw_overlay(overlay: Control) -> void:
 	if _shape_draw_controller == null or not _shape_draw_controller.is_active():
 		return
-	var shift_held: bool = Input.is_key_pressed(KEY_SHIFT)
-	var ctrl_held: bool = Input.is_key_pressed(KEY_CTRL)
-	var state_text: String = _shape_draw_controller.build_state_label(shift_held, ctrl_held)
+	var state_text: String = _shape_draw_controller.build_state_label(_mod_shift, _mod_ctrl)
 	var dims_text: String = _shape_draw_controller.build_dims_label()
 	if not state_text.is_empty():
 		var font: Font = ThemeDB.fallback_font
@@ -1539,7 +1548,7 @@ func _draw_controller_gizmo_overlay(overlay: Control) -> void:
 	var text: String = _drag_controller.get_overlay_text()
 	if text.is_empty():
 		return
-	var precision: bool = Input.is_key_pressed(KEY_SHIFT)
+	var precision: bool = _mod_shift
 	var text_color: Color = Color(0.5, 0.85, 1.0, 0.92) if precision \
 			else Color(1.0, 0.92, 0.4, 0.90)
 	var font: Font = ThemeDB.fallback_font
@@ -1564,8 +1573,8 @@ func _build_overlay_hint() -> String:
 	return OverlayHintHelper.build_hint(
 			_edited_node.selection.get_mode(),
 			_gizmo_plugin.transform_mode,
-			Input.is_key_pressed(KEY_SHIFT),
-			Input.is_key_pressed(KEY_CTRL))
+			_mod_shift,
+			_mod_ctrl)
 
 
 ## Draw the selection dimensions label in the bottom-right of the overlay.
@@ -1608,9 +1617,9 @@ func _build_panel_context() -> String:
 	return OverlayHintHelper.build_panel_context(
 			_edited_node.selection.get_mode(),
 			_gizmo_plugin.transform_mode,
-			Input.is_key_pressed(KEY_SHIFT),
-			Input.is_key_pressed(KEY_CTRL),
-			Input.is_key_pressed(KEY_ALT))
+			_mod_shift,
+			_mod_ctrl,
+			_mod_alt)
 
 
 ## Push the current panel context label text to the panel.
