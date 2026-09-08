@@ -157,6 +157,12 @@ func save() -> void:
 # ---------------------------------------------------------------------------
 
 ## Recursively collect all [code].tres[/code] file paths under [param dir].
+##
+## Skips directories whose names start with [code]"_"[/code] (the
+## upstream-submodule convention, e.g. [code]_go_placer_upstream[/code]) or
+## [code]"."[/code] — probing other projects' (or sibling plugins') test
+## fixtures inside host projects triggers load errors for resources whose
+## dependencies resolve outside the host's res:// tree.
 static func _collect_tres_files(dir: String) -> PackedStringArray:
 	var result := PackedStringArray()
 	var da := DirAccess.open(dir)
@@ -169,9 +175,10 @@ static func _collect_tres_files(dir: String) -> PackedStringArray:
 	while item != "":
 		var full := dir.path_join(item)
 		if da.current_is_dir():
-			var sub := _collect_tres_files(full)
-			for p: String in sub:
-				result.append(p)
+			if not item.begins_with("_") and not item.begins_with("."):
+				var sub := _collect_tres_files(full)
+				for p: String in sub:
+					result.append(p)
 		elif item.get_extension() == "tres":
 			result.append(full)
 		item = da.get_next()
