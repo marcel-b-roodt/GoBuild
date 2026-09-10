@@ -1519,48 +1519,44 @@ func _draw_snap_grid(overlay: Control) -> bool:
 	if grid.is_empty():
 		return false
 	var origin: Vector3 = grid["origin"]
-	var plane_x: Vector3 = grid["plane_x"]
-	var plane_y: Vector3 = grid["plane_y"]
 	var step: float = grid["step"]
-	# 21×21 cells centered on the drag origin — covers ~10 steps of context
-	# in every direction; cheap enough at one draw pass per frame.
-	const RADIUS := 10
-	var col := Color(0.35, 0.8, 1.0, 0.35)
-	var col_axis := Color(0.35, 0.8, 1.0, 0.7)
-	for i: int in range(-RADIUS, RADIUS + 1):
-		var off_x: float = float(i) * step
-		var a: Vector3 = origin + plane_x * off_x - plane_y \
-				* (float(RADIUS) * step)
-		var b: Vector3 = origin + plane_x * off_x + plane_y \
-				* (float(RADIUS) * step)
-		var a_on := not cam.is_position_behind(a)
-		var b_on := not cam.is_position_behind(b)
-		if a_on and b_on:
-			overlay.draw_line(cam.unproject_position(a),
-					cam.unproject_position(b),
-					col_axis if i == 0 else col, 1.0)
-		elif a_on or b_on:
-			# One endpoint behind the camera — pull the line toward the
-			# visible side so near-crossing lines still render.
-			var front := a if a_on else b
-			var back := b if a_on else a
-			var mid: Vector3 = front + (back - front) * 0.5
-			while mid.distance_to(front) > 0.001 \
-					and cam.is_position_behind(mid):
-				back = mid
-				mid = front + (back - front) * 0.5
-			overlay.draw_line(cam.unproject_position(front),
-					cam.unproject_position(mid), col, 1.0)
-	for j: int in range(-RADIUS, RADIUS + 1):
-		var off_y: float = float(j) * step
-		var a2: Vector3 = origin + plane_y * off_y - plane_x \
-				* (float(RADIUS) * step)
-		var b2: Vector3 = origin + plane_y * off_y + plane_x \
-				* (float(RADIUS) * step)
-		if not cam.is_position_behind(a2) and not cam.is_position_behind(b2):
-			overlay.draw_line(cam.unproject_position(a2),
-					cam.unproject_position(b2),
-					col_axis if j == 0 else col, 1.0)
+	# Axis-aligned cross-hatch cage: for each world axis, a fan of lines
+	# parallel to that axis at step intervals along the other two, snapped
+	# so the cage coincides with the snap grid.  Godot axis colours:
+	# X red, Y green, Z blue.
+	const RADIUS := 7
+	const AXES: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
+	const COLS: Array[Color] = [
+		Color(0.86, 0.20, 0.15, 0.55),  # X red
+		Color(0.20, 0.75, 0.25, 0.55),  # Y green
+		Color(0.20, 0.35, 0.90, 0.55),  # Z blue
+	]
+	const COL_AXIS: Array[Color] = [
+		Color(0.95, 0.35, 0.30, 0.90),
+		Color(0.35, 0.95, 0.40, 0.90),
+		Color(0.40, 0.55, 1.00, 0.90),
+	]
+	for axis_idx: int in 3:
+		var dir: Vector3 = AXES[axis_idx]
+		var other_a: Vector3 = AXES[(axis_idx + 1) % 3]
+		var other_b: Vector3 = AXES[(axis_idx + 2) % 3]
+		var col: Color = COLS[axis_idx]
+		var col_axis: Color = COL_AXIS[axis_idx]
+		for i: int in range(-RADIUS, RADIUS + 1):
+			for j: int in range(-RADIUS, RADIUS + 1):
+				var base: Vector3 = origin \
+						+ other_a * (float(i) * step) \
+						+ other_b * (float(j) * step)
+				var start: Vector3 = base - dir * (float(RADIUS) * step)
+				var end: Vector3 = base + dir * (float(RADIUS) * step)
+				if cam.is_position_behind(start) \
+						or cam.is_position_behind(end):
+					continue
+				overlay.draw_line(
+						cam.unproject_position(start),
+						cam.unproject_position(end),
+						col_axis if (i == 0 and j == 0) else col,
+						1.0)
 	return true
 
 

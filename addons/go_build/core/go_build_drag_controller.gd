@@ -304,9 +304,9 @@ func get_overlay_data() -> Dictionary:
 	return data
 
 
-## Data for the Ctrl snap-grid overlay: world-space plane through the drag
-## centroid, oriented to the drag's degrees of freedom.  {} when not a
-## translate-type gizmo drag.
+## Data for the Ctrl snap-grid overlay: the world-grid cell containing the
+## drag centroid (axis-aligned cage origin snapped to the grid) and the
+## step.  {} when not an active gizmo drag.
 func get_snap_grid_data() -> Dictionary:
 	if not _active or _op == null or _op.node == null \
 			or not is_instance_valid(_op.node) or not _is_gizmo_mode():
@@ -316,39 +316,8 @@ func get_snap_grid_data() -> Dictionary:
 	var step: float = _op.snap_step
 	if step <= 0.0:
 		return {}
-	var plane_x: Vector3
-	var plane_y: Vector3
-	match _op.delta_mode:
-		GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
-			var axis: Vector3 = _op.world_axis.normalized()
-			var tangent: Vector3 = axis.cross(Vector3.UP)
-			if tangent.length_squared() < 1e-6:
-				tangent = axis.cross(Vector3.RIGHT)
-			plane_x = tangent.normalized()
-			plane_y = axis.cross(plane_x).normalized()
-		GoBuildDragOperation.DeltaMode.PLANE_PROJECT:
-			var normal: Vector3 = _op.world_axis.normalized()
-			var camera := _cached_camera
-			if camera != null:
-				plane_x = GoBuildDeltaStrategy._plane_tangent_a(camera, normal)
-			else:
-				plane_x = normal.cross(Vector3.UP)
-				if plane_x.length_squared() < 1e-6:
-					plane_x = normal.cross(Vector3.RIGHT)
-			plane_y = normal.cross(plane_x).normalized()
-		_:
-			# Viewport-plane / other: camera-facing plane.
-			if _cached_camera == null:
-				return {}
-			var fwd: Vector3 = -_cached_camera.global_transform.basis.z.normalized()
-			plane_x = fwd.cross(Vector3.UP)
-			if plane_x.length_squared() < 1e-6:
-				plane_x = fwd.cross(Vector3.RIGHT)
-			plane_y = fwd.cross(plane_x).normalized()
 	return {
-			"origin": world_centroid,
-			"plane_x": plane_x.normalized(),
-			"plane_y": plane_y.normalized(),
+			"origin": world_centroid.snapped(Vector3.ONE * step),
 			"step": step,
 	}
 
