@@ -27,6 +27,8 @@ enum SnapMode { HYBRID, WORLD, DELTA }
 
 # Self-preloads — dependency order.
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
+const _SELECTION_MANAGER_SCRIPT := preload(
+		"res://addons/go_build/core/selection_manager.gd")
 const _TRANSFORM_HELPERS_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_transform_helpers.gd")
 
@@ -58,6 +60,11 @@ var scale_by_gizmo: bool = true
 var snap_to_grid: bool = false
 var snap_step: float = 1.0
 var snap_mode: SnapMode = SnapMode.HYBRID
+## True when the drag edits sub-elements (vertex/edge/face selection) rather
+## than moving a whole object.  ProBuilder classification: under HYBRID,
+## element edits use RELATIVE (delta) snapping; only whole-object moves use
+## the absolute position grid.
+var element_edit: bool = false
 var snap_to_start: bool = false
 var snap_threshold: float = 0.04
 
@@ -203,6 +210,9 @@ static func create_for_gizmo_handle(
 		op.axis_index = axis_idx
 
 	op.drag_centroid = _compute_centroid_from_verts(initial_verts)
+	if node.selection != null:
+		op.element_edit = node.selection.get_mode() \
+				!= _SELECTION_MANAGER_SCRIPT.Mode.OBJECT
 	return op
 
 

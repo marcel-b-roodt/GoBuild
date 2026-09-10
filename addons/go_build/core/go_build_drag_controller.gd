@@ -459,7 +459,7 @@ func _compute_frame_result(
 			if snap_enabled:
 				result_val = _snap_translate(result_val, local_centroid,
 						node_xform, snap_step, op.snap_mode,
-						op.delta_mode, world_axis)
+						op.delta_mode, world_axis, op.element_edit)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -473,7 +473,7 @@ func _compute_frame_result(
 			if snap_enabled:
 				result_val = _snap_translate(result_val, local_centroid,
 						node_xform, snap_step, op.snap_mode,
-						op.delta_mode, world_axis)
+						op.delta_mode, world_axis, op.element_edit)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -487,7 +487,7 @@ func _compute_frame_result(
 			if snap_enabled:
 				result_val = _snap_translate(result_val, local_centroid,
 						node_xform, snap_step, op.snap_mode,
-						op.delta_mode, world_axis)
+						op.delta_mode, world_axis, op.element_edit)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -549,23 +549,22 @@ func _compute_frame_result(
 	return null
 
 
-## Snap a translate delta based on [param snap_mode].
+## Snap a translate delta based on [param snap_mode] and the op's
+## object-move vs element-edit classification (ProBuilder model).
 ##
-## [code]HYBRID[/code] (default, ProBuilder-style positioning): snaps the drag
-## centroid's final world position to absolute grid lines — but ONLY along the
-## drag's degrees of freedom (axis drag: the axis component; plane drag: the
-## two in-plane components), so the snapped motion never leaves the axis or
-## plane.  Objects land on grid crossings regardless of starting offset.
+## [code]HYBRID[/code] (default): whole-object MOVES snap the final world
+## position to absolute grid lines — only along the drag's degrees of freedom
+## (axis drag: the axis component; plane drag: all world components, applied
+## back in local space) so the snapped motion never leaves the axis or plane.
+## ELEMENT edits (vertex/edge/face moves and extrudes) snap RELATIVELY: the
+## world displacement is quantized to grid increments — no teleport from
+## off-grid starting geometry, and aligned edges/corners stay on grid.
 ##
-## [code]WORLD[/code]: snaps the cumulative displacement to grid increments in
-## world space.  All moving vertices keep their relative offsets, so edges and
-## corners of an already-aligned object stay on the grid; off-grid objects
-## still shift by exact grid multiples.
+## [code]WORLD[/code]: relative quantization for everything (same maths as
+## Hybrid element edits).
 ##
-## [code]DELTA[/code]: legacy — the cumulative local displacement is snapped
-## to grid increments without regard for world alignment.
-## (Axis/plane/view-plane must match [enum GoBuildDragOperation.SnapMode] to
-## the delta mode the caller passes in [param drag_mode].)
+## [code]DELTA[/code]: legacy — the cumulative LOCAL displacement is snapped
+## to grid increments (a rotated node drags along its local axes).
 static func _snap_translate(
 		raw_delta: Vector3,
 		local_centroid: Vector3,
@@ -574,12 +573,13 @@ static func _snap_translate(
 		snap_mode: int,
 		drag_mode: int,
 		world_axis: Vector3,
+		element_edit: bool,
 ) -> Vector3:
 	match snap_mode:
 		GoBuildDragOperation.SnapMode.HYBRID:
+			if element_edit:
+				return _snap_delta_world(node_xform, raw_delta, snap_step)
 			var world_centroid: Vector3 = node_xform * local_centroid
-			var tentative_world: Vector3 = world_centroid \
-					+ node_xform.basis * raw_delta
 			match drag_mode:
 				GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
 					var axis := world_axis.normalized()
@@ -590,20 +590,31 @@ static func _snap_translate(
 					return node_xform.basis.inverse() \
 							* (axis * (snapped_along - c_along))
 				_:
-					# Plane / viewport-plane: snap the world position
-					# projected onto the drag plane, then project the
-					# correction back into local space.
+					# Plane / viewport-plane: snap the world position,
+					# then apply the correction back in local space.
+					var tentative_world: Vector3 = world_centroid \
+							+ node_xform.basis * raw_delta
 					var snapped_world: Vector3 = tentative_world.snapped(
 							Vector3.ONE * snap_step)
 					return node_xform.basis.inverse() * (snapped_world \
 							- world_centroid)
 		GoBuildDragOperation.SnapMode.WORLD:
-			var raw_world: Vector3 = node_xform.basis * raw_delta
-			return node_xform.basis.inverse() \
-					* raw_world.snapped(Vector3.ONE * snap_step)
+			return _snap_delta_world(node_xform, raw_delta, snap_step)
 		GoBuildDragOperation.SnapMode.DELTA:
 			return raw_delta.snapped(Vector3.ONE * snap_step)
 	return raw_delta
+
+
+## Snap a displacement to grid increments in world space (rigid — offsets
+## between moving vertices are preserved).
+static func _snap_delta_world(
+		node_xform: Transform3D,
+		raw_delta: Vector3,
+		snap_step: float,
+) -> Vector3:
+	var raw_world: Vector3 = node_xform.basis * raw_delta
+	return node_xform.basis.inverse() \
+			* raw_world.snapped(Vector3.ONE * snap_step)
 
 
 ## Snap a cumulative scale ratio based on the op's snap mode.
