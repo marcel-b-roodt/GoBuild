@@ -1017,6 +1017,7 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 		_input_controller.set_suppress_preview_indicator(controller_active)
 	if controller_active:
 		_draw_controller_overlay(overlay)
+		_draw_snap_grid(overlay)
 	elif _input_controller != null and _input_controller.has_active_param_preview():
 		_draw_param_preview_hint(overlay)
 	else:
@@ -1503,6 +1504,64 @@ func _draw_controller_overlay(overlay: Control) -> void:
 		_draw_controller_param_overlay(overlay, data)
 	else:
 		_draw_controller_gizmo_overlay(overlay)
+
+
+## Localized snap grid: light line grid on the drag plane around the drag
+## centroid, cell = current snap step.  Visible only while Ctrl is held
+## during a translate-type gizmo drag.
+func _draw_snap_grid(overlay: Control) -> bool:
+	if not _mod_ctrl or _drag_controller == null:
+		return false
+	var cam: Camera3D = _drag_controller.get_cached_camera()
+	if cam == null:
+		return false
+	var grid: Dictionary = _drag_controller.get_snap_grid_data()
+	if grid.is_empty():
+		return false
+	var origin: Vector3 = grid["origin"]
+	var plane_x: Vector3 = grid["plane_x"]
+	var plane_y: Vector3 = grid["plane_y"]
+	var step: float = grid["step"]
+	# 21×21 cells centered on the drag origin — covers ~10 steps of context
+	# in every direction; cheap enough at one draw pass per frame.
+	const RADIUS := 10
+	var col := Color(0.35, 0.8, 1.0, 0.35)
+	var col_axis := Color(0.35, 0.8, 1.0, 0.7)
+	for i: int in range(-RADIUS, RADIUS + 1):
+		var off_x: float = float(i) * step
+		var a: Vector3 = origin + plane_x * off_x - plane_y \
+				* (float(RADIUS) * step)
+		var b: Vector3 = origin + plane_x * off_x + plane_y \
+				* (float(RADIUS) * step)
+		var a_on := not cam.is_position_behind(a)
+		var b_on := not cam.is_position_behind(b)
+		if a_on and b_on:
+			overlay.draw_line(cam.unproject_position(a),
+					cam.unproject_position(b),
+					col_axis if i == 0 else col, 1.0)
+		elif a_on or b_on:
+			# One endpoint behind the camera — pull the line toward the
+			# visible side so near-crossing lines still render.
+			var front := a if a_on else b
+			var back := b if a_on else a
+			var mid: Vector3 = front + (back - front) * 0.5
+			while mid.distance_to(front) > 0.001 \
+					and cam.is_position_behind(mid):
+				back = mid
+				mid = front + (back - front) * 0.5
+			overlay.draw_line(cam.unproject_position(front),
+					cam.unproject_position(mid), col, 1.0)
+	for j: int in range(-RADIUS, RADIUS + 1):
+		var off_y: float = float(j) * step
+		var a2: Vector3 = origin + plane_y * off_y - plane_x \
+				* (float(RADIUS) * step)
+		var b2: Vector3 = origin + plane_y * off_y + plane_x \
+				* (float(RADIUS) * step)
+		if not cam.is_position_behind(a2) and not cam.is_position_behind(b2):
+			overlay.draw_line(cam.unproject_position(a2),
+					cam.unproject_position(b2),
+					col_axis if j == 0 else col, 1.0)
+	return true
 
 
 func _draw_controller_param_overlay(overlay: Control, data: Dictionary) -> void:
