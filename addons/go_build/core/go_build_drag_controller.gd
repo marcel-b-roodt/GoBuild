@@ -304,10 +304,13 @@ func get_overlay_data() -> Dictionary:
 	return data
 
 
-## Data for the Ctrl snap-grid overlay: the world-grid cell containing the
-## drag centroid (origin snapped to the grid) and the step.  Only translate
-## drags snap positions — rotate/scale/inset steps are not spatial, so they
-## get no grid.
+## Data for the Ctrl snap-grid overlay, matched to the active snap mode:
+##   HYBRID + object move → world-aligned panels at the snapped (absolute)
+##     grid cell containing the centroid.
+##   HYBRID + element edit, WORLD → world-aligned panels anchored at the
+##     drag-start centroid (relative quantization reference).
+##   DELTA → panels in the node's LOCAL axes anchored at the drag start.
+## Rotate/scale/inset steps are not spatial — no grid for those.
 func get_snap_grid_data() -> Dictionary:
 	if not _active or _op == null or _op.node == null \
 			or not is_instance_valid(_op.node) or not _is_gizmo_mode():
@@ -324,9 +327,26 @@ func get_snap_grid_data() -> Dictionary:
 	var step: float = _op.snap_step
 	if step <= 0.0:
 		return {}
+	var mode: int = _op.snap_mode
+	if mode == GoBuildDragOperation.SnapMode.DELTA:
+		return {
+				"origin": world_centroid,
+				"step": step,
+				"basis": node_xform.basis,
+		}
+	if mode == GoBuildDragOperation.SnapMode.WORLD \
+			or _op.element_edit:
+		# Relative quantization — reference is the drag start, world axes.
+		return {
+				"origin": world_centroid,
+				"step": step,
+				"basis": Basis.IDENTITY,
+		}
+	# HYBRID object move — absolute position grid.
 	return {
 			"origin": world_centroid.snapped(Vector3.ONE * step),
 			"step": step,
+			"basis": Basis.IDENTITY,
 	}
 
 

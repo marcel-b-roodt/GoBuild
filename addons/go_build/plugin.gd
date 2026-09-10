@@ -1520,10 +1520,11 @@ func _draw_snap_grid(overlay: Control) -> bool:
 		return false
 	var origin: Vector3 = grid["origin"]
 	var step: float = grid["step"]
-	# Small orthogonal panels at the snapped origin: for each world axis,
-	# a compact grid on the plane spanned by the other two axes, ±2 cells.
-	# Line colour follows the axis each line runs along (Godot colours:
-	# X red, Y green, Z blue); the panel outline is slightly brighter.
+	var basis: Basis = grid.get("basis", Basis.IDENTITY)
+	# Small orthogonal panels at the anchor: for each basis axis, a compact
+	# grid on the plane spanned by the other two, ±2 cells.  Line colour
+	# follows the axis each line runs along (Godot colours: X red, Y green,
+	# Z blue); centre lines brighter.
 	const RADIUS := 2
 	const AXES: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
 	const COLS: Array[Color] = [
@@ -1538,9 +1539,9 @@ func _draw_snap_grid(overlay: Control) -> bool:
 	]
 	var extent: float = float(RADIUS) * step
 	for axis_idx: int in 3:
-		var dir: Vector3 = AXES[axis_idx]
-		var other_a: Vector3 = AXES[(axis_idx + 1) % 3]
-		var other_b: Vector3 = AXES[(axis_idx + 2) % 3]
+		var dir: Vector3 = basis * AXES[axis_idx]
+		var other_a: Vector3 = basis * AXES[(axis_idx + 1) % 3]
+		var other_b: Vector3 = basis * AXES[(axis_idx + 2) % 3]
 		for i: int in range(-RADIUS, RADIUS + 1):
 			# Line along other_a, offset along other_b — coloured by
 			# other_a (brighter for the centre line through the origin).
