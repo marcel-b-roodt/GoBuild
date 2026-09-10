@@ -85,7 +85,7 @@ const _SCALE_SNAP_LABELS:  Array[String] = ["0.1", "0.2", "0.5", "1.0"]
 const _SCALE_SNAP_DEFAULT_IDX: int = 0   # 0.1
 
 ## Snap mode labels shown in the toolbar dropdown.
-const _SNAP_MODE_LABELS: Array[String] = ["Hybrid", "World"]
+const _SNAP_MODE_LABELS: Array[String] = ["Hybrid", "World", "Delta"]
 
 ## Transform space labels shown in the toolbar dropdown.
 const _TRANSFORM_SPACE_LABELS: Array[String] = ["Local", "World"]

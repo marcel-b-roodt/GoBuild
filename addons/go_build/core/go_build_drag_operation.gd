@@ -23,7 +23,7 @@ enum DeltaMode {
 	PARAM_LINEAR,
 }
 
-enum SnapMode { HYBRID, WORLD }
+enum SnapMode { HYBRID, WORLD, DELTA }
 
 # Self-preloads — dependency order.
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
@@ -124,8 +124,10 @@ static func action_name_for_handle(handle_id: int) -> String:
 ## [param snap_step_rotate] is the snap step for rotate handles.
 ## [param snap_step_scale] is the snap step for scale handles.
 ## [param snap_mode] selects HYBRID (world-grid positioning, delta-grid
-## sizing) or WORLD (everything world-space — translate deltas snap to grid
-## increments, scale quantizes the resulting world size). See [enum SnapMode].
+## sizing), WORLD (everything world-space — translate deltas snap to grid
+## increments, scale quantizes the resulting world size), or DELTA
+## (legacy: every displacement quantized from the drag start).  See
+## [enum SnapMode].
 ## [param inset_centroids] maps inner-ring vertex indices to face centroids.
 ## [param inset_offset] is the accumulated inset offset before drag start.
 ## [param vertex_update_mode] enables the fast vertex-only bake path.

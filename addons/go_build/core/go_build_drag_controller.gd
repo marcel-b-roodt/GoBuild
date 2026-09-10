@@ -458,7 +458,8 @@ func _compute_frame_result(
 			var result_val: Vector3 = _raw_translate
 			if snap_enabled:
 				result_val = _snap_translate(result_val, local_centroid,
-						node_xform, snap_step, op.snap_mode)
+						node_xform, snap_step, op.snap_mode,
+						op.delta_mode, world_axis)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -471,7 +472,8 @@ func _compute_frame_result(
 			var result_val: Vector3 = _raw_translate
 			if snap_enabled:
 				result_val = _snap_translate(result_val, local_centroid,
-						node_xform, snap_step, op.snap_mode)
+						node_xform, snap_step, op.snap_mode,
+						op.delta_mode, world_axis)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -484,7 +486,8 @@ func _compute_frame_result(
 			var result_val: Vector3 = _raw_translate
 			if snap_enabled:
 				result_val = _snap_translate(result_val, local_centroid,
-						node_xform, snap_step, op.snap_mode)
+						node_xform, snap_step, op.snap_mode,
+						op.delta_mode, world_axis)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -549,36 +552,63 @@ func _compute_frame_result(
 ## Snap a translate delta based on [param snap_mode].
 ##
 ## [code]HYBRID[/code] (default, ProBuilder-style positioning): snaps the drag
-## centroid's final world position to absolute grid lines, so objects land on
-## grid crossings regardless of their starting offset.
+## centroid's final world position to absolute grid lines — but ONLY along the
+## drag's degrees of freedom (axis drag: the axis component; plane drag: the
+## two in-plane components), so the snapped motion never leaves the axis or
+## plane.  Objects land on grid crossings regardless of starting offset.
 ##
 ## [code]WORLD[/code]: snaps the cumulative displacement to grid increments in
 ## world space.  All moving vertices keep their relative offsets, so edges and
 ## corners of an already-aligned object stay on the grid; off-grid objects
 ## still shift by exact grid multiples.
+##
+## [code]DELTA[/code]: legacy — the cumulative local displacement is snapped
+## to grid increments without regard for world alignment.
+## (Axis/plane/view-plane must match [enum GoBuildDragOperation.SnapMode] to
+## the delta mode the caller passes in [param drag_mode].)
 static func _snap_translate(
 		raw_delta: Vector3,
 		local_centroid: Vector3,
 		node_xform: Transform3D,
 		snap_step: float,
 		snap_mode: int,
+		drag_mode: int,
+		world_axis: Vector3,
 ) -> Vector3:
 	match snap_mode:
 		GoBuildDragOperation.SnapMode.HYBRID:
-			var tentative_local: Vector3 = local_centroid + raw_delta
-			var snapped_world: Vector3 = (node_xform * tentative_local).snapped(
-					Vector3.ONE * snap_step)
-			return node_xform.inverse() * snapped_world - local_centroid
+			var world_centroid: Vector3 = node_xform * local_centroid
+			var tentative_world: Vector3 = world_centroid \
+					+ node_xform.basis * raw_delta
+			match drag_mode:
+				GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
+					var axis := world_axis.normalized()
+					var c_along: float = world_centroid.dot(axis)
+					var target: float = c_along \
+							+ (node_xform.basis * raw_delta).dot(axis)
+					var snapped_along: float = snappedf(target, snap_step)
+					return node_xform.basis.inverse() \
+							* (axis * (snapped_along - c_along))
+				_:
+					# Plane / viewport-plane: snap the world position
+					# projected onto the drag plane, then project the
+					# correction back into local space.
+					var snapped_world: Vector3 = tentative_world.snapped(
+							Vector3.ONE * snap_step)
+					return node_xform.basis.inverse() * (snapped_world \
+							- world_centroid)
 		GoBuildDragOperation.SnapMode.WORLD:
 			var raw_world: Vector3 = node_xform.basis * raw_delta
 			return node_xform.basis.inverse() \
 					* raw_world.snapped(Vector3.ONE * snap_step)
+		GoBuildDragOperation.SnapMode.DELTA:
+			return raw_delta.snapped(Vector3.ONE * snap_step)
 	return raw_delta
 
 
 ## Snap a cumulative scale ratio based on the op's snap mode.
 ##
-## HYBRID: quantizes the scale RATIO (delta-space size adjustment).
+## HYBRID / DELTA: quantizes the scale RATIO (delta-space size adjustment).
 ## WORLD: quantizes the RESULTING world size to grid increments so adjusted
 ## faces land on grid lines (ratio recomputed from the snapped size).
 static func _snap_scale(
