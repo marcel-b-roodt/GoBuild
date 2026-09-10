@@ -232,8 +232,8 @@ func _on_inset_pressed() -> void:
 	preview.action_name = "Inset Face"
 	preview.param_label = "Amount"
 	preview.param_start = _INSET_DEFAULT_AMOUNT
-	preview.param_min   = -100.0
-	preview.param_max   = 100.0
+	preview.param_min   = 0.0
+	preview.param_max   = 1.0
 	preview.radial      = false
 	preview.snap_step   = 0.1
 	preview.apply_fn    = func(p: float) -> void: \
