@@ -5,16 +5,14 @@
 ## snap step and mode) and return the resulting dimensions and basis.
 ## No camera, no Input, no scene tree — trivially unit-testable.
 ##
-## Snap semantics (DrawSnapMode):
-##  - WORLD_GRID: the cursor POSITION is snapped to the full 3D world grid
-##    before deriving dimensions — grid-aligned footprints by construction.
-##    Height snaps the TOP face's absolute coordinate to the grid.
-##  - DELTA_GRID: the dimension VALUE (width / depth / height) is snapped.
+## Snap semantics (ProBuilder-style hybrid, applied whenever Ctrl is held):
+## the cursor POSITION is snapped to the full 3D world grid before deriving
+## dimensions — grid-aligned footprints by construction — and dimension
+## VALUES (width / depth / height) are quantized to the grid step.  Height
+## snaps the TOP face's absolute coordinate to the grid.
 @tool
 class_name ShapeDrawMaths
 extends RefCounted
-
-enum SnapMode { WORLD_GRID, DELTA_GRID }
 
 const _MIN_DIM: float = 0.01
 

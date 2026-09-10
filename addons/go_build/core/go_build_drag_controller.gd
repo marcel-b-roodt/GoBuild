@@ -514,9 +514,8 @@ func _compute_frame_result(
 					frame_delta, camera, world_centroid,
 					world_axis, op.initial_world_size, precision_mult)
 			_raw_scale += frame_result.float_value
-			var result_val: float = _raw_scale
-			if snap_enabled:
-				result_val = snappedf(result_val, snap_step)
+			var result_val: float = _snap_scale(op, _raw_scale,
+					snap_enabled, snap_step)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.float_value = result_val
 			return total_result
@@ -527,9 +526,8 @@ func _compute_frame_result(
 					-camera.global_transform.basis.z,
 					op.initial_world_size, precision_mult)
 			_raw_scale += frame_result.float_value
-			var result_val: float = _raw_scale
-			if snap_enabled:
-				result_val = snappedf(result_val, snap_step)
+			var result_val: float = _snap_scale(op, _raw_scale,
+					snap_enabled, snap_step)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.float_value = result_val
 			return total_result
@@ -550,13 +548,14 @@ func _compute_frame_result(
 
 ## Snap a translate delta based on [param snap_mode].
 ##
-## [code]WORLD_GRID[/code] (default): snaps the centroid's final world position
-## to absolute grid lines, so objects naturally land on grid crossings regardless
-## of their starting offset.
+## [code]HYBRID[/code] (default, ProBuilder-style positioning): snaps the drag
+## centroid's final world position to absolute grid lines, so objects land on
+## grid crossings regardless of their starting offset.
 ##
-## [code]DELTA_GRID[/code]: snaps the cumulative displacement to grid increments,
-## matching the behaviour of older GoBuild versions where each drag shifts by
-## multiples of the grid step from the drag start position.
+## [code]WORLD[/code]: snaps the cumulative displacement to grid increments in
+## world space.  All moving vertices keep their relative offsets, so edges and
+## corners of an already-aligned object stay on the grid; off-grid objects
+## still shift by exact grid multiples.
 static func _snap_translate(
 		raw_delta: Vector3,
 		local_centroid: Vector3,
@@ -565,14 +564,36 @@ static func _snap_translate(
 		snap_mode: int,
 ) -> Vector3:
 	match snap_mode:
-		GoBuildDragOperation.SnapMode.WORLD_GRID:
+		GoBuildDragOperation.SnapMode.HYBRID:
 			var tentative_local: Vector3 = local_centroid + raw_delta
 			var snapped_world: Vector3 = (node_xform * tentative_local).snapped(
 					Vector3.ONE * snap_step)
 			return node_xform.inverse() * snapped_world - local_centroid
-		GoBuildDragOperation.SnapMode.DELTA_GRID:
-			return raw_delta.snapped(Vector3.ONE * snap_step)
+		GoBuildDragOperation.SnapMode.WORLD:
+			var raw_world: Vector3 = node_xform.basis * raw_delta
+			return node_xform.basis.inverse() \
+					* raw_world.snapped(Vector3.ONE * snap_step)
 	return raw_delta
+
+
+## Snap a cumulative scale ratio based on the op's snap mode.
+##
+## HYBRID: quantizes the scale RATIO (delta-space size adjustment).
+## WORLD: quantizes the RESULTING world size to grid increments so adjusted
+## faces land on grid lines (ratio recomputed from the snapped size).
+static func _snap_scale(
+		op: GoBuildDragOperation,
+		raw_ratio: float,
+		snap_enabled: bool,
+		snap_step: float,
+) -> float:
+	if not snap_enabled or snap_step <= 0.0:
+		return raw_ratio
+	if op.snap_mode == GoBuildDragOperation.SnapMode.WORLD \
+			and op.initial_world_size > 0.001:
+		return snappedf(op.initial_world_size * raw_ratio, snap_step) \
+				/ op.initial_world_size
+	return snappedf(raw_ratio, snap_step)
 
 
 func _apply_strategy_result(

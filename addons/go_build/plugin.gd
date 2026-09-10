@@ -85,7 +85,7 @@ const _SCALE_SNAP_LABELS:  Array[String] = ["0.1", "0.2", "0.5", "1.0"]
 const _SCALE_SNAP_DEFAULT_IDX: int = 0   # 0.1
 
 ## Snap mode labels shown in the toolbar dropdown.
-const _SNAP_MODE_LABELS: Array[String] = ["World Grid", "Delta Grid"]
+const _SNAP_MODE_LABELS: Array[String] = ["Hybrid", "World"]
 
 ## Transform space labels shown in the toolbar dropdown.
 const _TRANSFORM_SPACE_LABELS: Array[String] = ["Local", "World"]
@@ -292,7 +292,7 @@ func _build_toolbar() -> void:
 	_snap_mode_btn.flat = true
 	for label: String in _SNAP_MODE_LABELS:
 		_snap_mode_btn.add_item(label)
-	_snap_mode_btn.select(GoBuildDragOperation.SnapMode.WORLD_GRID)
+	_snap_mode_btn.select(GoBuildDragOperation.SnapMode.HYBRID)
 	_snap_mode_btn.item_selected.connect(_on_snap_mode_selected)
 	_toolbar.add_child(_snap_mode_btn)
 
