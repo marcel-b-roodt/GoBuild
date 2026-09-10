@@ -1520,43 +1520,55 @@ func _draw_snap_grid(overlay: Control) -> bool:
 		return false
 	var origin: Vector3 = grid["origin"]
 	var step: float = grid["step"]
-	# Axis-aligned cross-hatch cage: for each world axis, a fan of lines
-	# parallel to that axis at step intervals along the other two, snapped
-	# so the cage coincides with the snap grid.  Godot axis colours:
-	# X red, Y green, Z blue.
-	const RADIUS := 7
+	# Small orthogonal panels at the snapped origin: for each world axis,
+	# a compact grid on the plane spanned by the other two axes, ±2 cells.
+	# Line colour follows the axis each line runs along (Godot colours:
+	# X red, Y green, Z blue); the panel outline is slightly brighter.
+	const RADIUS := 2
 	const AXES: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
 	const COLS: Array[Color] = [
-		Color(0.86, 0.20, 0.15, 0.55),  # X red
-		Color(0.20, 0.75, 0.25, 0.55),  # Y green
-		Color(0.20, 0.35, 0.90, 0.55),  # Z blue
+		Color(0.86, 0.20, 0.15, 0.60),  # X red
+		Color(0.20, 0.75, 0.25, 0.60),  # Y green
+		Color(0.20, 0.35, 0.90, 0.60),  # Z blue
 	]
 	const COL_AXIS: Array[Color] = [
-		Color(0.95, 0.35, 0.30, 0.90),
-		Color(0.35, 0.95, 0.40, 0.90),
-		Color(0.40, 0.55, 1.00, 0.90),
+		Color(0.95, 0.35, 0.30, 0.95),
+		Color(0.35, 0.95, 0.40, 0.95),
+		Color(0.40, 0.55, 1.00, 0.95),
 	]
+	var extent: float = float(RADIUS) * step
 	for axis_idx: int in 3:
 		var dir: Vector3 = AXES[axis_idx]
 		var other_a: Vector3 = AXES[(axis_idx + 1) % 3]
 		var other_b: Vector3 = AXES[(axis_idx + 2) % 3]
-		var col: Color = COLS[axis_idx]
-		var col_axis: Color = COL_AXIS[axis_idx]
 		for i: int in range(-RADIUS, RADIUS + 1):
-			for j: int in range(-RADIUS, RADIUS + 1):
-				var base: Vector3 = origin \
-						+ other_a * (float(i) * step) \
-						+ other_b * (float(j) * step)
-				var start: Vector3 = base - dir * (float(RADIUS) * step)
-				var end: Vector3 = base + dir * (float(RADIUS) * step)
-				if cam.is_position_behind(start) \
-						or cam.is_position_behind(end):
-					continue
+			# Line along other_a, offset along other_b — coloured by
+			# other_a (brighter for the centre line through the origin).
+			var bright_a: Color = COL_AXIS[(axis_idx + 1) % 3] if i == 0 \
+					else COLS[(axis_idx + 1) % 3]
+			var l_start: Vector3 = origin + other_b * (float(i) * step) \
+					- other_a * extent
+			var l_end: Vector3 = origin + other_b * (float(i) * step) \
+					+ other_a * extent
+			if not cam.is_position_behind(l_start) \
+					and not cam.is_position_behind(l_end):
 				overlay.draw_line(
-						cam.unproject_position(start),
-						cam.unproject_position(end),
-						col_axis if (i == 0 and j == 0) else col,
-						1.0)
+						cam.unproject_position(l_start),
+						cam.unproject_position(l_end),
+						bright_a, 1.0)
+			# Line along other_b, offset along other_a — coloured by other_b.
+			var bright_b: Color = COL_AXIS[(axis_idx + 2) % 3] if i == 0 \
+					else COLS[(axis_idx + 2) % 3]
+			var l2_start: Vector3 = origin + other_a * (float(i) * step) \
+					- other_b * extent
+			var l2_end: Vector3 = origin + other_a * (float(i) * step) \
+					+ other_b * extent
+			if not cam.is_position_behind(l2_start) \
+					and not cam.is_position_behind(l2_end):
+				overlay.draw_line(
+						cam.unproject_position(l2_start),
+						cam.unproject_position(l2_end),
+						bright_b, 1.0)
 	return true
 
 

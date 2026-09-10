@@ -305,12 +305,20 @@ func get_overlay_data() -> Dictionary:
 
 
 ## Data for the Ctrl snap-grid overlay: the world-grid cell containing the
-## drag centroid (axis-aligned cage origin snapped to the grid) and the
-## step.  {} when not an active gizmo drag.
+## drag centroid (origin snapped to the grid) and the step.  Only translate
+## drags snap positions — rotate/scale/inset steps are not spatial, so they
+## get no grid.
 func get_snap_grid_data() -> Dictionary:
 	if not _active or _op == null or _op.node == null \
 			or not is_instance_valid(_op.node) or not _is_gizmo_mode():
 		return {}
+	match _op.delta_mode:
+		GoBuildDragOperation.DeltaMode.AXIS_PROJECT, \
+				GoBuildDragOperation.DeltaMode.PLANE_PROJECT, \
+				GoBuildDragOperation.DeltaMode.VIEWPORT_PLANE_PROJECT:
+			pass
+		_:
+			return {}
 	var node_xform: Transform3D = _op.node.global_transform
 	var world_centroid: Vector3 = node_xform * _op.drag_centroid
 	var step: float = _op.snap_step
