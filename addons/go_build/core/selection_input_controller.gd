@@ -688,8 +688,7 @@ func _begin_inset_drag(
 
 	# Inset at amount=0: creates inner-ring verts at same positions as outer.
 	var centroids_out: Dictionary = {}
-	var normals_out: Dictionary = {}
-	InsetOperation.apply(gbm, faces, 0.0, centroids_out, normals_out)
+	InsetOperation.apply(gbm, faces, 0.0, centroids_out)
 	edited_node.bake()
 
 	# Build initial_verts from all affected vertices.
@@ -723,7 +722,6 @@ func _begin_inset_drag(
 		edited_node.restore_and_bake(pre_snap)
 		return false
 	_drag_controller.begin(op, false)
-	_drag_controller.set_inset_normals(normals_out)
 	_seed_drag_controller_viewport()
 	return true
 

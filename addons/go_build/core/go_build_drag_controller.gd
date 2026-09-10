@@ -57,9 +57,6 @@ var _raw_angle: float = 0.0
 var _raw_scale: float = 1.0
 var _raw_inset: float = 0.0
 
-## Inner-ring vertex index → face normal (local space).  Used by [method _apply_inset]
-## for the negative (depth) side of an inset drag.  Set via [method set_inset_normals].
-var _inset_normals: Dictionary = {}
 
 ## Live-symmetry state cached at drag begin: { vertex_index: partner_index },
 ## or empty when symmetry is off.  Partner moves mirror the dragged vertex.
@@ -110,7 +107,6 @@ func begin(op: GoBuildDragOperation, overlay_only: bool = false) -> void:
 	_raw_angle = 0.0
 	_raw_scale = 1.0
 	_raw_inset = 0.0
-	_inset_normals = {}
 	_sym_partners = {}
 	_sym_axis = -1
 	_cache_symmetry(op)
@@ -542,7 +538,7 @@ func _compute_frame_result(
 			frame_result = GoBuildDeltaStrategy.inset_frame(
 					frame_delta, precision_mult)
 			_raw_inset += frame_result.float_value
-			var result_val: float = clampf(_raw_inset, -100.0, 1.0)
+			var result_val: float = clampf(_raw_inset, 0.0, 1.0)
 			if snap_enabled:
 				result_val = snappedf(result_val, snap_step)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
@@ -736,18 +732,9 @@ func _apply_inset(op: GoBuildDragOperation, amount: float) -> void:
 	for idx: int in op.initial_vertex_positions:
 		if op.inset_centroids.has(idx):
 			var init_pos: Vector3 = op.initial_vertex_positions[idx]
-			if amount >= 0.0:
-				var centroid: Vector3 = op.inset_centroids[idx]
-				gbm.vertices[idx] = lerp(init_pos, centroid, amount)
-			elif _inset_normals.has(idx):
-				gbm.vertices[idx] = init_pos - _inset_normals[idx] * (-amount)
+			var centroid: Vector3 = op.inset_centroids[idx]
+			gbm.vertices[idx] = lerp(init_pos, centroid, amount)
 	_symmetry_pin_partners(gbm, op)
-
-
-## Set the inner-ring normals used for the negative (depth) side of an inset
-## drag.  Must be called after [method begin] so it survives the reset.
-func set_inset_normals(normals: Dictionary) -> void:
-	_inset_normals = normals.duplicate()
 
 
 func _schedule_gizmo_apply(node: GoBuildMeshInstance) -> void:

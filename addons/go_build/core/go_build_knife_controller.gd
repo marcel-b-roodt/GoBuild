@@ -50,7 +50,7 @@ var _marker_material: StandardMaterial3D = null
 var _first_material: StandardMaterial3D = null
 var _scene_root: Node = null
 ## On-screen stroke popup ("Undo Point" / "Close Loop") shown while cutting.
-var _popup: PanelContainer = null
+var _popup: PopupPanel = null
 
 
 func is_active() -> bool:
