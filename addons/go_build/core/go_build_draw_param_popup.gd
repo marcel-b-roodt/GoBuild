@@ -25,6 +25,11 @@ const _DRAW_CTRL_SCRIPT := \
 const _POPUP_WIDTH: float = 180.0
 const _POPUP_MARGIN: float = 8.0
 
+## Same treatment as the GoBuild toolbar panel — an explicit opaque
+## background (this popup lives under EditorInterface.get_base_control()
+## where the default panel theme can render without a visible background).
+const _POPUP_BG: Color = Color("3a3f47eb")
+
 var _draw_ctrl: GoBuildShapeDrawController = null
 
 # Re-edit mode state.
@@ -43,6 +48,7 @@ func open(
 		draw_ctrl: GoBuildShapeDrawController,
 		vp_rect: Rect2,
 ) -> void:
+	_apply_popup_style()
 	_draw_ctrl = draw_ctrl
 	for child: Node in get_children():
 		child.queue_free()
@@ -93,6 +99,16 @@ func open(
 	show()
 
 
+## Explicit panel stylebox — matches the GoBuild toolbar panel so the
+## popup always has an opaque background regardless of theme context.
+func _apply_popup_style() -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = _POPUP_BG
+	style.set_corner_radius_all(4)
+	style.set_content_margin_all(8.0)
+	add_theme_stylebox_override("panel", style)
+
+
 func close() -> void:
 	_draw_ctrl = null
 	_edit_node = null
@@ -106,6 +122,7 @@ func close() -> void:
 ## stores draw params from the current AABB, and rebuilds on edits while
 ## [member GoBuildMeshInstance.is_pristine_state_valid] holds.
 func open_for_edit(node: GoBuildMeshInstance, shape_name: String, vp_rect: Rect2) -> void:
+	_apply_popup_style()
 	_draw_ctrl = null
 	if node == null or node.go_build_mesh == null \
 			or not node.is_pristine_state_valid():
@@ -177,6 +194,16 @@ func _regenerate_edit_mesh() -> void:
 	params["width"] = _edit_drawn.x
 	params["height"] = _edit_drawn.y
 	params["depth"] = _edit_drawn.z
+	# Polygon re-edit: keep the stored outline + extrude direction from
+	# the commit meta (size keys above don't apply to polygons).
+	if _edit_shape_name == "Polygon":
+		var committed: Dictionary = _edit_node.go_build_mesh \
+				.get_meta("go_build_params", {})
+		for poly_key: String in ["polygon_points", "override_normal"]:
+			if committed.has(poly_key):
+				params[poly_key] = committed[poly_key]
+		params.erase("width")
+		params.erase("depth")
 	var gbm := _edit_node.go_build_mesh
 	var undo_snap: Dictionary = gbm.take_snapshot()
 	gbm.restore_snapshot(_edit_node.get_pristine_state())

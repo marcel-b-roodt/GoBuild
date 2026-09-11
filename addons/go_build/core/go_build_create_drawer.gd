@@ -264,6 +264,7 @@ func hide_param_strip() -> void:
 func insert_shape(
 		mesh_callable: Callable,
 		node_name: String,
+		generator_params: Dictionary = {},
 		parent: Node = null,
 		local_pos: Vector3 = Vector3.ZERO,
 		local_basis: Basis = Basis.IDENTITY,
@@ -285,6 +286,14 @@ func insert_shape(
 	var node := GoBuildMeshInstance.new()
 	node.name = node_name
 	node.go_build_mesh = mesh_callable.call()
+	# Persist the generating params for re-edit (popup reads the meta);
+	# empty dict → catalog defaults for the shape inferred from the name.
+	var shape_name: String = node_name.trim_prefix("GoBuild")
+	var params: Dictionary = generator_params
+	if params.is_empty():
+		params = _SHAPE_CATALOG_SCRIPT_CR.default_non_drawable_params(shape_name)
+	node.set_meta("go_build_params", params)
+	node.set_meta("go_build_shape", shape_name)
 	if parent == scene_root:
 		node.global_position = local_pos
 	else:
@@ -386,7 +395,13 @@ func maybe_open_param_popup(node: GoBuildMeshInstance) -> void:
 ## Infer the created shape name from a node name ("GoBuildStaircase" →
 ## "Staircase"); empty when the node is not a generated shape.
 func _infer_shape_name(node: GoBuildMeshInstance) -> String:
-	if node == null or node.name.is_empty():
+	if node == null:
+		return ""
+	# Committed nodes carry their generating shape in meta — authoritative
+	# even if the node was renamed.
+	if node.has_meta("go_build_shape"):
+		return str(node.get_meta("go_build_shape"))
+	if node.name.is_empty():
 		return ""
 	var n: String = node.name
 	if not n.begins_with("GoBuild"):

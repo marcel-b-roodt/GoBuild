@@ -1201,6 +1201,9 @@ func _commit_shape() -> void:
 	var node := GoBuildMeshInstance.new()
 	node.name = node_name
 	node.go_build_mesh = _CATALOG_SCRIPT.build_mesh(_shape_name, params)
+	# Persist the generating params for re-edit (popup reads the meta).
+	node.set_meta("go_build_params", params.duplicate(true))
+	node.set_meta("go_build_shape", _shape_name)
 	# Pivot convention: every inserted node's origin sits at the BASE
 	# CENTRE (bottom face centre) of the mesh — consistent gizmo/snap
 	# behaviour regardless of each generator's authored origin.  Shift

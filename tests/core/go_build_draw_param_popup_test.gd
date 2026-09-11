@@ -6,6 +6,8 @@
 extends GdUnitTestSuite
 
 const _POPUP_SCRIPT := preload("res://addons/go_build/core/go_build_draw_param_popup.gd")
+const _CTRL_GD: GDScript = preload(
+		"res://addons/go_build/core/go_build_shape_draw_controller.gd")
 const _CATALOG_SCRIPT := \
 		preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
 
@@ -75,6 +77,27 @@ func test_close_hides_and_clears_controller_ref() -> void:
 	assert_bool(p.visible).is_false()
 	p._on_spin_changed(3.0, "steps", true)
 	assert_bool(_draw_ctrl.get_extra_params().has("steps")).is_false()
+
+
+# ---------------------------------------------------------------------------
+# Params persistence (re-edit contract)
+# ---------------------------------------------------------------------------
+
+func test_reedit_merges_polygon_keys_from_meta() -> void:
+	# _regenerate_edit_mesh must carry polygon_points / override_normal
+	# from the commit meta into the rebuilt params (size keys erased).
+	var popup_gd: Variant = _POPUP_SCRIPT
+	var src: String = (popup_gd as GDScript).source_code
+	assert_bool(src.contains("for poly_key: String in "
+			+ "[\"polygon_points\", \"override_normal\"]:")).is_true()
+	assert_bool(src.contains("params.erase(\"width\")")).is_true()
+	assert_bool(src.contains("params.erase(\"depth\")")).is_true()
+
+
+func test_draw_controller_writes_params_meta() -> void:
+	var src: String = _CTRL_GD.source_code
+	assert_bool(src.contains('set_meta("go_build_params"')).is_true()
+	assert_bool(src.contains('set_meta("go_build_shape"')).is_true()
 
 
 func _find_spin(root: Node) -> SpinBox:
