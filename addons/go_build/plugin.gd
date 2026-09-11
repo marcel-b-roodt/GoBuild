@@ -353,11 +353,6 @@ func _build_toolbar() -> void:
 	_toolbar_wrap = PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.16, 0.14, 0.11, 0.92)
-	style.border_color_top = Color(1.0, 0.62, 0.20, 0.9)
-	style.border_width_top = 2
-	style.border_width_bottom = 0
-	style.border_width_left = 0
-	style.border_width_right = 0
 	style.set_corner_radius_all(4)
 	style.content_margin_left = 8.0
 	style.content_margin_right = 8.0
@@ -365,6 +360,14 @@ func _build_toolbar() -> void:
 	style.content_margin_bottom = 2.0
 	_toolbar_wrap.add_theme_stylebox_override("panel", style)
 	_toolbar_wrap.add_child(_toolbar)
+	# Amber accent line across the top (StyleBoxFlat can't colour one
+	# side only — overlay a hairline instead).
+	var accent := ColorRect.new()
+	accent.color = Color(1.0, 0.62, 0.20, 0.9)
+	accent.custom_minimum_size = Vector2(0, 2)
+	accent.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_toolbar_wrap.add_child(accent)
 	var row := HBoxContainer.new()
 	row.add_child(_toolbar_wrap)
 	row.add_theme_constant_override("separation", 0)
