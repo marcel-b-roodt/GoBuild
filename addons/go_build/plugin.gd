@@ -348,9 +348,16 @@ func _build_toolbar() -> void:
 	_toolbar.add_child(docs_btn)
 
 	# Theme the strip and place it as its own row under the native bar.
+	# GoBuild brand: warm amber accent (build/construction) on a dark
+	# slate panel, distinct from Godot's neutral chrome.
 	_toolbar_wrap = PanelContainer.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.13, 0.13, 0.15, 0.55)
+	style.bg_color = Color(0.16, 0.14, 0.11, 0.92)
+	style.border_color_top = Color(1.0, 0.62, 0.20, 0.9)
+	style.border_width_top = 2
+	style.border_width_bottom = 0
+	style.border_width_left = 0
+	style.border_width_right = 0
 	style.set_corner_radius_all(4)
 	style.content_margin_left = 8.0
 	style.content_margin_right = 8.0
