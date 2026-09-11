@@ -161,6 +161,12 @@ func _get_button() -> Button:
 ## Get the [code]Node3DEditor[/code] node by walking up from the first
 ## 3D viewport.  Returns [code]null[/code] if not available.
 func _get_node3d_editor() -> Node:
+	return _get_node3d_editor_public()
+
+
+## Public wrapper so the plugin can place its own toolbar row inside
+## the [code]Node3DEditor[/code] VBox.
+func _get_node3d_editor_public() -> Node:
 	if not Engine.is_editor_hint():
 		return null
 	if not ClassDB.class_has_method("EditorInterface", "get_editor_viewport_3d"):

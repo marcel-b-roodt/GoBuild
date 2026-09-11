@@ -132,7 +132,7 @@ var _drag_snapshot: Dictionary = {}
 var _drag_awaiting_drop: bool = false
 var _toolbar: HBoxContainer                      = null
 var _toolbar_wrap: PanelContainer                = null
-var _toolbar_gap: VSeparator                     = null
+var _toolbar_row: HBoxContainer                  = null
 var _cog_menu_btn: MenuButton                    = null
 
 ## Edit-mode buttons in the toolbar strip; kept in sync with the
@@ -244,13 +244,22 @@ func _enter_tree() -> void:
 
 
 func _build_toolbar() -> void:
-	# GoBuild's own strip inside the 3D editor menu bar: a themed
-	# PanelContainer wrapper makes it visually distinct from Godot's
-	# native toolbar buttons.
+	# GoBuild's own toolbar on its own line: child of the Node3DEditor
+	# VBox, right below Godot's native tool row — no mixing with native
+	# buttons or their separators.
 	_toolbar = HBoxContainer.new()
 	_toolbar.add_theme_constant_override("separation", 8)
 
-	# ── Edit mode buttons (mirrors the panel's Edit Mode row) ───────────
+	# ── 1. GoBuild label + version (from plugin.cfg) ────────────────────
+	var title_label := Label.new()
+	title_label.text = "GoBuild  v" + _plugin_version()
+	title_label.add_theme_font_size_override("font_size", 13)
+	_toolbar.add_child(title_label)
+
+	# ── 2. Divider ──────────────────────────────────────────────────────
+	_toolbar.add_child(VSeparator.new())
+
+	# ── 3. Edit mode buttons ────────────────────────────────────────────
 	var mode_names: Array[String] = ["Object", "Vertex", "Edge", "Face"]
 	var mode_keys: Array[String] = ["1", "2", "3", "4"]
 	for i: int in mode_names.size():
@@ -267,18 +276,10 @@ func _build_toolbar() -> void:
 		_toolbar_mode_buttons.append(mode_btn)
 	_toolbar_mode_buttons[SelectionManager.Mode.OBJECT].button_pressed = true
 
-	# ── Help (cheatsheet) ───────────────────────────────────────────────
-	var help_btn := Button.new()
-	help_btn.icon = EditorInterface.get_editor_theme().get_icon(
-			"Help", "EditorIcons")
-	help_btn.flat = true
-	help_btn.tooltip_text = "Show keyboard shortcuts"
-	help_btn.pressed.connect(_on_help_pressed)
-	_toolbar.add_child(help_btn)
+	# ── 4. Divider ──────────────────────────────────────────────────────
+	_toolbar.add_child(VSeparator.new())
 
-	# ── Snap settings ────────────────────────────────────────────────────
-	# Plain button opening the settings popup; the read-only summary
-	# label next to it shows the current values.
+	# ── 5 + 6. Snap dropdown and its values ─────────────────────────────
 	var snap_btn := Button.new()
 	snap_btn.text = "Snap"
 	snap_btn.flat = true
@@ -294,7 +295,13 @@ func _build_toolbar() -> void:
 	_update_snap_summary()
 	_toolbar.add_child(_snap_settings_label)
 
-	# ── Gizmo space (Local/World) ───────────────────────────────────────
+	# ── 7. Divider ──────────────────────────────────────────────────────
+	_toolbar.add_child(VSeparator.new())
+
+	# ── 8. Space: Local/World ───────────────────────────────────────────
+	var space_lbl := Label.new()
+	space_lbl.text = "Space:"
+	_toolbar.add_child(space_lbl)
 	var space_btn := OptionButton.new()
 	space_btn.flat = true
 	space_btn.tooltip_text = "Gizmo handle orientation: object-local or world axes"
@@ -305,7 +312,7 @@ func _build_toolbar() -> void:
 	_toolbar.add_child(space_btn)
 	_transform_space_btn = space_btn
 
-	# ── Cog (settings) menu ─────────────────────────────────────────────
+	# ── 9. Cog (settings) menu ──────────────────────────────────────────
 	var cog := MenuButton.new()
 	cog.flat = true
 	cog.tooltip_text = "GoBuild settings and utilities"
@@ -326,12 +333,16 @@ func _build_toolbar() -> void:
 	_toolbar.add_child(cog)
 	_cog_menu_btn = cog
 
+	# ── 10. Docs button ─────────────────────────────────────────────────
+	var docs_btn := Button.new()
+	docs_btn.icon = EditorInterface.get_editor_theme().get_icon(
+			"Help", "EditorIcons")
+	docs_btn.flat = true
+	docs_btn.tooltip_text = "GoBuild documentation"
+	docs_btn.pressed.connect(_on_docs_pressed)
+	_toolbar.add_child(docs_btn)
 
-	# Wrap the strip in a themed PanelContainer inside the menu-bar row so
-	# GoBuild's controls read as one owned group.  A VSpacer ahead of the
-	# wrap keeps a clean gap from Godot's native toolbar buttons.
-	_toolbar_gap = VSeparator.new()
-	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_gap)
+	# Theme the strip and place it as its own row under the native bar.
 	_toolbar_wrap = PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.13, 0.13, 0.15, 0.55)
@@ -342,7 +353,34 @@ func _build_toolbar() -> void:
 	style.content_margin_bottom = 2.0
 	_toolbar_wrap.add_theme_stylebox_override("panel", style)
 	_toolbar_wrap.add_child(_toolbar)
-	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_wrap)
+	var row := HBoxContainer.new()
+	row.add_child(_toolbar_wrap)
+	row.add_theme_constant_override("separation", 0)
+	var pinner: Node3DEditorToolPinner = _TOOL_PINNER_SCRIPT.new()
+	var n3de: Node = pinner._get_node3d_editor_public()
+	if n3de != null:
+		n3de.add_child(row)
+		# Push the row to sit directly under the native toolbar (index 1:
+		# 0 is usually the native menu HBox).
+		n3de.move_child(row, 1)
+	else:
+		# Fallback: old in-menu placement.
+		add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, row)
+	_toolbar_row = row
+
+
+## Read the plugin version from plugin.cfg (same source the dock header
+## uses).
+func _plugin_version() -> String:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://addons/go_build/plugin.cfg") != OK:
+		return "?"
+	return str(cfg.get_value("plugin", "version", "?"))
+
+
+## Open the online docs (README) in the browser.
+func _on_docs_pressed() -> void:
+	OS.shell_open("https://github.com/marcelroodt/GoBuild#readme")
 
 
 func _on_toolbar_mode_pressed(mode_index: int) -> void:
@@ -494,14 +532,13 @@ func _exit_tree() -> void:
 	if _toolbar:
 		# _toolbar lives inside _toolbar_wrap and is freed with it.
 		_toolbar = null
-	if _toolbar_wrap:
-		remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_wrap)
+	if _toolbar_wrap and is_instance_valid(_toolbar_wrap):
 		_toolbar_wrap.queue_free()
 		_toolbar_wrap = null
-	if _toolbar_gap and is_instance_valid(_toolbar_gap):
-		remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_gap)
-		_toolbar_gap.queue_free()
-		_toolbar_gap = null
+	if _toolbar_row and is_instance_valid(_toolbar_row):
+		_toolbar_row.get_parent().remove_child(_toolbar_row)
+		_toolbar_row.queue_free()
+		_toolbar_row = null
 		_cog_menu_btn = null
 		_toolbar_mode_buttons = []
 		_snap_settings_btn = null
