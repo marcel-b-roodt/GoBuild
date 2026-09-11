@@ -45,6 +45,7 @@ const _TOOL_PINNER_SCRIPT   := preload(
 		"res://addons/go_build/core/node3d_editor_tool_pinner.gd")
 const _SNAP_TO_GRID_OP := preload(
 		"res://addons/go_build/mesh/operations/snap_to_grid_operation.gd")
+const _EDGE_CLASS := preload("res://addons/go_build/mesh/go_build_edge.gd")
 const _TRANSFORM_HELPERS := preload(
 		"res://addons/go_build/core/go_build_transform_helpers.gd")
 const _DRAG_CTRL_SCRIPT    := preload(
@@ -1973,8 +1974,11 @@ func _on_snap_settings_pressed() -> void:
 			_SCALE_SNAP_LABELS, _snap_menu_scale_idx, _on_scale_snap_selected)
 	panel.add_child(scale_btn)
 
-	# Spanning action row: snap the selection to the grid (per-vertex,
-	# deforming — ProBuilder "Snap Selection to Grid").
+	# Divider + spanning action row: snap the selection to the grid
+	# (per-vertex, deforming — ProBuilder "Snap Selection to Grid").
+	var divider := HSeparator.new()
+	divider.modulate.a = 0.5
+	panel.add_child(divider)
 	panel.columns = 1
 	var snap_action := Button.new()
 	snap_action.text = "Snap Selection to Grid"
@@ -2011,12 +2015,28 @@ func _on_snap_settings_pressed() -> void:
 func _on_snap_selection_to_grid() -> void:
 	if _edited_node == null or _edited_node.go_build_mesh == null:
 		return
+	var mesh: GoBuildMesh = _edited_node.go_build_mesh
+	# Verts of the selection: direct vertex picks plus every vertex of
+	# every picked edge / face (deforming repair on element selections).
 	var verts: Array[int] = _edited_node.selection.get_selected_vertices()
+	var seen: Dictionary = {}
+	for v: int in verts:
+		seen[v] = true
+	for ei: int in _edited_node.selection.get_selected_edges():
+		var edge: GoBuildEdge = mesh.edges[ei]
+		for v: int in [edge.vertex_a, edge.vertex_b]:
+			if not seen.has(v):
+				seen[v] = true
+				verts.append(v)
+	for fi: int in _edited_node.selection.get_selected_faces():
+		for v: int in mesh.faces[fi].vertex_indices:
+			if not seen.has(v):
+				seen[v] = true
+				verts.append(v)
 	if verts.is_empty():
 		return
 	var step: float = _TRANSFORM_HELPERS.get_snap_step(
 			_gizmo_plugin.snap_step_override)
-	var mesh: GoBuildMesh = _edited_node.go_build_mesh
 	var xform: Transform3D = _edited_node.global_transform
 	_edited_node.apply_operation("Snap Selection to Grid",
 			func() -> void:
