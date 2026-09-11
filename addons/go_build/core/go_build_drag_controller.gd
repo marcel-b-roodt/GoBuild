@@ -644,7 +644,15 @@ static func _snap_translate(
 	match snap_mode:
 		GoBuildDragOperation.SnapMode.HYBRID:
 			if element_edit:
-				return _snap_delta_world(node_xform, raw_delta, snap_step)
+				# Element edits snap the reference point's ABSOLUTE world
+				# position to the grid and apply the correction rigidly,
+				# so off-grid starting geometry (e.g. a 2.863 m edge)
+				# lands exactly on grid lines.  Rigid correction keeps
+				# aligned offsets intact.
+				var ref_world: Vector3 = node_xform * local_centroid
+				var tentative: Vector3 = ref_world + node_xform.basis * raw_delta
+				var snapped: Vector3 = tentative.snapped(Vector3.ONE * snap_step)
+				return node_xform.basis.inverse() * (snapped - ref_world)
 			var world_centroid: Vector3 = node_xform * local_centroid
 			match drag_mode:
 				GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
@@ -665,6 +673,11 @@ static func _snap_translate(
 					return node_xform.basis.inverse() * (snapped_world \
 							- world_centroid)
 		GoBuildDragOperation.SnapMode.WORLD:
+			if element_edit:
+				var ref_world: Vector3 = node_xform * local_centroid
+				var tentative: Vector3 = ref_world + node_xform.basis * raw_delta
+				var snapped: Vector3 = tentative.snapped(Vector3.ONE * snap_step)
+				return node_xform.basis.inverse() * (snapped - ref_world)
 			return _snap_delta_world(node_xform, raw_delta, snap_step)
 		GoBuildDragOperation.SnapMode.DELTA:
 			return raw_delta.snapped(Vector3.ONE * snap_step)
