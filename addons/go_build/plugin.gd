@@ -361,13 +361,19 @@ func _build_toolbar() -> void:
 	_toolbar_wrap.add_theme_stylebox_override("panel", style)
 	_toolbar_wrap.add_child(_toolbar)
 	# Amber accent line across the top (StyleBoxFlat can't colour one
-	# side only — overlay a hairline instead).
-	var accent := ColorRect.new()
-	accent.color = Color(1.0, 0.62, 0.20, 0.9)
-	accent.custom_minimum_size = Vector2(0, 2)
-	accent.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	# side only — custom-draw a strip over the panel's top edge).
+	var accent := Control.new()
 	accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	accent.set_anchors_preset(Control.PRESET_FULL_RECT)
+	accent.draw.connect(func() -> void:
+		var h: float = 2.0
+		var r := accent.get_rect()
+		# Keep the strip inside the 4px corner radius.
+		accent.draw_rect(Rect2(r.position + Vector2(4, 0),
+				Vector2(r.size.x - 8, h)),
+				Color(1.0, 0.62, 0.20, 0.9)))
 	_toolbar_wrap.add_child(accent)
+	accent.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	var row := HBoxContainer.new()
 	row.add_child(_toolbar_wrap)
 	row.add_theme_constant_override("separation", 0)
