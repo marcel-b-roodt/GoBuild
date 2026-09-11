@@ -250,6 +250,32 @@ func _build_toolbar() -> void:
 	_toolbar = HBoxContainer.new()
 	_toolbar.add_theme_constant_override("separation", 8)
 
+	# ── Edit mode buttons (mirrors the panel's Edit Mode row) ───────────
+	var mode_names: Array[String] = ["Object", "Vertex", "Edge", "Face"]
+	var mode_keys: Array[String] = ["1", "2", "3", "4"]
+	for i: int in mode_names.size():
+		var mode_btn := Button.new()
+		mode_btn.text = mode_names[i]
+		mode_btn.toggle_mode = true
+		mode_btn.add_theme_font_size_override("font_size", 11)
+		mode_btn.tooltip_text = (
+				"%s mode  (shortcut: %s)\n"
+				+ "Rebind: Editor \u2192 Editor Settings \u2192 gobuild/shortcuts"
+		) % [mode_names[i], mode_keys[i]]
+		mode_btn.pressed.connect(_on_toolbar_mode_pressed.bind(i))
+		_toolbar.add_child(mode_btn)
+		_toolbar_mode_buttons.append(mode_btn)
+	_toolbar_mode_buttons[SelectionManager.Mode.OBJECT].button_pressed = true
+
+	# ── Help (cheatsheet) ───────────────────────────────────────────────
+	var help_btn := Button.new()
+	help_btn.icon = EditorInterface.get_editor_theme().get_icon(
+			"Help", "EditorIcons")
+	help_btn.flat = true
+	help_btn.tooltip_text = "Show keyboard shortcuts"
+	help_btn.pressed.connect(_on_help_pressed)
+	_toolbar.add_child(help_btn)
+
 	# ── Snap settings ────────────────────────────────────────────────────
 	# Plain button opening the settings popup; the read-only summary
 	# label next to it shows the current values.
@@ -258,6 +284,7 @@ func _build_toolbar() -> void:
 	snap_btn.flat = true
 	snap_btn.icon = EditorInterface.get_editor_theme().get_icon(
 			"GuiOptionArrow", "EditorIcons")
+	snap_btn.icon_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	snap_btn.tooltip_text = "Snap settings: mode, translate/rotation/scale step"
 	snap_btn.pressed.connect(_on_snap_settings_pressed)
 	_toolbar.add_child(snap_btn)
@@ -299,31 +326,6 @@ func _build_toolbar() -> void:
 	_toolbar.add_child(cog)
 	_cog_menu_btn = cog
 
-	# ── Edit mode buttons (mirrors the panel's Edit Mode row) ───────────
-	_toolbar.add_child(VSeparator.new())
-	var mode_names: Array[String] = ["Object", "Vertex", "Edge", "Face"]
-	var mode_keys: Array[String] = ["1", "2", "3", "4"]
-	for i: int in mode_names.size():
-		var mode_btn := Button.new()
-		mode_btn.text = mode_names[i]
-		mode_btn.toggle_mode = true
-		mode_btn.add_theme_font_size_override("font_size", 11)
-		mode_btn.tooltip_text = (
-				"%s mode  (shortcut: %s)\n"
-				+ "Rebind: Editor \u2192 Editor Settings \u2192 gobuild/shortcuts"
-		) % [mode_names[i], mode_keys[i]]
-		mode_btn.pressed.connect(_on_toolbar_mode_pressed.bind(i))
-		_toolbar.add_child(mode_btn)
-		_toolbar_mode_buttons.append(mode_btn)
-	_toolbar_mode_buttons[SelectionManager.Mode.OBJECT].button_pressed = true
-
-	# ── Help (cheatsheet) ───────────────────────────────────────────────
-	var help_btn := Button.new()
-	help_btn.text = "Help"
-	help_btn.flat = true
-	help_btn.tooltip_text = "Show keyboard shortcuts"
-	help_btn.pressed.connect(_on_help_pressed)
-	_toolbar.add_child(help_btn)
 
 	# Wrap the strip in a themed PanelContainer inside the menu-bar row so
 	# GoBuild's controls read as one owned group.  A VSpacer ahead of the
@@ -1944,11 +1946,13 @@ func _on_snap_settings_pressed() -> void:
 	_toolbar.add_child(_snap_settings_popup)
 	# Anchor just below the Snap button; PopupPanel auto-closes on
 	# outside clicks and stays open for clicks inside (incl. dropdowns).
-	var btn_rect: Rect2 = _snap_settings_btn.get_global_rect()
+	# get_global_rect is SubViewport-local; get_screen_position gives
+	# OS-window coords so multi-monitor windows land correctly (same
+	# conversion the right-click context menu uses).
+	var btn_pos: Vector2 = _snap_settings_btn.get_screen_position()
 	_snap_settings_popup.reset_size()
-	_snap_settings_popup.position = Vector2(
-			btn_rect.position.x,
-			btn_rect.end.y + 2.0)
+	_snap_settings_popup.position = btn_pos + Vector2(
+			0.0, _snap_settings_btn.size.y + 2.0)
 	_snap_settings_popup.popup()
 
 

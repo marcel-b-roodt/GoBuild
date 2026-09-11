@@ -24,6 +24,7 @@ func _ready() -> void:
 	)
 	size = Vector2i(content.get_combined_minimum_size() + Vector2(24, 24))
 	close_requested.connect(func() -> void: queue_free())
+	popup_hide.connect(func() -> void: queue_free())
 
 
 func _input(event: InputEvent) -> void:
