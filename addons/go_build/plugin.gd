@@ -284,6 +284,13 @@ func _build_toolbar() -> void:
 	# ── 4. Divider ──────────────────────────────────────────────────────
 	_toolbar.add_child(VSeparator.new())
 
+	# Springy spacer: pushes everything after the mode buttons to the
+	# right edge (future ops will slot in ahead of it).
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_toolbar.add_child(spacer)
+
 	# ── 5 + 6. Snap dropdown and its values ─────────────────────────────
 	var snap_btn := Button.new()
 	snap_btn.text = "Snap"
@@ -360,20 +367,6 @@ func _build_toolbar() -> void:
 	style.content_margin_bottom = 2.0
 	_toolbar_wrap.add_theme_stylebox_override("panel", style)
 	_toolbar_wrap.add_child(_toolbar)
-	# Amber accent line across the top (StyleBoxFlat can't colour one
-	# side only — custom-draw a strip over the panel's top edge).
-	var accent := Control.new()
-	accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	accent.set_anchors_preset(Control.PRESET_FULL_RECT)
-	accent.draw.connect(func() -> void:
-		var h: float = 2.0
-		var r := accent.get_rect()
-		# Keep the strip inside the 4px corner radius.
-		accent.draw_rect(Rect2(r.position + Vector2(4, 0),
-				Vector2(r.size.x - 8, h)),
-				Color(1.0, 0.62, 0.20, 0.9)))
-	_toolbar_wrap.add_child(accent)
-	accent.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	var row := HBoxContainer.new()
 	row.add_child(_toolbar_wrap)
 	row.add_theme_constant_override("separation", 0)
