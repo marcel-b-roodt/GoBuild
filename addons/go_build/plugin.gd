@@ -366,6 +366,8 @@ func _build_toolbar() -> void:
 	style.content_margin_top = 2.0
 	style.content_margin_bottom = 2.0
 	_toolbar_wrap.add_theme_stylebox_override("panel", style)
+	# Span the editor width so the inner spacer can push controls right.
+	_toolbar_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_toolbar_wrap.add_child(_toolbar)
 	var row := HBoxContainer.new()
 	row.add_child(_toolbar_wrap)
