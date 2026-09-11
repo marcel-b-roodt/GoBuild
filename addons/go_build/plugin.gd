@@ -1951,42 +1951,49 @@ func _on_snap_settings_pressed() -> void:
 	if _snap_settings_popup != null:
 		_snap_settings_popup.hide()
 		return
-	var panel := GridContainer.new()
-	panel.columns = 2
+	# Settings grid: label + dropdown side by side per row (GridContainer
+	# has no column-span, so the divider + action button live in their
+	# own section stacked below).
+	var grid := GridContainer.new()
+	grid.columns = 2
 
-	panel.add_child(_make_setting_row_label("Snap Mode"))
+	grid.add_child(_make_setting_row_label("Snap Mode"))
 	var mode_btn := _make_snap_option_button(
 			_SNAP_MODE_LABELS, _snap_menu_mode_idx, _on_snap_mode_selected)
-	panel.add_child(mode_btn)
+	grid.add_child(mode_btn)
 
-	panel.add_child(_make_setting_row_label("Translate"))
+	grid.add_child(_make_setting_row_label("Translate"))
 	var translate_btn := _make_snap_option_button(
 			_SNAP_LABELS, _current_translate_idx(), _on_snap_selected)
-	panel.add_child(translate_btn)
+	grid.add_child(translate_btn)
 
-	panel.add_child(_make_setting_row_label("Rotation"))
+	grid.add_child(_make_setting_row_label("Rotation"))
 	var rot_btn := _make_snap_option_button(
 			_ROT_SNAP_LABELS, _snap_menu_rot_idx, _on_rot_snap_selected)
-	panel.add_child(rot_btn)
+	grid.add_child(rot_btn)
 
-	panel.add_child(_make_setting_row_label("Scale"))
+	grid.add_child(_make_setting_row_label("Scale"))
 	var scale_btn := _make_snap_option_button(
 			_SCALE_SNAP_LABELS, _snap_menu_scale_idx, _on_scale_snap_selected)
-	panel.add_child(scale_btn)
+	grid.add_child(scale_btn)
 
-	# Divider + spanning action row: snap the selection to the grid
-	# (per-vertex, deforming — ProBuilder "Snap Selection to Grid").
-	panel.columns = 1
 	var divider := HSeparator.new()
 	divider.modulate.a = 0.5
-	panel.add_child(divider)
+
+	# Spanning action row: snap the selection to the grid (per-vertex,
+	# deforming — ProBuilder "Snap Selection to Grid").
 	var snap_action := Button.new()
 	snap_action.text = "Snap Selection to Grid"
+	snap_action.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	snap_action.tooltip_text = (
 			"Snap each selected vertex to its nearest grid cell in world"
 			+ " space.\nDeforming: repairs off-grid geometry (topology"
 			+ " unchanged).\nStep: the current Translate snap step.")
 	snap_action.pressed.connect(_on_snap_selection_to_grid)
+
+	var panel := VBoxContainer.new()
+	panel.add_child(grid)
+	panel.add_child(divider)
 	panel.add_child(snap_action)
 
 	var wrap := PanelContainer.new()
