@@ -53,6 +53,10 @@ var _cached_camera: Camera3D = null
 ## Raw cumulative deltas — always accumulate, never snap.  These are the source
 ## of truth for the total displacement since drag start.
 var _raw_translate: Vector3 = Vector3.ZERO
+
+## Live snapped world position of the drag reference, updated each
+## frame — the localized Ctrl-grid overlay anchors here.
+var _grid_anchor: Vector3 = Vector3.ZERO
 var _raw_angle: float = 0.0
 var _raw_scale: float = 1.0
 var _raw_inset: float = 0.0
@@ -104,6 +108,7 @@ func begin(op: GoBuildDragOperation, overlay_only: bool = false) -> void:
 	_apply_target_vec = Vector3.ZERO
 	_cached_camera = null
 	_raw_translate = Vector3.ZERO
+	_grid_anchor = Vector3.ZERO
 	_raw_angle = 0.0
 	_raw_scale = 1.0
 	_raw_inset = 0.0
@@ -323,7 +328,8 @@ func get_snap_grid_data() -> Dictionary:
 		_:
 			return {}
 	var node_xform: Transform3D = _op.node.global_transform
-	var world_centroid: Vector3 = node_xform * _op.drag_centroid
+	var world_centroid: Vector3 = _grid_anchor if not _grid_anchor.is_zero_approx() \
+			else node_xform * _op.drag_centroid
 	var step: float = _op.snap_step
 	if step <= 0.0:
 		return {}
@@ -392,6 +398,7 @@ func reanchor() -> void:
 		if idx < gbm.vertices.size():
 			_op.initial_vertex_positions[idx] = gbm.vertices[idx]
 	_raw_translate = Vector3.ZERO
+	_grid_anchor = Vector3.ZERO
 	_raw_angle = 0.0
 	_raw_scale = 1.0
 	_raw_inset = 0.0
@@ -506,6 +513,7 @@ func _compute_frame_result(
 				result_val = _snap_translate(result_val, local_centroid,
 						node_xform, snap_step, op.snap_mode,
 						op.delta_mode, world_axis, op.element_edit)
+			_update_grid_anchor(result_val, local_centroid, node_xform)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -520,6 +528,7 @@ func _compute_frame_result(
 				result_val = _snap_translate(result_val, local_centroid,
 						node_xform, snap_step, op.snap_mode,
 						op.delta_mode, world_axis, op.element_edit)
+			_update_grid_anchor(result_val, local_centroid, node_xform)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -611,6 +620,17 @@ func _compute_frame_result(
 ##
 ## [code]DELTA[/code]: legacy — the cumulative LOCAL displacement is snapped
 ## to grid increments (a rotated node drags along its local axes).
+## Track where the drag reference sits after this frame's snap, so the
+## localized grid overlay follows the manipulation instead of staying
+## anchored at the drag start.
+func _update_grid_anchor(
+		snapped_delta: Vector3,
+		local_centroid: Vector3,
+		node_xform: Transform3D,
+) -> void:
+	_grid_anchor = node_xform * (local_centroid + snapped_delta)
+
+
 static func _snap_translate(
 		raw_delta: Vector3,
 		local_centroid: Vector3,
@@ -973,6 +993,7 @@ func _end() -> void:
 	_apply_target_param = 0.0
 	_apply_target_vec = Vector3.ZERO
 	_raw_translate = Vector3.ZERO
+	_grid_anchor = Vector3.ZERO
 	_raw_angle = 0.0
 	_raw_scale = 1.0
 	_raw_inset = 0.0

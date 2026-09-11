@@ -38,7 +38,6 @@ const _SHAPE_CATALOG_SCRIPT    := \
 const _SEL_HELPERS_SCRIPT      := preload("res://addons/go_build/core/selection_helpers.gd")
 const _UV_PANEL_SCRIPT         := preload("res://addons/go_build/uv/go_build_uv_panel.gd")
 
-const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
 var _status_label: Label
 var _stats_label: Label
@@ -88,17 +87,6 @@ func update_context(text: String) -> void:
 
 func _ready() -> void:
 	name = "GoBuild"
-
-	# ── Header ──────────────────────────────────────────────────────────
-	var header_row := HBoxContainer.new()
-	var header_label := Label.new()
-	header_label.text = "GoBuild  v" + _get_plugin_version()
-	header_label.add_theme_font_size_override("font_size", 13)
-	header_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header_row.add_child(header_label)
-	add_child(header_row)
-
-	add_child(HSeparator.new())
 
 	_context_label = Label.new()
 	_context_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -590,15 +578,3 @@ func _update_ops_buttons() -> void:
 
 func _sync_legacy_handles() -> void:
 	_auto_uv_option = _general_drawer._auto_uv_option if _general_drawer != null else null
-
-
-
-## Return the plugin version from plugin.cfg so panel text stays in sync.
-## Falls back to "unknown" if the config cannot be loaded.
-func _get_plugin_version() -> String:
-	var cfg := ConfigFile.new()
-	var err: Error = cfg.load(_PLUGIN_CFG_PATH)
-	if err != OK:
-		return "unknown"
-	var version: Variant = cfg.get_value("plugin", "version", "unknown")
-	return str(version)

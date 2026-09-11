@@ -338,8 +338,8 @@ func _build_toolbar() -> void:
 	docs_btn.icon = EditorInterface.get_editor_theme().get_icon(
 			"Help", "EditorIcons")
 	docs_btn.flat = true
-	docs_btn.tooltip_text = "GoBuild documentation"
-	docs_btn.pressed.connect(_on_docs_pressed)
+	docs_btn.tooltip_text = "Show keyboard shortcuts"
+	docs_btn.pressed.connect(_on_help_pressed)
 	_toolbar.add_child(docs_btn)
 
 	# Theme the strip and place it as its own row under the native bar.
@@ -378,9 +378,6 @@ func _plugin_version() -> String:
 	return str(cfg.get_value("plugin", "version", "?"))
 
 
-## Open the online docs (README) in the browser.
-func _on_docs_pressed() -> void:
-	OS.shell_open("https://github.com/marcelroodt/GoBuild#readme")
 
 
 func _on_toolbar_mode_pressed(mode_index: int) -> void:
