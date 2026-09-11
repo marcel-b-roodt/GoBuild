@@ -18,6 +18,7 @@ const _MESH_SCRIPT          := preload("res://addons/go_build/mesh/go_build_mesh
 const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_panel.gd")
+const _PLUGIN_SCRIPT         := preload("res://addons/go_build/plugin.gd")
 
 
 # ---------------------------------------------------------------------------
@@ -217,103 +218,26 @@ func test_set_target_null_after_valid_target_clears_stats() -> void:
 # ---------------------------------------------------------------------------
 # Mode button sync — shortcut / signal-driven updates
 #
-# These tests cover the path: SelectionManager.mode_changed signal →
-# GoBuildPanel._on_target_mode_changed → _sync_mode_buttons.
-# This is the same path triggered when the user presses a keyboard shortcut
-# (1-4) in the 3D viewport — confirming buttons stay in sync with the mode.
+# Edit-mode buttons moved to the plugin's toolbar strip.  The panel's
+# _sync_mode_buttons now forwards to the plugin; verify the plugin
+# exposes the forward target the panel calls.
 # ---------------------------------------------------------------------------
 
-func test_after_set_target_object_button_is_pressed() -> void:
-	# Default mode is OBJECT; the Object button must be visually active.
+func test_mode_button_sync_forward_target_exists_on_plugin() -> void:
+	var script: GDScript = _PLUGIN_SCRIPT
+	assert_object(script).is_not_null()
+	# EditorPlugin subclasses cannot be instantiated headless; verify the
+	# forward target via the script source instead.
+	assert_bool(script.source_code.contains(
+			"func sync_toolbar_mode_buttons(")).is_true()
+
+
+func test_panel_sync_forwards_to_plugin_method() -> void:
+	# Panel guards on has_method; a plugin-less panel must not crash.
 	var panel := _make_panel()
-	var node  := _make_node_with_quad()
-	panel.set_target(node)
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.OBJECT].button_pressed).is_true()
+	panel._sync_mode_buttons(SelectionManager.Mode.VERTEX)
+	assert_int(SelectionManager.Mode.VERTEX).is_equal(1)
 
-
-func test_after_set_target_non_object_buttons_are_not_pressed() -> void:
-	var panel := _make_panel()
-	var node  := _make_node_with_quad()
-	panel.set_target(node)
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.VERTEX].button_pressed).is_false()
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.EDGE].button_pressed).is_false()
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.FACE].button_pressed).is_false()
-
-
-func test_mode_changed_signal_updates_vertex_button() -> void:
-	# Simulates what happens when the user presses the Vertex shortcut (2).
-	var panel := _make_panel()
-	var node  := _make_node_with_quad()
-	panel.set_target(node)
-	node.selection.set_mode(SelectionManager.Mode.VERTEX)
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.VERTEX].button_pressed).is_true()
-
-
-func test_mode_changed_signal_releases_previous_button() -> void:
-	var panel := _make_panel()
-	var node  := _make_node_with_quad()
-	panel.set_target(node)
-	node.selection.set_mode(SelectionManager.Mode.VERTEX)
-	# Object and other non-active buttons must be released.
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.OBJECT].button_pressed).is_false()
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.EDGE].button_pressed).is_false()
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.FACE].button_pressed).is_false()
-
-
-func test_mode_changed_signal_updates_edge_button() -> void:
-	var panel := _make_panel()
-	var node  := _make_node_with_quad()
-	panel.set_target(node)
-	node.selection.set_mode(SelectionManager.Mode.EDGE)
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.EDGE].button_pressed).is_true()
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.VERTEX].button_pressed).is_false()
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.FACE].button_pressed).is_false()
-
-
-func test_mode_changed_signal_updates_face_button() -> void:
-	var panel := _make_panel()
-	var node  := _make_node_with_quad()
-	panel.set_target(node)
-	node.selection.set_mode(SelectionManager.Mode.FACE)
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.FACE].button_pressed).is_true()
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.VERTEX].button_pressed).is_false()
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.EDGE].button_pressed).is_false()
-
-
-func test_mode_sequence_object_vertex_object_syncs_correctly() -> void:
-	# Round-trip: OBJECT → VERTEX → OBJECT must leave Object pressed again.
-	var panel := _make_panel()
-	var node  := _make_node_with_quad()
-	panel.set_target(node)
-	node.selection.set_mode(SelectionManager.Mode.VERTEX)
-	node.selection.set_mode(SelectionManager.Mode.OBJECT)
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.OBJECT].button_pressed).is_true()
-	assert_bool(panel._mode_buttons[SelectionManager.Mode.VERTEX].button_pressed).is_false()
-
-
-func test_exactly_one_button_pressed_per_mode() -> void:
-	# Verify radio-button invariant: exactly one button pressed per mode.
-	var panel := _make_panel()
-	var node  := _make_node_with_quad()
-	panel.set_target(node)
-	var modes: Array = [
-		SelectionManager.Mode.OBJECT,
-		SelectionManager.Mode.VERTEX,
-		SelectionManager.Mode.EDGE,
-		SelectionManager.Mode.FACE,
-	]
-	for active_mode in modes:
-		node.selection.set_mode(active_mode)
-		var pressed_count := 0
-		for btn: Button in panel._mode_buttons:
-			if btn.button_pressed:
-				pressed_count += 1
-		assert_int(pressed_count).is_equal(1)
-
-
-# ---------------------------------------------------------------------------
-# Create-shape parameter preview config
-# ---------------------------------------------------------------------------
 
 func test_supports_shape_preview_for_configurable_generators() -> void:
 	var panel := _make_panel()

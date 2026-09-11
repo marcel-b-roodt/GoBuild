@@ -37,14 +37,12 @@ const _SHAPE_CATALOG_SCRIPT    := \
 	preload("res://addons/go_build/mesh/generators/shape_creation_catalog.gd")
 const _SEL_HELPERS_SCRIPT      := preload("res://addons/go_build/core/selection_helpers.gd")
 const _UV_PANEL_SCRIPT         := preload("res://addons/go_build/uv/go_build_uv_panel.gd")
-const _CHEATSHEET_SCRIPT       := preload("res://addons/go_build/core/go_build_cheatsheet_popup.gd")
 
 const _PLUGIN_CFG_PATH := "res://addons/go_build/plugin.cfg"
 
 var _status_label: Label
 var _stats_label: Label
 var _context_label: Label      = null
-var _mode_buttons: Array[Button] = []
 var _target: GoBuildMeshInstance = null
 var _plugin: EditorPlugin = null
 var _auto_uv_option: OptionButton = null
@@ -62,7 +60,6 @@ var _uv_panel:        GoBuildUvPanel        = null
 
 
 
-## Called by the owning [EditorPlugin] immediately after the panel is docked.
 ## Called by the owning [EditorPlugin] immediately after the panel is docked.
 ## Passes the plugin reference to all drawer subcomponents.
 func set_plugin(plugin: EditorPlugin) -> void:
@@ -99,48 +96,9 @@ func _ready() -> void:
 	header_label.add_theme_font_size_override("font_size", 13)
 	header_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header_row.add_child(header_label)
-	var help_btn := Button.new()
-	help_btn.text = "Help"
-	help_btn.tooltip_text = "Show keyboard shortcuts"
-	help_btn.add_theme_font_size_override("font_size", 11)
-	help_btn.custom_minimum_size = Vector2(40, 0)
-	help_btn.pressed.connect(_on_help_pressed)
-	header_row.add_child(help_btn)
 	add_child(header_row)
 
 	add_child(HSeparator.new())
-
-	# ── Edit Mode ────────────────────────────────────────────────────────
-	var mode_label := Label.new()
-	mode_label.text = "── Edit Mode ──"
-	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mode_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	mode_label.add_theme_font_size_override("font_size", 11)
-	add_child(mode_label)
-
-	var mode_row := HBoxContainer.new()
-	add_child(mode_row)
-
-	var mode_names: Array[String] = ["Object", "Vertex", "Edge", "Face"]
-	# Default shortcut keys shown in the tooltip.  The actual binding is stored
-	# in EditorSettings and can be changed via Editor → Editor Settings → gobuild/shortcuts.
-	var mode_keys: Array[String]  = ["1", "2", "3", "4"]
-	for i: int in mode_names.size():
-		var btn := Button.new()
-		btn.text = mode_names[i]
-		btn.toggle_mode = true
-		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		btn.add_theme_font_size_override("font_size", 11)
-		btn.tooltip_text = (
-				"%s mode  (shortcut: %s)\n"
-				+ "Rebind: Editor \u2192 Editor Settings \u2192 gobuild/shortcuts"
-		) % [mode_names[i], mode_keys[i]]
-		btn.pressed.connect(_on_mode_button_pressed.bind(i))
-		mode_row.add_child(btn)
-		_mode_buttons.append(btn)
-
-	# Object mode active by default.
-	_mode_buttons[SelectionManager.Mode.OBJECT].button_pressed = true
 
 	_context_label = Label.new()
 	_context_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -531,13 +489,6 @@ func trigger_select_similar(criterion: int) -> void:
 	_target.update_gizmos()
 
 
-## Open the cheatsheet popup when the "?" button is pressed.
-func _on_help_pressed() -> void:
-	var popup := GoBuildCheatsheetPopup.new()
-	get_viewport().add_child(popup)
-	popup.popup_centered()
-
-
 func get_create_drawer() -> GoBuildCreateDrawer:
 	return _create_drawer
 
@@ -579,17 +530,6 @@ func _refresh() -> void:
 ## The plugin's [method _on_mode_changed] handler (connected to the
 ## [signal SelectionManager.mode_changed] signal) takes care of the editor
 ## tool shortcut and gizmo refresh for all sources.
-func _on_mode_button_pressed(mode_index: int) -> void:
-	var new_mode: SelectionManager.Mode = mode_index as SelectionManager.Mode
-	GoBuildDebug.log("[GoBuild] PANEL._on_mode_button_pressed  mode_index=%d  target_null=%s" \
-			% [mode_index, str(_target == null)])
-	if _plugin != null:
-		_plugin.call("switch_mode", new_mode)
-	elif _target != null:
-		_target.selection.set_mode(new_mode)
-	_sync_mode_buttons(new_mode)
-
-
 ## Called when the target's [SelectionManager] emits [signal SelectionManager.mode_changed].
 ## Opens/closes the mode-specific drawers and refreshes button states.
 func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
@@ -628,9 +568,11 @@ func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 
 ## Press exactly the button that corresponds to [param active_mode] and
 ## release all others (radio-button behaviour).
+## Edit-mode buttons now live in the plugin's toolbar strip; forward so
+## shortcut-driven mode changes still sync the visible toggles.
 func _sync_mode_buttons(active_mode: SelectionManager.Mode) -> void:
-	for i: int in _mode_buttons.size():
-		_mode_buttons[i].set_pressed_no_signal(i == active_mode as int)
+	if _plugin != null and _plugin.has_method("sync_toolbar_mode_buttons"):
+		_plugin.call("sync_toolbar_mode_buttons", active_mode)
 
 
 # ---------------------------------------------------------------------------

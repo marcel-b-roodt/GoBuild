@@ -39,6 +39,8 @@ const _PAINT_BRUSH_SCRIPT := preload(
 		"res://addons/go_build/vertex_paint/go_build_vertex_paint_brush.gd")
 const _CONTROLLER_SCRIPT    := preload(
 		"res://addons/go_build/core/selection_input_controller.gd")
+const _CHEATSHEET_SCRIPT    := preload(
+		"res://addons/go_build/core/go_build_cheatsheet_popup.gd")
 const _TOOL_PINNER_SCRIPT   := preload(
 		"res://addons/go_build/core/node3d_editor_tool_pinner.gd")
 const _DRAG_CTRL_SCRIPT    := preload(
@@ -130,7 +132,12 @@ var _drag_snapshot: Dictionary = {}
 var _drag_awaiting_drop: bool = false
 var _toolbar: HBoxContainer                      = null
 var _toolbar_wrap: PanelContainer                = null
+var _toolbar_gap: VSeparator                     = null
 var _cog_menu_btn: MenuButton                    = null
+
+## Edit-mode buttons in the toolbar strip; kept in sync with the
+## selection mode (mirrors the panel's own row).
+var _toolbar_mode_buttons: Array[Button]         = []
 var _snap_settings_btn: Button                   = null
 var _snap_settings_label: Label                  = null
 var _snap_settings_popup: PopupPanel             = null
@@ -241,7 +248,7 @@ func _build_toolbar() -> void:
 	# PanelContainer wrapper makes it visually distinct from Godot's
 	# native toolbar buttons.
 	_toolbar = HBoxContainer.new()
-	_toolbar.add_theme_constant_override("separation", 6)
+	_toolbar.add_theme_constant_override("separation", 8)
 
 	# ── Snap settings ────────────────────────────────────────────────────
 	# Plain button opening the settings popup; the read-only summary
@@ -249,6 +256,8 @@ func _build_toolbar() -> void:
 	var snap_btn := Button.new()
 	snap_btn.text = "Snap"
 	snap_btn.flat = true
+	snap_btn.icon = EditorInterface.get_editor_theme().get_icon(
+			"GuiOptionArrow", "EditorIcons")
 	snap_btn.tooltip_text = "Snap settings: mode, translate/rotation/scale step"
 	snap_btn.pressed.connect(_on_snap_settings_pressed)
 	_toolbar.add_child(snap_btn)
@@ -290,21 +299,79 @@ func _build_toolbar() -> void:
 	_toolbar.add_child(cog)
 	_cog_menu_btn = cog
 
-	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar)
+	# ── Edit mode buttons (mirrors the panel's Edit Mode row) ───────────
+	_toolbar.add_child(VSeparator.new())
+	var mode_names: Array[String] = ["Object", "Vertex", "Edge", "Face"]
+	var mode_keys: Array[String] = ["1", "2", "3", "4"]
+	for i: int in mode_names.size():
+		var mode_btn := Button.new()
+		mode_btn.text = mode_names[i]
+		mode_btn.toggle_mode = true
+		mode_btn.add_theme_font_size_override("font_size", 11)
+		mode_btn.tooltip_text = (
+				"%s mode  (shortcut: %s)\n"
+				+ "Rebind: Editor \u2192 Editor Settings \u2192 gobuild/shortcuts"
+		) % [mode_names[i], mode_keys[i]]
+		mode_btn.pressed.connect(_on_toolbar_mode_pressed.bind(i))
+		_toolbar.add_child(mode_btn)
+		_toolbar_mode_buttons.append(mode_btn)
+	_toolbar_mode_buttons[SelectionManager.Mode.OBJECT].button_pressed = true
+
+	# ── Help (cheatsheet) ───────────────────────────────────────────────
+	var help_btn := Button.new()
+	help_btn.text = "Help"
+	help_btn.flat = true
+	help_btn.tooltip_text = "Show keyboard shortcuts"
+	help_btn.pressed.connect(_on_help_pressed)
+	_toolbar.add_child(help_btn)
 
 	# Wrap the strip in a themed PanelContainer inside the menu-bar row so
-	# GoBuild's controls read as one owned group.
+	# GoBuild's controls read as one owned group.  A VSpacer ahead of the
+	# wrap keeps a clean gap from Godot's native toolbar buttons.
+	_toolbar_gap = VSeparator.new()
+	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_gap)
 	_toolbar_wrap = PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.13, 0.13, 0.15, 0.55)
 	style.set_corner_radius_all(4)
-	style.content_margin_left = 6.0
-	style.content_margin_right = 6.0
+	style.content_margin_left = 8.0
+	style.content_margin_right = 8.0
 	style.content_margin_top = 2.0
 	style.content_margin_bottom = 2.0
 	_toolbar_wrap.add_theme_stylebox_override("panel", style)
 	_toolbar_wrap.add_child(_toolbar)
 	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_wrap)
+
+
+func _on_toolbar_mode_pressed(mode_index: int) -> void:
+	switch_mode(mode_index as SelectionManager.Mode)
+	_sync_toolbar_mode_buttons()
+
+
+## Mirror the current selection mode onto the toolbar mode buttons.
+func _sync_toolbar_mode_buttons() -> void:
+	var active: int = SelectionManager.Mode.OBJECT
+	if _edited_node != null:
+		active = _edited_node.selection.get_mode()
+	_sync_toolbar_mode_buttons_value(active)
+
+
+## Forward target for [method GoBuildPanel._sync_mode_buttons] so
+## shortcut-driven changes made before/without the panel still sync.
+func sync_toolbar_mode_buttons(active_mode: SelectionManager.Mode) -> void:
+	_sync_toolbar_mode_buttons_value(active_mode as int)
+
+
+func _sync_toolbar_mode_buttons_value(active: int) -> void:
+	for i: int in _toolbar_mode_buttons.size():
+		_toolbar_mode_buttons[i].set_pressed_no_signal(i == active)
+
+
+## Open the keyboard-cheatsheet popup from the toolbar Help button.
+func _on_help_pressed() -> void:
+	var popup: GoBuildCheatsheetPopup = _CHEATSHEET_SCRIPT.new()
+	_toolbar.add_child(popup)
+	popup.popup_centered()
 
 
 func _on_cog_menu_selected(id: int) -> void:
@@ -423,13 +490,18 @@ func _exit_tree() -> void:
 	remove_tool_menu_item("GoBuild: Reset Panel Layout")
 
 	if _toolbar:
-		remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar)
+		# _toolbar lives inside _toolbar_wrap and is freed with it.
 		_toolbar = null
 	if _toolbar_wrap:
 		remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_wrap)
 		_toolbar_wrap.queue_free()
 		_toolbar_wrap = null
+	if _toolbar_gap and is_instance_valid(_toolbar_gap):
+		remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_gap)
+		_toolbar_gap.queue_free()
+		_toolbar_gap = null
 		_cog_menu_btn = null
+		_toolbar_mode_buttons = []
 		_snap_settings_btn = null
 		_snap_settings_label = null
 		_snap_settings_popup = null
@@ -1923,6 +1995,7 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 			_drag_controller.cancel()
 		_input_controller.clear_hover(_edited_node)
 		_input_controller.cancel_box_select(_edited_node)
+	_sync_toolbar_mode_buttons()
 	_refresh_panel_context()
 	if mode != SelectionManager.Mode.OBJECT:
 		_was_in_edit_mode = true
