@@ -129,7 +129,8 @@ var _drag_snapshot: Dictionary = {}
 ## re-set an override (successful drop) or not (cancel / Escape / right-click).
 var _drag_awaiting_drop: bool = false
 var _toolbar: HBoxContainer                      = null
-var _snap_btn: OptionButton                      = null
+var _toolbar_wrap: PanelContainer                = null
+var _cog_menu_btn: MenuButton                    = null
 var _snap_settings_btn: Button                   = null
 var _snap_settings_label: Label                  = null
 var _snap_settings_popup: PopupPanel             = null
@@ -141,9 +142,6 @@ var _snap_menu_translate_idx: int = 0
 var _snap_menu_rot_idx: int = 0
 var _snap_menu_scale_idx: int = 0
 var _snap_menu_mode_idx: int = 0
-var _rot_snap_btn: OptionButton                  = null
-var _scale_snap_btn: OptionButton                = null
-var _snap_mode_btn: OptionButton                 = null
 var _transform_space_btn: OptionButton           = null
 ## Keeps the native Physical/V tool mode pinned whenever in a sub-element mode.
 var _tool_pinner: Node3DEditorToolPinner         = null
@@ -239,24 +237,31 @@ func _enter_tree() -> void:
 
 
 func _build_toolbar() -> void:
+	# GoBuild's own strip inside the 3D editor menu bar: a themed
+	# PanelContainer wrapper makes it visually distinct from Godot's
+	# native toolbar buttons.
 	_toolbar = HBoxContainer.new()
-	_toolbar.add_child(VSeparator.new())
+	_toolbar.add_theme_constant_override("separation", 6)
 
-	# Snap settings: a plain button opening a small settings panel
-	# (enum dropdowns per row), a read-only summary label, and the
-	# gizmo Space control (gizmo orientation, not a snap setting).
+	# ── Snap settings ────────────────────────────────────────────────────
+	# Plain button opening the settings popup; the read-only summary
+	# label next to it shows the current values.
 	var snap_btn := Button.new()
 	snap_btn.text = "Snap"
 	snap_btn.flat = true
+	snap_btn.tooltip_text = "Snap settings: mode, translate/rotation/scale step"
 	snap_btn.pressed.connect(_on_snap_settings_pressed)
 	_toolbar.add_child(snap_btn)
 	_snap_settings_btn = snap_btn
 
 	_snap_settings_label = Label.new()
+	_update_snap_summary()
 	_toolbar.add_child(_snap_settings_label)
 
+	# ── Gizmo space (Local/World) ───────────────────────────────────────
 	var space_btn := OptionButton.new()
 	space_btn.flat = true
+	space_btn.tooltip_text = "Gizmo handle orientation: object-local or world axes"
 	for label: String in _TRANSFORM_SPACE_LABELS:
 		space_btn.add_item(label)
 	space_btn.select(_snap_menu_space_idx)
@@ -264,15 +269,72 @@ func _build_toolbar() -> void:
 	_toolbar.add_child(space_btn)
 	_transform_space_btn = space_btn
 
-	_toolbar.add_child(VSeparator.new())
-
-	var print_sel_btn := Button.new()
-	print_sel_btn.text = "Print Selection"
-	print_sel_btn.flat = true
-	print_sel_btn.pressed.connect(_on_print_selection)
-	_toolbar.add_child(print_sel_btn)
+	# ── Cog (settings) menu ─────────────────────────────────────────────
+	var cog := MenuButton.new()
+	cog.flat = true
+	cog.tooltip_text = "GoBuild settings and utilities"
+	cog.icon = EditorInterface.get_editor_theme().get_icon(
+			"Tools", "EditorIcons")
+	var cog_menu: PopupMenu = cog.get_popup()
+	cog_menu.add_item("Print Selection")
+	cog_menu.add_separator()
+	cog_menu.add_check_item("Debug Logging")
+	cog_menu.set_item_checked(1, GoBuildDebug.enabled)
+	cog_menu.add_check_item("X-Ray (show through mesh)")
+	cog_menu.set_item_checked(2, true)
+	cog_menu.add_check_item("Face Normals")
+	cog_menu.add_check_item("Vertex Normals")
+	cog_menu.add_separator()
+	cog_menu.add_item("Reset Panel Layout")
+	cog_menu.id_pressed.connect(_on_cog_menu_selected)
+	_toolbar.add_child(cog)
+	_cog_menu_btn = cog
 
 	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar)
+
+	# Wrap the strip in a themed PanelContainer inside the menu-bar row so
+	# GoBuild's controls read as one owned group.
+	_toolbar_wrap = PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.13, 0.13, 0.15, 0.55)
+	style.set_corner_radius_all(4)
+	style.content_margin_left = 6.0
+	style.content_margin_right = 6.0
+	style.content_margin_top = 2.0
+	style.content_margin_bottom = 2.0
+	_toolbar_wrap.add_theme_stylebox_override("panel", style)
+	_toolbar_wrap.add_child(_toolbar)
+	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_wrap)
+
+
+func _on_cog_menu_selected(id: int) -> void:
+	match id:
+		0:
+			_on_print_selection()
+		1:
+			var on: bool = not GoBuildDebug.enabled
+			GoBuildDebug.enabled = on
+			_update_cog_check(1, on)
+		2:
+			var on: bool = not _gizmo_plugin.xray_mode
+			set_xray_mode(on)
+			_update_cog_check(2, on)
+		3:
+			var on: bool = not _gizmo_plugin.show_face_normals
+			set_show_face_normals(on)
+			_update_cog_check(3, on)
+		4:
+			var on: bool = not _gizmo_plugin.show_vertex_normals
+			set_show_vertex_normals(on)
+			_update_cog_check(4, on)
+		_:
+			_reset_panel_layout()
+
+
+func _update_cog_check(item_idx: int, on: bool) -> void:
+	if _cog_menu_btn == null:
+		return
+	_cog_menu_btn.get_popup().set_item_checked(item_idx, on)
 
 
 ## Dump the current selection (vertices, edges, faces) with positions/rings
@@ -362,15 +424,15 @@ func _exit_tree() -> void:
 
 	if _toolbar:
 		remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar)
-		_toolbar.queue_free()
 		_toolbar = null
+	if _toolbar_wrap:
+		remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_wrap)
+		_toolbar_wrap.queue_free()
+		_toolbar_wrap = null
+		_cog_menu_btn = null
 		_snap_settings_btn = null
 		_snap_settings_label = null
 		_snap_settings_popup = null
-		_snap_btn = null
-		_rot_snap_btn = null
-		_scale_snap_btn = null
-		_snap_mode_btn = null
 		_transform_space_btn = null
 
 	if _panel:
@@ -1324,8 +1386,6 @@ func _handle_normal_vis_key() -> int:
 	_gizmo_plugin.show_face_normals = not _gizmo_plugin.show_face_normals
 	if _edited_node != null:
 		_edited_node.update_gizmos()
-	if _panel != null and _panel.has_method("_sync_normal_toggles"):
-		_panel._sync_normal_toggles()
 	return 1
 
 
@@ -1529,8 +1589,7 @@ func _draw_snap_grid(overlay: Control) -> bool:
 			overlay.draw_line(
 					cam.unproject_position(cl3),
 					cam.unproject_position(cl4), axis_b, 1.0)
-		# Interior crosses at the lattice points, blended dim from the
-		# two spanned axis colours (centre lines carry the axes).
+		# Interior crosses at the lattice points (plain white, as before).
 		for i: int in range(-RADIUS, RADIUS + 1):
 			for j: int in range(-RADIUS, RADIUS + 1):
 				if i == 0 and j == 0:
@@ -1540,11 +1599,10 @@ func _draw_snap_grid(overlay: Control) -> bool:
 				if cam.is_position_behind(p):
 					continue
 				var sp: Vector2 = cam.unproject_position(p)
-				var cross_col: Color = col_a.lerp(col_b, 0.5) * Color(1, 1, 1, 0.45)
 				overlay.draw_line(sp + Vector2(-CROSS, 0),
-						sp + Vector2(CROSS, 0), cross_col, 1.0)
+						sp + Vector2(CROSS, 0), Color(1, 1, 1, 0.55), 1.0)
 				overlay.draw_line(sp + Vector2(0, -CROSS),
-						sp + Vector2(0, CROSS), cross_col, 1.0)
+						sp + Vector2(0, CROSS), Color(1, 1, 1, 0.55), 1.0)
 	return true
 
 
@@ -1733,6 +1791,7 @@ func _on_mesh_changed() -> void:
 func _on_snap_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
+	_snap_menu_translate_idx = index
 	_gizmo_plugin.snap_step_override = _SNAP_PRESETS[index]
 	if _shape_draw_controller != null:
 		_shape_draw_controller.set_snap_step(_SNAP_PRESETS[index])
@@ -1811,7 +1870,14 @@ func _on_snap_settings_pressed() -> void:
 				_snap_settings_popup.queue_free()
 				_snap_settings_popup = null)
 	_toolbar.add_child(_snap_settings_popup)
-	_snap_settings_popup.popup_centered()
+	# Anchor just below the Snap button; PopupPanel auto-closes on
+	# outside clicks and stays open for clicks inside (incl. dropdowns).
+	var btn_rect: Rect2 = _snap_settings_btn.get_global_rect()
+	_snap_settings_popup.reset_size()
+	_snap_settings_popup.position = Vector2(
+			btn_rect.position.x,
+			btn_rect.end.y + 2.0)
+	_snap_settings_popup.popup()
 
 
 func _make_setting_row_label(text: String) -> Label:
