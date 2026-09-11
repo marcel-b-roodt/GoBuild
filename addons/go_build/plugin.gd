@@ -1521,11 +1521,11 @@ func _draw_snap_grid(overlay: Control) -> bool:
 	var origin: Vector3 = grid["origin"]
 	var step: float = grid["step"]
 	var basis: Basis = grid.get("basis", Basis.IDENTITY)
-	# Small orthogonal panels at the anchor: for each basis axis, a compact
-	# grid on the plane spanned by the other two, ±2 cells.  Line colour
-	# follows the axis each line runs along (Godot colours: X red, Y green,
-	# Z blue); centre lines brighter.
+	# Noise-free panels: per basis axis, a ±2-step panel spanned by the
+	# other two axes — centre lines (bright, axis-coloured), dim border,
+	# and a small cross at every interior lattice point.
 	const RADIUS := 2
+	const CROSS := 4.0
 	const AXES: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
 	const COLS: Array[Color] = [
 		Color(0.86, 0.20, 0.15, 0.60),  # X red
@@ -1539,37 +1539,55 @@ func _draw_snap_grid(overlay: Control) -> bool:
 	]
 	var extent: float = float(RADIUS) * step
 	for axis_idx: int in 3:
-		var dir: Vector3 = basis * AXES[axis_idx]
 		var other_a: Vector3 = basis * AXES[(axis_idx + 1) % 3]
 		var other_b: Vector3 = basis * AXES[(axis_idx + 2) % 3]
+		var col_a: Color = COLS[(axis_idx + 1) % 3]
+		var col_b: Color = COLS[(axis_idx + 2) % 3]
+		var axis_a: Color = COL_AXIS[(axis_idx + 1) % 3]
+		var axis_b: Color = COL_AXIS[(axis_idx + 2) % 3]
+		# Centre lines through the origin (bright, axis-coloured).
+		var cl1: Vector3 = origin - other_a * extent
+		var cl2: Vector3 = origin + other_a * extent
+		if not cam.is_position_behind(cl1) and not cam.is_position_behind(cl2):
+			overlay.draw_line(
+					cam.unproject_position(cl1),
+					cam.unproject_position(cl2), axis_a, 1.0)
+		var cl3: Vector3 = origin - other_b * extent
+		var cl4: Vector3 = origin + other_b * extent
+		if not cam.is_position_behind(cl3) and not cam.is_position_behind(cl4):
+			overlay.draw_line(
+					cam.unproject_position(cl3),
+					cam.unproject_position(cl4), axis_b, 1.0)
+		# Panel outline (dim).
+		var corners: Array[Vector3] = [
+			origin + other_a * extent + other_b * extent,
+			origin + other_a * extent - other_b * extent,
+			origin - other_a * extent - other_b * extent,
+			origin - other_a * extent + other_b * extent,
+		]
+		var visible: Array[bool] = []
+		for c: Vector3 in corners:
+			visible.append(not cam.is_position_behind(c))
+		for k: int in 4:
+			if visible[k] and visible[(k + 1) % 4]:
+				overlay.draw_line(
+						cam.unproject_position(corners[k]),
+						cam.unproject_position(corners[(k + 1) % 4]),
+						Color(1, 1, 1, 0.35), 1.0)
+		# Corner + interior crosses at the lattice points.
 		for i: int in range(-RADIUS, RADIUS + 1):
-			# Line along other_a, offset along other_b — coloured by
-			# other_a (brighter for the centre line through the origin).
-			var bright_a: Color = COL_AXIS[(axis_idx + 1) % 3] if i == 0 \
-					else COLS[(axis_idx + 1) % 3]
-			var l_start: Vector3 = origin + other_b * (float(i) * step) \
-					- other_a * extent
-			var l_end: Vector3 = origin + other_b * (float(i) * step) \
-					+ other_a * extent
-			if not cam.is_position_behind(l_start) \
-					and not cam.is_position_behind(l_end):
-				overlay.draw_line(
-						cam.unproject_position(l_start),
-						cam.unproject_position(l_end),
-						bright_a, 1.0)
-			# Line along other_b, offset along other_a — coloured by other_b.
-			var bright_b: Color = COL_AXIS[(axis_idx + 2) % 3] if i == 0 \
-					else COLS[(axis_idx + 2) % 3]
-			var l2_start: Vector3 = origin + other_a * (float(i) * step) \
-					- other_b * extent
-			var l2_end: Vector3 = origin + other_a * (float(i) * step) \
-					+ other_b * extent
-			if not cam.is_position_behind(l2_start) \
-					and not cam.is_position_behind(l2_end):
-				overlay.draw_line(
-						cam.unproject_position(l2_start),
-						cam.unproject_position(l2_end),
-						bright_b, 1.0)
+			for j: int in range(-RADIUS, RADIUS + 1):
+				if i == 0 and j == 0:
+					continue
+				var p: Vector3 = origin + other_a * (float(i) * step) \
+						+ other_b * (float(j) * step)
+				if cam.is_position_behind(p):
+					continue
+				var sp: Vector2 = cam.unproject_position(p)
+				overlay.draw_line(sp + Vector2(-CROSS, 0),
+						sp + Vector2(CROSS, 0), Color(1, 1, 1, 0.55), 1.0)
+				overlay.draw_line(sp + Vector2(0, -CROSS),
+						sp + Vector2(0, CROSS), Color(1, 1, 1, 0.55), 1.0)
 	return true
 
 
