@@ -54,6 +54,7 @@ const _LOOP_CUT_OP    := preload("res://addons/go_build/mesh/operations/loop_cut
 const _RIP_OP         := preload("res://addons/go_build/mesh/operations/rip_operation.gd")
 const _SUBDIVIDE_OP   := preload("res://addons/go_build/mesh/operations/subdivide_operation.gd")
 const _WELD_OP        := preload("res://addons/go_build/mesh/operations/weld_operation.gd")
+const _SNAP_TO_GRID   := preload("res://addons/go_build/mesh/operations/snap_to_grid_operation.gd")
 const _DELETE_OP      := preload("res://addons/go_build/mesh/operations/delete_operation.gd")
 const _DISSOLVE_OP    := preload("res://addons/go_build/mesh/operations/dissolve_operation.gd")
 const _FLIP_NORMALS   := preload("res://addons/go_build/mesh/operations/flip_normals_operation.gd")

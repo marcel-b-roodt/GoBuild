@@ -43,6 +43,10 @@ const _CHEATSHEET_SCRIPT    := preload(
 		"res://addons/go_build/core/go_build_cheatsheet_popup.gd")
 const _TOOL_PINNER_SCRIPT   := preload(
 		"res://addons/go_build/core/node3d_editor_tool_pinner.gd")
+const _SNAP_TO_GRID_OP := preload(
+		"res://addons/go_build/mesh/operations/snap_to_grid_operation.gd")
+const _TRANSFORM_HELPERS := preload(
+		"res://addons/go_build/core/go_build_transform_helpers.gd")
 const _DRAG_CTRL_SCRIPT    := preload(
 		"res://addons/go_build/core/go_build_drag_controller.gd")
 const _DRAG_OP_SCRIPT       := preload(
@@ -1969,6 +1973,18 @@ func _on_snap_settings_pressed() -> void:
 			_SCALE_SNAP_LABELS, _snap_menu_scale_idx, _on_scale_snap_selected)
 	panel.add_child(scale_btn)
 
+	# Spanning action row: snap the selection to the grid (per-vertex,
+	# deforming — ProBuilder "Snap Selection to Grid").
+	panel.columns = 1
+	var snap_action := Button.new()
+	snap_action.text = "Snap Selection to Grid"
+	snap_action.tooltip_text = (
+			"Snap each selected vertex to its nearest grid cell in world"
+			+ " space.\nDeforming: repairs off-grid geometry (topology"
+			+ " unchanged).\nStep: the current Translate snap step.")
+	snap_action.pressed.connect(_on_snap_selection_to_grid)
+	panel.add_child(snap_action)
+
 	var wrap := PanelContainer.new()
 	wrap.add_child(panel)
 	_snap_settings_popup = PopupPanel.new()
@@ -1988,6 +2004,24 @@ func _on_snap_settings_pressed() -> void:
 	_snap_settings_popup.position = btn_pos + Vector2(
 			0.0, _snap_settings_btn.size.y + 2.0)
 	_snap_settings_popup.popup()
+
+
+## Snap every selected vertex to its nearest world-grid cell
+## (deforming, ProBuilder "Snap Selection to Grid").  Undoable.
+func _on_snap_selection_to_grid() -> void:
+	if _edited_node == null or _edited_node.go_build_mesh == null:
+		return
+	var verts: Array[int] = _edited_node.selection.get_selected_vertices()
+	if verts.is_empty():
+		return
+	var step: float = _TRANSFORM_HELPERS.get_snap_step(
+			_gizmo_plugin.snap_step_override)
+	var mesh: GoBuildMesh = _edited_node.go_build_mesh
+	var xform: Transform3D = _edited_node.global_transform
+	_edited_node.apply_operation("Snap Selection to Grid",
+			func() -> void:
+				SnapToGridOperation.apply(mesh, verts, xform, step),
+			get_undo_redo())
 
 
 func _make_setting_row_label(text: String) -> Label:
