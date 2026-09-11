@@ -1976,10 +1976,10 @@ func _on_snap_settings_pressed() -> void:
 
 	# Divider + spanning action row: snap the selection to the grid
 	# (per-vertex, deforming — ProBuilder "Snap Selection to Grid").
+	panel.columns = 1
 	var divider := HSeparator.new()
 	divider.modulate.a = 0.5
 	panel.add_child(divider)
-	panel.columns = 1
 	var snap_action := Button.new()
 	snap_action.text = "Snap Selection to Grid"
 	snap_action.tooltip_text = (
