@@ -26,6 +26,12 @@ const _TRANSFORM_HELPERS_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_transform_helpers.gd")
 const _SYMMETRY_SCRIPT := preload("res://addons/go_build/core/go_build_symmetry.gd")
 
+## Element-kind classification for [method _snap_translate] (mirrors
+## [method GoBuildTransformHelpers.get_element_kind]).
+const _ELEMENT_NONE: int = 0
+const _ELEMENT_VERTEX: int = 1
+const _ELEMENT_EDGE: int = 2
+
 ## Precision multiplier applied when Shift is held during a drag.
 const _PRECISION_MULTIPLIER_VAL: float = 0.1
 
@@ -343,6 +349,8 @@ func get_snap_grid_data() -> Dictionary:
 	if mode == GoBuildDragOperation.SnapMode.WORLD \
 			or _op.element_edit:
 		# Relative quantization — reference is the drag start, world axes.
+		# Edge/face element edits quantize deltas even under HYBRID
+		# (off-axis centroid), so the grid rides on the drag start.
 		return {
 				"origin": world_centroid,
 				"step": step,
@@ -512,7 +520,8 @@ func _compute_frame_result(
 			if snap_enabled:
 				result_val = _snap_translate(result_val, local_centroid,
 						node_xform, snap_step, op.snap_mode,
-						op.delta_mode, world_axis, op.element_edit)
+						op.delta_mode, world_axis, op.element_edit,
+						op.element_kind)
 			_update_grid_anchor(result_val, local_centroid, node_xform)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
@@ -527,7 +536,8 @@ func _compute_frame_result(
 			if snap_enabled:
 				result_val = _snap_translate(result_val, local_centroid,
 						node_xform, snap_step, op.snap_mode,
-						op.delta_mode, world_axis, op.element_edit)
+						op.delta_mode, world_axis, op.element_edit,
+						op.element_kind)
 			_update_grid_anchor(result_val, local_centroid, node_xform)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
@@ -542,7 +552,8 @@ func _compute_frame_result(
 			if snap_enabled:
 				result_val = _snap_translate(result_val, local_centroid,
 						node_xform, snap_step, op.snap_mode,
-						op.delta_mode, world_axis, op.element_edit)
+						op.delta_mode, world_axis, op.element_edit,
+						op.element_kind)
 			var total_result := GoBuildDeltaStrategy.StrategyResult.new()
 			total_result.vec_value = result_val
 			return total_result
@@ -640,19 +651,29 @@ static func _snap_translate(
 		drag_mode: int,
 		world_axis: Vector3,
 		element_edit: bool,
+		element_kind: int = 0,
 ) -> Vector3:
 	match snap_mode:
 		GoBuildDragOperation.SnapMode.HYBRID:
 			if element_edit:
-				# Element edits snap the reference point's ABSOLUTE world
-				# position to the grid and apply the correction rigidly,
-				# so off-grid starting geometry (e.g. a 2.863 m edge)
-				# lands exactly on grid lines.  Rigid correction keeps
-				# aligned offsets intact.
-				var ref_world: Vector3 = node_xform * local_centroid
-				var tentative: Vector3 = ref_world + node_xform.basis * raw_delta
-				var snapped: Vector3 = tentative.snapped(Vector3.ONE * snap_step)
-				return node_xform.basis.inverse() * (snapped - ref_world)
+				if element_kind == _ELEMENT_VERTEX:
+					# Vertex drags: snap the vertex's ABSOLUTE world
+					# position — the dragged point is the thing being
+					# snapped, so its position is always meaningful.
+					var ref_world: Vector3 = node_xform * local_centroid
+					var tentative: Vector3 = ref_world \
+							+ node_xform.basis * raw_delta
+					var snapped: Vector3 = tentative.snapped(
+							Vector3.ONE * snap_step)
+					return node_xform.basis.inverse() * (snapped - ref_world)
+				# Edge / face drags: quantize the world DELTA.  The drag
+				# reference (centroid) may sit off-axis, so absolute
+				# snapping would compute an arbitrary sub-step offset and
+				# land the element on the wrong cell.  Delta snapping is
+				# position-agnostic — geometry stays intact, moves in
+				# whole grid steps.  Off-grid repair is Snap Selection
+				# to Grid's job.
+				return _snap_delta_world(node_xform, raw_delta, snap_step)
 			var world_centroid: Vector3 = node_xform * local_centroid
 			match drag_mode:
 				GoBuildDragOperation.DeltaMode.AXIS_PROJECT:
@@ -673,11 +694,9 @@ static func _snap_translate(
 					return node_xform.basis.inverse() * (snapped_world \
 							- world_centroid)
 		GoBuildDragOperation.SnapMode.WORLD:
-			if element_edit:
-				var ref_world: Vector3 = node_xform * local_centroid
-				var tentative: Vector3 = ref_world + node_xform.basis * raw_delta
-				var snapped: Vector3 = tentative.snapped(Vector3.ONE * snap_step)
-				return node_xform.basis.inverse() * (snapped - ref_world)
+			# Relative quantization for everything: object moves and
+			# element edits quantize the world delta (rigid, position
+			# agnostic — nothing teleports to a cell).
 			return _snap_delta_world(node_xform, raw_delta, snap_step)
 		GoBuildDragOperation.SnapMode.DELTA:
 			return raw_delta.snapped(Vector3.ONE * snap_step)

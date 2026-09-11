@@ -65,6 +65,13 @@ var snap_mode: SnapMode = SnapMode.HYBRID
 ## element edits use RELATIVE (delta) snapping; only whole-object moves use
 ## the absolute position grid.
 var element_edit: bool = false
+## What kind of geometry the selection targets (see
+## [method GoBuildTransformHelpers.get_element_kind]): 0 = object/none,
+## 1 = vertex, 2 = edge/face.  Vertex drags snap by absolute world
+## position; edge/face drags snap the world delta (the drag reference —
+## centroid — may sit off-axis and absolute snapping lands it wrong).
+## Set from the selection mode alongside [member element_edit].
+var element_kind: int = 0
 var snap_to_start: bool = false
 var snap_threshold: float = 0.04
 
@@ -213,6 +220,8 @@ static func create_for_gizmo_handle(
 	if node.selection != null:
 		op.element_edit = node.selection.get_mode() \
 				!= _SELECTION_MANAGER_SCRIPT.Mode.OBJECT
+		op.element_kind = _TRANSFORM_HELPERS_SCRIPT.get_element_kind(
+				node.selection.get_mode())
 	return op
 
 

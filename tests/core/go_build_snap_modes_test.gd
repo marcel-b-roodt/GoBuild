@@ -8,13 +8,15 @@
 ##
 ## The semantic contract (AGENTS: ProBuilder classification):
 ##   HYBRID  — object moves: snap the object's ABSOLUTE world position to
-##             grid crossings ("where is it now"); element edits: same
-##             absolute-position snap applied rigidly to the element
-##             (off-grid 2.863 m edge lands on 3.0 m).
-##   WORLD   — object moves: quantize the DELTA in world increments
-##             (rigid; no teleport of off-grid objects); element edits:
-##             absolute-position snap like Hybrid.  Scale quantizes the
-##             RESULTING world size.
+##             grid crossings ("where is it now"); VERTEX drags: absolute
+##             world-position snap (the dragged point IS the thing being
+##             snapped); EDGE/FACE drags: quantize the world DELTA — the
+##             drag reference (centroid) may sit off-axis, and absolute
+##             snapping would land the element on the wrong cell.
+##             Off-grid repair is "Snap Selection to Grid"'s job.
+##   WORLD   — object moves AND element edits: quantize the DELTA in
+##             world increments (rigid; nothing teleports).  Scale
+##             quantizes the RESULTING world size.
 ##   DELTA   — legacy: quantize the cumulative LOCAL delta; the object
 ##             never teleports, only increments are enforced.
 @tool
@@ -28,10 +30,12 @@ func _identity() -> Transform3D:
 	return Transform3D(Basis.IDENTITY, Vector3.ZERO)
 
 
-func _op(snap_mode: int, element_edit: bool, drag_mode: int) -> GoBuildDragOperation:
+func _op(snap_mode: int, element_edit: bool, drag_mode: int,
+		element_kind: int = 0) -> GoBuildDragOperation:
 	var op := GoBuildDragOperation.new()
 	op.snap_mode = snap_mode
 	op.element_edit = element_edit
+	op.element_kind = element_kind
 	op.delta_mode = drag_mode
 	op.snap_step = 0.1
 	op.initial_world_size = 1.0
@@ -46,7 +50,8 @@ func _call_snap(
 ) -> Vector3:
 	var correction: Vector3 = _CTRL_SCRIPT._snap_translate(
 			raw, centroid, xform, op.snap_step, op.snap_mode,
-			op.delta_mode, op.world_axis, op.element_edit)
+			op.delta_mode, op.world_axis, op.element_edit,
+			op.element_kind)
 	return correction
 
 
@@ -93,39 +98,82 @@ func test_hybrid_object_move_never_teleports_object() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Hybrid / World — element edits (absolute position, rigid correction)
+# Hybrid / World — element edits (vertex: absolute; edge/face: delta)
 # ---------------------------------------------------------------------------
 
-func test_hybrid_element_edit_off_grid_edge_lands_on_grid() -> void:
-	# The reported bug: edge at 2.863, dragged +0.14 → must land on 3.0.
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID,
-			true, GoBuildDragOperation.DeltaMode.AXIS_PROJECT)
+func test_hybrid_vertex_drag_off_grid_snaps_absolute() -> void:
+	# Vertex at 2.863 dragged +0.14 → snaps absolutely to 3.0.  The
+	# dragged point is the thing being snapped.
+	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, true,
+			GoBuildDragOperation.DeltaMode.AXIS_PROJECT, 1)
 	op.world_axis = Vector3.RIGHT
 	var correction := _call_snap(op, Vector3(0.14, 0, 0),
 			Vector3(2.863, 0, 0), _identity())
-	var final := 2.863 + correction.x
-	assert_float(final).is_equal_approx(3.0, 0.001)
+	assert_float(2.863 + correction.x).is_equal_approx(3.0, 0.001)
 
 
-func test_hybrid_element_edit_rigid_correction_preserves_offsets() -> void:
-	# Two verts at 2.863 and 2.863+0.5 (an edge 1 m apart in y too):
-	# the correction must be identical for both → offset preserved.
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID,
-			true, GoBuildDragOperation.DeltaMode.PLANE_PROJECT)
-	var correction := _call_snap(op, Vector3(0.14, 0, 0.02),
-			Vector3(2.863, 0, 0), _identity())
-	# Rigid: the same correction is returned for the whole element (single
-	# delta), so offsets are preserved by construction — assert the
-	# correction is a pure translation (no per-vertex variance possible).
-	assert_that(correction).is_not_null()
-
-
-func test_world_element_edit_off_grid_edge_lands_on_grid() -> void:
-	var op := _op(_OP_SCRIPT.SnapMode.WORLD,
-			true, GoBuildDragOperation.DeltaMode.PLANE_PROJECT)
+func test_hybrid_edge_drag_off_grid_centroid_is_delta() -> void:
+	# Off-axis edge centroid at 2.863, dragged +0.14: the delta is
+	# quantized (0.1) — NOT snapped absolutely to 3.0.  The element
+	# lands at 2.863 + 0.1 = 2.963, geometry intact.
+	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, true,
+			GoBuildDragOperation.DeltaMode.AXIS_PROJECT, 2)
+	op.world_axis = Vector3.RIGHT
 	var correction := _call_snap(op, Vector3(0.14, 0, 0),
 			Vector3(2.863, 0, 0), _identity())
-	assert_float(2.863 + correction.x).is_equal_approx(3.0, 0.001)
+	assert_vector(correction).is_equal_approx(Vector3(0.1, 0, 0),
+			Vector3.ONE * 0.001)
+
+
+func test_hybrid_edge_drag_rotated_node_quantizes_world_delta() -> void:
+	# Node rotated 90° around Y: local +X is world -Z.  Raw local delta
+	# (0.14, 0, 0) → world delta (0, 0, -0.14) → snapped (0, 0, -0.1)
+	# → back to local (0.1, 0, 0).
+	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, true,
+			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 2)
+	var xf := Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3.ZERO)
+	var correction := _call_snap(op, Vector3(0.14, 0, 0), Vector3.ZERO, xf)
+	assert_float(correction.length()).is_equal_approx(0.1, 0.001)
+
+
+func test_hybrid_edge_drag_delta_is_position_agnostic() -> void:
+	# Same delta from a different (also off-grid) centroid → same
+	# correction: position-agnostic by contract.
+	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, true,
+			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 2)
+	var a := _call_snap(op, Vector3(0.14, 0, 0), Vector3(2.863, 0, 0),
+			_identity())
+	var b := _call_snap(op, Vector3(0.14, 0, 0), Vector3(7.413, 0, 0),
+			_identity())
+	assert_vector(a).is_equal_approx(b, Vector3.ONE * 0.001)
+
+
+func test_hybrid_face_drag_behaves_like_edge_drag() -> void:
+	# Face centroids share edge semantics (element_kind 2).
+	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, true,
+			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 2)
+	var correction := _call_snap(op, Vector3(0.14, 0.02, 0),
+			Vector3(2.863, 0.41, 0), _identity())
+	assert_vector(correction).is_equal_approx(Vector3(0.1, 0.0, 0.0),
+			Vector3.ONE * 0.001)
+
+
+func test_hybrid_object_move_unaffected_by_element_kind() -> void:
+	# element_kind 0 (object move) keeps absolute-position semantics.
+	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, false,
+			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 0)
+	var correction := _call_snap(op, Vector3(0.05, 0, 0),
+			Vector3(0.53, 0, 0), _identity())
+	assert_float(0.53 + correction.x).is_equal_approx(0.6, 0.001)
+
+
+func test_world_element_edit_delta_quantized() -> void:
+	var op := _op(_OP_SCRIPT.SnapMode.WORLD, true,
+			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 2)
+	var correction := _call_snap(op, Vector3(0.14, 0, 0),
+			Vector3(2.863, 0, 0), _identity())
+	assert_vector(correction).is_equal_approx(Vector3(0.1, 0, 0),
+			Vector3.ONE * 0.001)
 
 
 # ---------------------------------------------------------------------------

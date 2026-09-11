@@ -13,6 +13,23 @@ const _EDGE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_edge
 const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
 
 
+## Classify what kind of geometry a selection targets — drives snap
+## semantics (see [method GoBuildDragController._snap_translate]):
+## vertices snap by absolute world position, edges/faces by grid deltas
+## (their centroid may be off-axis and would land on the wrong cell).
+## [param mode] is the raw [code]SelectionManager.Mode[/code] value.
+static func get_element_kind(mode: int) -> int:
+	match mode:
+		_SEL_MGR_SCRIPT.Mode.VERTEX:
+			return 1  # ELEMENT_VERTEX
+		_SEL_MGR_SCRIPT.Mode.EDGE:
+			return 2  # ELEMENT_EDGE
+		_SEL_MGR_SCRIPT.Mode.FACE:
+			return 2  # ELEMENT_EDGE — same snap semantics as edges
+	return 0  # ELEMENT_NONE — object move or no sub-element selection
+
+
+
 ## Return the grid-snap step from EditorSettings ([code]editors/3d/grid_step[/code]).
 ##
 ## If [param snap_step_override] is positive, it is returned directly.
