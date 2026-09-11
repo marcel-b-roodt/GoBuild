@@ -359,7 +359,7 @@ func _build_toolbar() -> void:
 	# slate panel, distinct from Godot's neutral chrome.
 	_toolbar_wrap = PanelContainer.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.16, 0.14, 0.11, 0.92)
+	style.bg_color = Color("3a3f47eb")
 	style.set_corner_radius_all(4)
 	style.content_margin_left = 8.0
 	style.content_margin_right = 8.0
