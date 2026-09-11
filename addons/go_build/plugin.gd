@@ -87,6 +87,13 @@ const _SCALE_SNAP_DEFAULT_IDX: int = 0   # 0.1
 ## Snap mode labels shown in the toolbar dropdown.
 const _SNAP_MODE_LABELS: Array[String] = ["Hybrid", "World", "Delta"]
 
+## Submenu node names inside the nested Snap menu.
+const _SNAP_SUB_SPACE: String = "SpaceMenu"
+const _SNAP_SUB_TRANSLATE: String = "SnapTranslate"
+const _SNAP_SUB_ROT: String = "SnapRotate"
+const _SNAP_SUB_SCALE: String = "SnapScale"
+const _SNAP_SUB_MODE: String = "SnapMode"
+
 ## Transform space labels shown in the toolbar dropdown.
 const _TRANSFORM_SPACE_LABELS: Array[String] = ["Local", "World"]
 
@@ -228,73 +235,55 @@ func _build_toolbar() -> void:
 	_toolbar = HBoxContainer.new()
 	_toolbar.add_child(VSeparator.new())
 
-	var space_lbl := Label.new()
-	space_lbl.text = "Space:"
-	_toolbar.add_child(space_lbl)
+	# Single nested Snap menu: everything snap-related under one header.
+	# Submenus are plain PopupMenus; the item-selected handlers live on
+	# them directly (no OptionButton wrappers).
+	var snap_menu := MenuButton.new()
+	snap_menu.text = "Snap"
+	snap_menu.flat = true
+	var root: PopupMenu = snap_menu.get_popup()
 
-	_transform_space_btn = OptionButton.new()
-	_transform_space_btn.flat = true
+	var space_popup := PopupMenu.new()
+	space_popup.name = _SNAP_SUB_SPACE
 	for label: String in _TRANSFORM_SPACE_LABELS:
-		_transform_space_btn.add_item(label)
-	_transform_space_btn.select(GoBuildGizmoPlugin.TransformSpace.LOCAL)
-	_transform_space_btn.item_selected.connect(_on_transform_space_selected)
-	_toolbar.add_child(_transform_space_btn)
+		space_popup.add_item(label)
+	space_popup.index_pressed.connect(_on_transform_space_selected)
+	root.add_child(space_popup)
 
-	_toolbar.add_child(VSeparator.new())
-
-	var lbl := Label.new()
-	lbl.text = "Snap:"
-	_toolbar.add_child(lbl)
-
-	_snap_btn = OptionButton.new()
-	_snap_btn.flat = true
+	var translate_popup := PopupMenu.new()
+	translate_popup.name = _SNAP_SUB_TRANSLATE
 	for label: String in _SNAP_LABELS:
-		_snap_btn.add_item(label)
-	_snap_btn.select(0)  # default: "Editor"
-	_snap_btn.item_selected.connect(_on_snap_selected)
-	_toolbar.add_child(_snap_btn)
+		translate_popup.add_item(label)
+	translate_popup.index_pressed.connect(_on_snap_selected)
+	root.add_child(translate_popup)
 
-	_toolbar.add_child(VSeparator.new())
-
-	var rot_lbl := Label.new()
-	rot_lbl.text = "Rot:"
-	_toolbar.add_child(rot_lbl)
-
-	_rot_snap_btn = OptionButton.new()
-	_rot_snap_btn.flat = true
+	var rot_popup := PopupMenu.new()
+	rot_popup.name = _SNAP_SUB_ROT
 	for label: String in _ROT_SNAP_LABELS:
-		_rot_snap_btn.add_item(label)
-	_rot_snap_btn.select(_ROT_SNAP_DEFAULT_IDX)
-	_rot_snap_btn.item_selected.connect(_on_rot_snap_selected)
-	_toolbar.add_child(_rot_snap_btn)
+		rot_popup.add_item(label)
+	rot_popup.index_pressed.connect(_on_rot_snap_selected)
+	root.add_child(rot_popup)
 
-	_toolbar.add_child(VSeparator.new())
-
-	var scale_lbl := Label.new()
-	scale_lbl.text = "Scale:"
-	_toolbar.add_child(scale_lbl)
-
-	_scale_snap_btn = OptionButton.new()
-	_scale_snap_btn.flat = true
+	var scale_popup := PopupMenu.new()
+	scale_popup.name = _SNAP_SUB_SCALE
 	for label: String in _SCALE_SNAP_LABELS:
-		_scale_snap_btn.add_item(label)
-	_scale_snap_btn.select(_SCALE_SNAP_DEFAULT_IDX)
-	_scale_snap_btn.item_selected.connect(_on_scale_snap_selected)
-	_toolbar.add_child(_scale_snap_btn)
+		scale_popup.add_item(label)
+	scale_popup.index_pressed.connect(_on_scale_snap_selected)
+	root.add_child(scale_popup)
 
-	_toolbar.add_child(VSeparator.new())
-
-	var mode_lbl := Label.new()
-	mode_lbl.text = "Snap Mode:"
-	_toolbar.add_child(mode_lbl)
-
-	_snap_mode_btn = OptionButton.new()
-	_snap_mode_btn.flat = true
+	var mode_popup := PopupMenu.new()
+	mode_popup.name = _SNAP_SUB_MODE
 	for label: String in _SNAP_MODE_LABELS:
-		_snap_mode_btn.add_item(label)
-	_snap_mode_btn.select(GoBuildDragOperation.SnapMode.HYBRID)
-	_snap_mode_btn.item_selected.connect(_on_snap_mode_selected)
-	_toolbar.add_child(_snap_mode_btn)
+		mode_popup.add_item(label)
+	mode_popup.index_pressed.connect(_on_snap_mode_selected)
+	root.add_child(mode_popup)
+
+	root.add_submenu_item("Space", _SNAP_SUB_SPACE)
+	root.add_submenu_item("Translation", _SNAP_SUB_TRANSLATE)
+	root.add_submenu_item("Rotation", _SNAP_SUB_ROT)
+	root.add_submenu_item("Scale", _SNAP_SUB_SCALE)
+	root.add_submenu_item("Snap Mode", _SNAP_SUB_MODE)
+	_toolbar.add_child(snap_menu)
 
 	_toolbar.add_child(VSeparator.new())
 
