@@ -207,9 +207,9 @@ var snap_step_override: float = -1.0
 var rot_snap_override: float = 15.0
 ## Ctrl-snap step for scale ratio.
 var scale_snap_override: float = 0.1
-## Snap mode: HYBRID (world positions, delta sizes), WORLD (all world-space)
-## or DELTA (legacy incremental).
-var snap_mode_override: int = GoBuildDragOperation.SnapMode.HYBRID
+## Snap mode: SMART (default — absolute positions where meaningful, deltas
+## elsewhere, world-size scale) or DELTA (legacy incremental).
+var snap_mode_override: int = GoBuildDragOperation.SnapMode.SMART
 
 ## Currently hovered transform handle ID, or [code]-1[/code] when no handle is
 ## under the cursor.  Written by [code]plugin.gd[/code] via [method _update_hover]

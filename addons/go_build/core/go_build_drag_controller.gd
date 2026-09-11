@@ -316,9 +316,9 @@ func get_overlay_data() -> Dictionary:
 
 
 ## Data for the Ctrl snap-grid overlay, matched to the active snap mode:
-##   HYBRID + object move → world-aligned panels at the snapped (absolute)
-##     grid cell containing the centroid.
-##   HYBRID + element edit, WORLD → world-aligned panels anchored at the
+##   SMART + object move or vertex drag → world-aligned panels at the
+##     snapped (absolute) grid cell containing the reference.
+##   SMART + edge/face drag → world-aligned panels anchored at the
 ##     drag-start centroid (relative quantization reference).
 ##   DELTA → panels in the node's LOCAL axes anchored at the drag start.
 ## Rotate/scale/inset steps are not spatial — no grid for those.
@@ -346,17 +346,15 @@ func get_snap_grid_data() -> Dictionary:
 				"step": step,
 				"basis": node_xform.basis,
 		}
-	if mode == GoBuildDragOperation.SnapMode.WORLD \
-			or _op.element_edit:
-		# Relative quantization — reference is the drag start, world axes.
-		# Edge/face element edits quantize deltas even under HYBRID
-		# (off-axis centroid), so the grid rides on the drag start.
+	# SMART.  Edge/face drags: relative quantization — grid rides on the
+	# drag start (off-axis centroid can't be snapped absolutely).
+	if _op.element_edit and _op.element_kind == _ELEMENT_EDGE:
 		return {
 				"origin": world_centroid,
 				"step": step,
 				"basis": Basis.IDENTITY,
 		}
-	# HYBRID object move — absolute position grid.
+	# Object move / vertex drag — absolute position grid.
 	return {
 			"origin": world_centroid.snapped(Vector3.ONE * step),
 			"step": step,
@@ -616,18 +614,17 @@ func _compute_frame_result(
 
 
 ## Snap a translate delta based on [param snap_mode] and the op's
-## object-move vs element-edit classification (ProBuilder model).
+## object-move vs element-edit classification.
 ##
-## [code]HYBRID[/code] (default): whole-object MOVES snap the final world
-## position to absolute grid lines — only along the drag's degrees of freedom
-## (axis drag: the axis component; plane drag: all world components, applied
-## back in local space) so the snapped motion never leaves the axis or plane.
-## ELEMENT edits (vertex/edge/face moves and extrudes) snap RELATIVELY: the
-## world displacement is quantized to grid increments — no teleport from
-## off-grid starting geometry, and aligned edges/corners stay on grid.
-##
-## [code]WORLD[/code]: relative quantization for everything (same maths as
-## Hybrid element edits).
+## [code]SMART[/code] (default): keep geometry on the grid wherever the
+## absolute position is meaningful — whole-object MOVES and VERTEX drags
+## snap the final world position to absolute grid lines (axis drags: the
+## axis component only; plane drags: all world components, applied back in
+## local space so the motion never leaves the axis or plane).  EDGE/FACE
+## drags quantize the world DELTA — the drag reference (centroid) may sit
+## off-axis, and absolute snapping would land the element on the wrong
+## cell; delta snapping is position-agnostic and geometry stays intact
+## (off-grid repair is Snap Selection to Grid's job).
 ##
 ## [code]DELTA[/code]: legacy — the cumulative LOCAL displacement is snapped
 ## to grid increments (a rotated node drags along its local axes).
@@ -654,7 +651,7 @@ static func _snap_translate(
 		element_kind: int = 0,
 ) -> Vector3:
 	match snap_mode:
-		GoBuildDragOperation.SnapMode.HYBRID:
+		GoBuildDragOperation.SnapMode.SMART:
 			if element_edit:
 				if element_kind == _ELEMENT_VERTEX:
 					# Vertex drags: snap the vertex's ABSOLUTE world
@@ -693,11 +690,6 @@ static func _snap_translate(
 							Vector3.ONE * snap_step)
 					return node_xform.basis.inverse() * (snapped_world \
 							- world_centroid)
-		GoBuildDragOperation.SnapMode.WORLD:
-			# Relative quantization for everything: object moves and
-			# element edits quantize the world delta (rigid, position
-			# agnostic — nothing teleports to a cell).
-			return _snap_delta_world(node_xform, raw_delta, snap_step)
 		GoBuildDragOperation.SnapMode.DELTA:
 			return raw_delta.snapped(Vector3.ONE * snap_step)
 	return raw_delta
@@ -717,9 +709,9 @@ static func _snap_delta_world(
 
 ## Snap a cumulative scale ratio based on the op's snap mode.
 ##
-## HYBRID / DELTA: quantizes the scale RATIO (delta-space size adjustment).
-## WORLD: quantizes the RESULTING world size to grid increments so adjusted
-## faces land on grid lines (ratio recomputed from the snapped size).
+## SMART: quantizes the RESULTING world size to grid increments so
+## adjusted faces land on grid lines (ratio recomputed from the snapped
+## size).  DELTA: quantizes the scale RATIO (delta-space adjustment).
 static func _snap_scale(
 		op: GoBuildDragOperation,
 		raw_ratio: float,
@@ -728,7 +720,7 @@ static func _snap_scale(
 ) -> float:
 	if not snap_enabled or snap_step <= 0.0:
 		return raw_ratio
-	if op.snap_mode == GoBuildDragOperation.SnapMode.WORLD \
+	if op.snap_mode == GoBuildDragOperation.SnapMode.SMART \
 			and op.initial_world_size > 0.001:
 		return snappedf(op.initial_world_size * raw_ratio, snap_step) \
 				/ op.initial_world_size

@@ -92,7 +92,7 @@ const _SCALE_SNAP_LABELS:  Array[String] = ["0.1", "0.2", "0.5", "1.0"]
 const _SCALE_SNAP_DEFAULT_IDX: int = 0   # 0.1
 
 ## Snap mode labels shown in the toolbar dropdown.
-const _SNAP_MODE_LABELS: Array[String] = ["Hybrid", "World", "Delta"]
+const _SNAP_MODE_LABELS: Array[String] = ["Smart", "Delta"]
 
 ## Snap settings state (indices into the label arrays) for the summary
 ## label and the settings panel. (indices into the label arrays) for the live
@@ -2067,7 +2067,7 @@ func _current_translate_idx() -> int:
 
 
 ## Read-only summary of the current snap settings, e.g.
-## "Hybrid · 1 m · R15° · S0.1" (gizmo Space lives on its own control).
+## "Smart · 1 m · R15° · S0.1" (gizmo Space lives on its own control).
 func _update_snap_summary() -> void:
 	if _snap_settings_label == null:
 		return

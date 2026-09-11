@@ -6,19 +6,16 @@
 ## [method _snap_scale]) so it is pure-logic testable headless: feed in a
 ## transform + cumulative raw delta, assert the returned correction.
 ##
-## The semantic contract (AGENTS: ProBuilder classification):
-##   HYBRID  — object moves: snap the object's ABSOLUTE world position to
-##             grid crossings ("where is it now"); VERTEX drags: absolute
-##             world-position snap (the dragged point IS the thing being
-##             snapped); EDGE/FACE drags: quantize the world DELTA — the
-##             drag reference (centroid) may sit off-axis, and absolute
-##             snapping would land the element on the wrong cell.
-##             Off-grid repair is "Snap Selection to Grid"'s job.
-##   WORLD   — object moves AND element edits: quantize the DELTA in
-##             world increments (rigid; nothing teleports).  Scale
-##             quantizes the RESULTING world size.
-##   DELTA   — legacy: quantize the cumulative LOCAL delta; the object
-##             never teleports, only increments are enforced.
+## The semantic contract:
+##   SMART   — keep geometry on the grid wherever the absolute position is
+##             meaningful: object moves and VERTEX drags snap absolute
+##             world positions; EDGE/FACE drags quantize the world DELTA
+##             (the drag reference — centroid — may sit off-axis, and
+##             absolute snapping would land the element on the wrong
+##             cell); scale quantizes the RESULTING world size.  Off-grid
+##             repair is "Snap Selection to Grid"'s job.
+##   DELTA   — legacy: quantize the cumulative LOCAL delta; nothing
+##             teleports, only increments are enforced (scale: ratio).
 @tool
 extends GdUnitTestSuite
 
@@ -59,9 +56,9 @@ func _call_snap(
 # Hybrid — object moves
 # ---------------------------------------------------------------------------
 
-func test_hybrid_object_axis_move_snaps_absolute_position() -> void:
+func test_smart_object_axis_move_snaps_absolute_position() -> void:
 	# Object centroid at x=0.53, dragged +0.05 → target 0.58 → snaps to 0.6.
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID,
+	var op := _op(_OP_SCRIPT.SnapMode.SMART,
 			false, GoBuildDragOperation.DeltaMode.AXIS_PROJECT)
 	op.world_axis = Vector3.RIGHT
 	var xf := _identity()
@@ -70,8 +67,8 @@ func test_hybrid_object_axis_move_snaps_absolute_position() -> void:
 	assert_vector(correction).is_equal_approx(Vector3(0.07, 0, 0), Vector3.ONE * 0.001)
 
 
-func test_hybrid_object_plane_move_snaps_all_axes() -> void:
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID,
+func test_smart_object_plane_move_snaps_all_axes() -> void:
+	var op := _op(_OP_SCRIPT.SnapMode.SMART,
 			false, GoBuildDragOperation.DeltaMode.PLANE_PROJECT)
 	# Centroid (0.53, 1.02, 0), dragged (0.05, -0.01, 0.04):
 	# target (0.58, 1.01, 0.05) → snapped (0.6, 1.0, 0.1)... z stays 0.05? No:
@@ -86,11 +83,11 @@ func test_hybrid_object_plane_move_snaps_all_axes() -> void:
 	assert_float(target.z).is_equal_approx(0.1, 0.001)
 
 
-func test_hybrid_object_move_never_teleports_object() -> void:
+func test_smart_object_move_never_teleports_object() -> void:
 	# A nudge of 0.01 from centroid x=0.53: target 0.54 snaps to 0.5.
 	# Correction (-0.04) is a small rigid move — NOT a teleport to a
 	# distant cell (sanity bound).
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID,
+	var op := _op(_OP_SCRIPT.SnapMode.SMART,
 			false, GoBuildDragOperation.DeltaMode.PLANE_PROJECT)
 	var correction := _call_snap(op, Vector3(0.01, 0, 0),
 			Vector3(0.53, 0, 0), _identity())
@@ -101,10 +98,10 @@ func test_hybrid_object_move_never_teleports_object() -> void:
 # Hybrid / World — element edits (vertex: absolute; edge/face: delta)
 # ---------------------------------------------------------------------------
 
-func test_hybrid_vertex_drag_off_grid_snaps_absolute() -> void:
+func test_smart_vertex_drag_off_grid_snaps_absolute() -> void:
 	# Vertex at 2.863 dragged +0.14 → snaps absolutely to 3.0.  The
 	# dragged point is the thing being snapped.
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, true,
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, true,
 			GoBuildDragOperation.DeltaMode.AXIS_PROJECT, 1)
 	op.world_axis = Vector3.RIGHT
 	var correction := _call_snap(op, Vector3(0.14, 0, 0),
@@ -112,11 +109,11 @@ func test_hybrid_vertex_drag_off_grid_snaps_absolute() -> void:
 	assert_float(2.863 + correction.x).is_equal_approx(3.0, 0.001)
 
 
-func test_hybrid_edge_drag_off_grid_centroid_is_delta() -> void:
+func test_smart_edge_drag_off_grid_centroid_is_delta() -> void:
 	# Off-axis edge centroid at 2.863, dragged +0.14: the delta is
 	# quantized (0.1) — NOT snapped absolutely to 3.0.  The element
 	# lands at 2.863 + 0.1 = 2.963, geometry intact.
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, true,
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, true,
 			GoBuildDragOperation.DeltaMode.AXIS_PROJECT, 2)
 	op.world_axis = Vector3.RIGHT
 	var correction := _call_snap(op, Vector3(0.14, 0, 0),
@@ -125,21 +122,21 @@ func test_hybrid_edge_drag_off_grid_centroid_is_delta() -> void:
 			Vector3.ONE * 0.001)
 
 
-func test_hybrid_edge_drag_rotated_node_quantizes_world_delta() -> void:
+func test_smart_edge_drag_rotated_node_quantizes_world_delta() -> void:
 	# Node rotated 90° around Y: local +X is world -Z.  Raw local delta
 	# (0.14, 0, 0) → world delta (0, 0, -0.14) → snapped (0, 0, -0.1)
 	# → back to local (0.1, 0, 0).
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, true,
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, true,
 			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 2)
 	var xf := Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3.ZERO)
 	var correction := _call_snap(op, Vector3(0.14, 0, 0), Vector3.ZERO, xf)
 	assert_float(correction.length()).is_equal_approx(0.1, 0.001)
 
 
-func test_hybrid_edge_drag_delta_is_position_agnostic() -> void:
+func test_smart_edge_drag_delta_is_position_agnostic() -> void:
 	# Same delta from a different (also off-grid) centroid → same
 	# correction: position-agnostic by contract.
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, true,
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, true,
 			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 2)
 	var a := _call_snap(op, Vector3(0.14, 0, 0), Vector3(2.863, 0, 0),
 			_identity())
@@ -148,9 +145,9 @@ func test_hybrid_edge_drag_delta_is_position_agnostic() -> void:
 	assert_vector(a).is_equal_approx(b, Vector3.ONE * 0.001)
 
 
-func test_hybrid_face_drag_behaves_like_edge_drag() -> void:
+func test_smart_face_drag_behaves_like_edge_drag() -> void:
 	# Face centroids share edge semantics (element_kind 2).
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, true,
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, true,
 			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 2)
 	var correction := _call_snap(op, Vector3(0.14, 0.02, 0),
 			Vector3(2.863, 0.41, 0), _identity())
@@ -158,44 +155,31 @@ func test_hybrid_face_drag_behaves_like_edge_drag() -> void:
 			Vector3.ONE * 0.001)
 
 
-func test_hybrid_object_move_unaffected_by_element_kind() -> void:
+func test_object_move_unaffected_by_element_kind() -> void:
 	# element_kind 0 (object move) keeps absolute-position semantics.
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, false,
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, false,
 			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 0)
 	var correction := _call_snap(op, Vector3(0.05, 0, 0),
 			Vector3(0.53, 0, 0), _identity())
 	assert_float(0.53 + correction.x).is_equal_approx(0.6, 0.001)
 
 
-func test_world_element_edit_delta_quantized() -> void:
-	var op := _op(_OP_SCRIPT.SnapMode.WORLD, true,
+func test_smart_edge_drag_object_move_equivalence() -> void:
+	# SMART edge drags and plain rigid world-delta quantization share the
+	# same maths: object at 0.53 nudged 0.07 with element_kind EDGE →
+	# delta snapped 0.1 (lands 0.63, no teleport to 0.5).
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, true,
 			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 2)
-	var correction := _call_snap(op, Vector3(0.14, 0, 0),
-			Vector3(2.863, 0, 0), _identity())
-	assert_vector(correction).is_equal_approx(Vector3(0.1, 0, 0),
-			Vector3.ONE * 0.001)
-
-
-# ---------------------------------------------------------------------------
-# World — object moves (delta quantization)
-# ---------------------------------------------------------------------------
-
-func test_world_object_move_quantizes_delta_rigid() -> void:
-	# Object at 0.53 nudged 0.07: delta 0.07 → snapped 0.1 → lands 0.63.
-	# (Deliberately NOT snapped to 0.5 — World object moves do not
-	# teleport off-grid objects to cells.)
-	var op := _op(_OP_SCRIPT.SnapMode.WORLD,
-			false, GoBuildDragOperation.DeltaMode.PLANE_PROJECT)
 	var correction := _call_snap(op, Vector3(0.07, 0, 0),
 			Vector3(0.53, 0, 0), _identity())
 	assert_vector(correction).is_equal_approx(Vector3(0.1, 0, 0), Vector3.ONE * 0.001)
 
 
-func test_world_object_move_rotated_node_world_quantization() -> void:
+func test_delta_mode_rotated_node_world_quantization() -> void:
 	# Node rotated 90° around Y: local +X is world −Z.  A raw local delta
 	# of (0.14, 0, 0) must quantize to 0.1 along world Z.
-	var op := _op(_OP_SCRIPT.SnapMode.WORLD,
-			false, GoBuildDragOperation.DeltaMode.PLANE_PROJECT)
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, false,
+			GoBuildDragOperation.DeltaMode.PLANE_PROJECT, 2)
 	var basis := Basis(Vector3.UP, PI * 0.5)
 	var xf := Transform3D(basis, Vector3.ZERO)
 	var correction := _call_snap(op, Vector3(0.14, 0, 0),
@@ -232,15 +216,15 @@ func test_delta_mode_never_moves_off_grid_object_to_cell() -> void:
 # Scale
 # ---------------------------------------------------------------------------
 
-func test_scale_hybrid_quantizes_ratio() -> void:
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, false,
+func test_scale_delta_quantizes_ratio() -> void:
+	var op := _op(_OP_SCRIPT.SnapMode.DELTA, false,
 			GoBuildDragOperation.DeltaMode.SCALE_UNIFORM)
 	var ratio := _CTRL_SCRIPT._snap_scale(op, 0.14, true, 0.1)
 	assert_float(ratio).is_equal_approx(0.1, 0.001)
 
 
-func test_scale_world_quantizes_resulting_world_size() -> void:
-	var op := _op(_OP_SCRIPT.SnapMode.WORLD, false,
+func test_scale_smart_quantizes_resulting_world_size() -> void:
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, false,
 			GoBuildDragOperation.DeltaMode.SCALE_AXIS)
 	op.initial_world_size = 1.2
 	# Raw ratio 0.55 → world size 1.2*0.55 = 0.66 → snapped 0.7 →
@@ -250,14 +234,14 @@ func test_scale_world_quantizes_resulting_world_size() -> void:
 
 
 func test_scale_disabled_no_snap() -> void:
-	var op := _op(_OP_SCRIPT.SnapMode.HYBRID, false,
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, false,
 			GoBuildDragOperation.DeltaMode.SCALE_AXIS)
 	assert_float(_CTRL_SCRIPT._snap_scale(op, 0.14, false, 0.1)) \
 			.is_equal_approx(0.14, 0.001)
 
 
 func test_scale_zero_step_no_snap() -> void:
-	var op := _op(_OP_SCRIPT.SnapMode.WORLD, false,
+	var op := _op(_OP_SCRIPT.SnapMode.SMART, false,
 			GoBuildDragOperation.DeltaMode.SCALE_AXIS)
 	assert_float(_CTRL_SCRIPT._snap_scale(op, 0.55, true, 0.0)) \
 			.is_equal_approx(0.55, 0.001)
