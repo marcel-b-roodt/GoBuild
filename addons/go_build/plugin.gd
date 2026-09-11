@@ -94,6 +94,8 @@ const _SNAP_SUB_ROT: String = "SnapRotate"
 const _SNAP_SUB_SCALE: String = "SnapScale"
 const _SNAP_SUB_MODE: String = "SnapMode"
 
+## Nested Snap menu state (indices into the label arrays) for the live
+## summary shown on the Snap MenuButton.
 ## Transform space labels shown in the toolbar dropdown.
 const _TRANSFORM_SPACE_LABELS: Array[String] = ["Local", "World"]
 
@@ -134,6 +136,15 @@ var _drag_snapshot: Dictionary = {}
 var _drag_awaiting_drop: bool = false
 var _toolbar: HBoxContainer                      = null
 var _snap_btn: OptionButton                      = null
+var _snap_menu_btn: MenuButton                   = null
+
+## Nested Snap menu state (indices into the label arrays) for the live
+## summary shown on the Snap MenuButton.
+var _snap_menu_space_idx: int = 0
+var _snap_menu_translate_idx: int = 0
+var _snap_menu_rot_idx: int = 0
+var _snap_menu_scale_idx: int = 0
+var _snap_menu_mode_idx: int = 0
 var _rot_snap_btn: OptionButton                  = null
 var _scale_snap_btn: OptionButton                = null
 var _snap_mode_btn: OptionButton                 = null
@@ -239,7 +250,6 @@ func _build_toolbar() -> void:
 	# Submenus are plain PopupMenus; the item-selected handlers live on
 	# them directly (no OptionButton wrappers).
 	var snap_menu := MenuButton.new()
-	snap_menu.text = "Snap"
 	snap_menu.flat = true
 	var root: PopupMenu = snap_menu.get_popup()
 
@@ -247,35 +257,45 @@ func _build_toolbar() -> void:
 	space_popup.name = _SNAP_SUB_SPACE
 	for label: String in _TRANSFORM_SPACE_LABELS:
 		space_popup.add_item(label)
-	space_popup.index_pressed.connect(_on_transform_space_selected)
+	for i: int in _TRANSFORM_SPACE_LABELS.size():
+		space_popup.set_item_as_checkable(i, true)
+	space_popup.set_item_checked(_snap_menu_space_idx, true)
 	root.add_child(space_popup)
 
 	var translate_popup := PopupMenu.new()
 	translate_popup.name = _SNAP_SUB_TRANSLATE
 	for label: String in _SNAP_LABELS:
 		translate_popup.add_item(label)
-	translate_popup.index_pressed.connect(_on_snap_selected)
+	for i: int in _SNAP_LABELS.size():
+		translate_popup.set_item_as_checkable(i, true)
+	translate_popup.set_item_checked(_snap_menu_translate_idx, true)
 	root.add_child(translate_popup)
 
 	var rot_popup := PopupMenu.new()
 	rot_popup.name = _SNAP_SUB_ROT
 	for label: String in _ROT_SNAP_LABELS:
 		rot_popup.add_item(label)
-	rot_popup.index_pressed.connect(_on_rot_snap_selected)
+	for i: int in _ROT_SNAP_LABELS.size():
+		rot_popup.set_item_as_checkable(i, true)
+	rot_popup.set_item_checked(_snap_menu_rot_idx, true)
 	root.add_child(rot_popup)
 
 	var scale_popup := PopupMenu.new()
 	scale_popup.name = _SNAP_SUB_SCALE
 	for label: String in _SCALE_SNAP_LABELS:
 		scale_popup.add_item(label)
-	scale_popup.index_pressed.connect(_on_scale_snap_selected)
+	for i: int in _SCALE_SNAP_LABELS.size():
+		scale_popup.set_item_as_checkable(i, true)
+	scale_popup.set_item_checked(_snap_menu_scale_idx, true)
 	root.add_child(scale_popup)
 
 	var mode_popup := PopupMenu.new()
 	mode_popup.name = _SNAP_SUB_MODE
 	for label: String in _SNAP_MODE_LABELS:
 		mode_popup.add_item(label)
-	mode_popup.index_pressed.connect(_on_snap_mode_selected)
+	for i: int in _SNAP_MODE_LABELS.size():
+		mode_popup.set_item_as_checkable(i, true)
+	mode_popup.set_item_checked(_snap_menu_mode_idx, true)
 	root.add_child(mode_popup)
 
 	root.add_submenu_item("Space", _SNAP_SUB_SPACE)
@@ -284,6 +304,8 @@ func _build_toolbar() -> void:
 	root.add_submenu_item("Scale", _SNAP_SUB_SCALE)
 	root.add_submenu_item("Snap Mode", _SNAP_SUB_MODE)
 	_toolbar.add_child(snap_menu)
+	_snap_menu_btn = snap_menu
+	_update_snap_menu_text()
 
 	_toolbar.add_child(VSeparator.new())
 
@@ -1765,36 +1787,74 @@ func _on_mesh_changed() -> void:
 func _on_snap_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
+	_snap_menu_translate_idx = index
 	_gizmo_plugin.snap_step_override = _SNAP_PRESETS[index]
 	if _shape_draw_controller != null:
 		_shape_draw_controller.set_snap_step(_SNAP_PRESETS[index])
+	_sync_snap_checks(_SNAP_SUB_TRANSLATE, index)
+	_update_snap_menu_text()
 
 
 func _on_rot_snap_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
+	_snap_menu_rot_idx = index
 	var deg: float = _ROT_SNAP_PRESETS[index]
 	_gizmo_plugin.rot_snap_override = deg
+	_sync_snap_checks(_SNAP_SUB_ROT, index)
+	_update_snap_menu_text()
 
 
 func _on_scale_snap_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
+	_snap_menu_scale_idx = index
 	_gizmo_plugin.scale_snap_override = _SCALE_SNAP_PRESETS[index]
+	_sync_snap_checks(_SNAP_SUB_SCALE, index)
+	_update_snap_menu_text()
 
 
 func _on_snap_mode_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
+	_snap_menu_mode_idx = index
 	_gizmo_plugin.snap_mode_override = index
+	_sync_snap_checks(_SNAP_SUB_MODE, index)
+	_update_snap_menu_text()
 
 
 func _on_transform_space_selected(index: int) -> void:
 	if _gizmo_plugin == null:
 		return
+	_snap_menu_space_idx = index
 	_gizmo_plugin.transform_space = index
+	_sync_snap_checks(_SNAP_SUB_SPACE, index)
 	if _edited_node:
 		_edited_node.update_gizmos()
+	_update_snap_menu_text()
+
+
+## Keep the checkmark on the single active item of a Snap submenu.
+func _sync_snap_checks(submenu_name: String, active_index: int) -> void:
+	if _snap_menu_btn == null:
+		return
+	var popup: PopupMenu = _snap_menu_btn.get_popup().get_node(submenu_name)
+	for i: int in popup.item_count:
+		popup.set_item_checked(i, i == active_index)
+
+
+## Compact live summary on the Snap menu button, e.g.
+## "Snap [Hybrid | 1 m | R15° | S0.1 | L]".
+func _update_snap_menu_text() -> void:
+	if _snap_menu_btn == null:
+		return
+	var space: String = "L" if _snap_menu_space_idx == 0 else "W"
+	_snap_menu_btn.text = "Snap [%s | %s | R%s | S%s | %s]" % [
+			_SNAP_MODE_LABELS[_snap_menu_mode_idx],
+			_SNAP_LABELS[_snap_menu_translate_idx],
+			_ROT_SNAP_LABELS[_snap_menu_rot_idx],
+			_SCALE_SNAP_LABELS[_snap_menu_scale_idx],
+			space]
 
 
 func _on_mode_changed(mode: SelectionManager.Mode) -> void:
