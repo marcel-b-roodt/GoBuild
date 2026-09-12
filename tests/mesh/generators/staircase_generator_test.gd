@@ -1,14 +1,16 @@
 ## StaircaseGenerator unit tests.
 ##
 ## Face order reference (from StaircaseGenerator):
-##   2*i                            = tread[i]        (normal +Y)
-##   2*i + 1                        = riser[i]        (normal -Z)
-##   2*steps + offset                = left cell(r,c)  (normal -X)
-##   2*steps + n*(n+1)/2 + offset   = right cell(r,c) (normal +X)
-##   2*steps + n*(n+1) + i          = bottom strip[i]  (normal -Y)
-##   3*steps + n*(n+1) + i          = back strip[i]    (normal +Z)
+##   2*i           = tread[i]   (normal +Y)
+##   2*i + 1       = riser[i]   (normal -Z)
+##   2*steps       = left side  (concave n-gon, normal -X)
+##   2*steps + 1   = right side (concave n-gon, normal +X)
+##   2*steps + 2   = bottom     (normal -Y)
+##   2*steps + 3   = back       (normal +Z)
 ##
-## Total face count: 4*steps + steps*(steps+1)
+## Total face count: 2*steps + 4
+## Regression baselines (user-dumped topology, 4 steps, 1.0/0.25/0.3):
+##   20 vertices, 30 edges, 12 faces, 0 boundary edges.
 extends GdUnitTestSuite
 
 # Self-preloads — dependency order.
@@ -26,24 +28,15 @@ func _normal(mesh: GoBuildMesh, face_idx: int) -> Vector3:
 
 
 static func _face_count(steps: int) -> int:
-	return 4 * steps + steps * (steps + 1)
+	return 2 * steps + 4
 
 
-static func _left_cell_index(steps: int, r: int, c: int) -> int:
-	return 2 * steps + r * steps - r * (r - 1) / 2 + (c - r)
-
-
-static func _right_cell_index(steps: int, r: int, c: int) -> int:
-	var n2: int = steps * (steps + 1) / 2
-	return 2 * steps + n2 + r * steps - r * (r - 1) / 2 + (c - r)
-
-
-static func _bottom_strip_index(steps: int, i: int) -> int:
-	return 2 * steps + steps * (steps + 1) + i
-
-
-static func _back_strip_index(steps: int, i: int) -> int:
-	return 3 * steps + steps * (steps + 1) + i
+func _count_boundary_edges(mesh: GoBuildMesh) -> int:
+	var b := 0
+	for e in mesh.edges:
+		if (e as GoBuildEdge).face_indices.size() != 2:
+			b += 1
+	return b
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +56,19 @@ func test_staircase_face_count_formula() -> void:
 		assert_int(StaircaseGenerator.generate(n).faces.size()).is_equal(_face_count(n))
 
 
+func test_staircase_regression_topology_counts() -> void:
+	# User-dumped baseline before the n-gon rewrite: 38/72/36 (subdivided).
+	# After the merge: 20 vertices, 30 edges, 12 faces, closed manifold.
+	var mesh := StaircaseGenerator.generate(4, 1.0, 0.25, 0.3)
+	mesh.rebuild_edges()
+	assert_int(mesh.vertices.size()).is_equal(20)
+	assert_int(mesh.edges.size()).is_equal(30)
+	assert_int(mesh.faces.size()).is_equal(12)
+	assert_int(_count_boundary_edges(mesh)).is_equal(0)
+
+
 # ---------------------------------------------------------------------------
-# Tread normals (+Y)
+# Tread and riser normals
 # ---------------------------------------------------------------------------
 
 func test_staircase_all_tread_normals_are_y_plus() -> void:
@@ -74,10 +78,6 @@ func test_staircase_all_tread_normals_are_y_plus() -> void:
 		assert_float(_normal(mesh, i * 2).dot(Vector3.UP)).is_greater_equal(0.999)
 
 
-# ---------------------------------------------------------------------------
-# Riser normals (-Z)
-# ---------------------------------------------------------------------------
-
 func test_staircase_all_riser_normals_are_z_minus() -> void:
 	var steps := 4
 	var mesh := StaircaseGenerator.generate(steps)
@@ -86,45 +86,67 @@ func test_staircase_all_riser_normals_are_z_minus() -> void:
 
 
 # ---------------------------------------------------------------------------
-# Side wall normals
+# Side / bottom / back normals
 # ---------------------------------------------------------------------------
 
-func test_staircase_left_grid_normals_are_x_minus() -> void:
-	var steps := 3
-	var mesh := StaircaseGenerator.generate(steps)
-	for r in range(steps):
-		for c in range(r, steps):
-			var idx: int = _left_cell_index(steps, r, c)
-			assert_float(_normal(mesh, idx).dot(Vector3.LEFT)).is_greater_equal(0.999)
+func test_staircase_left_side_normal_is_x_minus() -> void:
+	var mesh := StaircaseGenerator.generate(4)
+	assert_float(_normal(mesh, 8).dot(Vector3.LEFT)).is_greater_equal(0.999)
 
 
-func test_staircase_right_grid_normals_are_x_plus() -> void:
-	var steps := 3
-	var mesh := StaircaseGenerator.generate(steps)
-	for r in range(steps):
-		for c in range(r, steps):
-			var idx: int = _right_cell_index(steps, r, c)
-			assert_float(_normal(mesh, idx).dot(Vector3.RIGHT)).is_greater_equal(0.999)
+func test_staircase_right_side_normal_is_x_plus() -> void:
+	var mesh := StaircaseGenerator.generate(4)
+	assert_float(_normal(mesh, 9).dot(Vector3.RIGHT)).is_greater_equal(0.999)
+
+
+func test_staircase_bottom_normal_is_y_minus() -> void:
+	var mesh := StaircaseGenerator.generate(4)
+	assert_float(_normal(mesh, 10).dot(Vector3.DOWN)).is_greater_equal(0.999)
+
+
+func test_staircase_back_normal_is_z_plus() -> void:
+	var mesh := StaircaseGenerator.generate(4)
+	assert_float(_normal(mesh, 11).dot(Vector3(0.0, 0.0, 1.0))).is_greater_equal(0.999)
 
 
 # ---------------------------------------------------------------------------
-# Bottom and back normals
+# Side walls are single n-gons covering the full profile
 # ---------------------------------------------------------------------------
 
-func test_staircase_bottom_strips_are_y_minus() -> void:
-	var steps := 3
-	var mesh := StaircaseGenerator.generate(steps)
-	for i in range(steps):
-		var idx: int = _bottom_strip_index(steps, i)
-		assert_float(_normal(mesh, idx).dot(Vector3.DOWN)).is_greater_equal(0.999)
+func test_staircase_side_walls_are_single_ngons() -> void:
+	var mesh := StaircaseGenerator.generate(4)
+	var left: GoBuildFace = mesh.faces[8]
+	var right: GoBuildFace = mesh.faces[9]
+	# 4 steps → 2*steps + 2 profile corners (front-bottom, back-bottom,
+	# back-top, per-step riser/tread corners) → 10 verts per side.
+	assert_int(left.vertex_indices.size()).is_equal(2 * 4 + 2)
+	assert_int(right.vertex_indices.size()).is_equal(2 * 4 + 2)
 
 
-func test_staircase_back_strips_are_z_plus() -> void:
-	var steps := 3
-	var mesh := StaircaseGenerator.generate(steps)
-	for i in range(steps):
-		var idx: int = _back_strip_index(steps, i)
-		assert_float(_normal(mesh, idx).dot(Vector3(0.0, 0.0, 1.0))).is_greater_equal(0.999)
+func test_staircase_side_wall_vertices_on_correct_axis() -> void:
+	var mesh := StaircaseGenerator.generate(4)
+	for vi in mesh.faces[8].vertex_indices:
+		assert_float((mesh.vertices[vi] as Vector3).x).is_equal_approx(-0.5, 0.001)
+	for vi in mesh.faces[9].vertex_indices:
+		assert_float((mesh.vertices[vi] as Vector3).x).is_equal_approx(0.5, 0.001)
+
+
+func test_staircase_side_walls_share_edges_with_steps() -> void:
+	# Every tread/riser edge on the side planes must be shared with the
+	# side n-gon (no T-junctions along the profile).
+	var mesh := StaircaseGenerator.generate(4, 1.0, 0.25, 0.3)
+	mesh.rebuild_edges()
+	var left_fi := 8
+	var right_fi := 9
+	var shared := 0
+	for e in mesh.edges:
+		var ed := e as GoBuildEdge
+		if ed.face_indices.has(left_fi) or ed.face_indices.has(right_fi):
+			shared += 1
+	# 10 side vertices each → 8 profile edges (2 shared with treads/risers
+	# at each riser corner) + 1 bottom edge + 1 back vertical edge = 10
+	# edges per side, 20 total.
+	assert_int(shared).is_equal(20)
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +189,7 @@ func test_staircase_respects_total_depth() -> void:
 
 
 # ---------------------------------------------------------------------------
-# All edges are manifold (exactly 2 faces per edge)
+# Manifold + bake
 # ---------------------------------------------------------------------------
 
 func test_staircase_all_edges_are_manifold() -> void:
@@ -179,44 +201,53 @@ func test_staircase_all_edges_are_manifold() -> void:
 		assert_int(ed.face_indices.size()).is_equal(2)
 
 
+func test_staircase_bake_returns_one_surface() -> void:
+	assert_int(StaircaseGenerator.generate().bake().get_surface_count()).is_equal(1)
+
+
 # ---------------------------------------------------------------------------
-# Adjacent grid cells share edges
+# Flip
 # ---------------------------------------------------------------------------
 
-func test_staircase_adjacent_grid_cells_share_full_edges() -> void:
-	var steps := 3
-	var mesh := StaircaseGenerator.generate(steps)
+func test_staircase_flipped_preserves_topology() -> void:
+	var mesh := StaircaseGenerator.generate(4, 1.0, 0.25, 0.3, 0, true)
 	mesh.rebuild_edges()
-	for r in range(steps):
-		for c in range(r, steps - 1):
-			var left_idx: int = _left_cell_index(steps, r, c)
-			var right_idx: int = _left_cell_index(steps, r, c + 1)
-			var shared: bool = false
-			for edge_idx in range(mesh.edges.size()):
-				var ed: GoBuildEdge = mesh.edges[edge_idx]
-				if ed.face_indices.has(left_idx) and ed.face_indices.has(right_idx):
-					shared = true
-					break
-			assert_bool(shared).is_true()
+	assert_int(mesh.vertices.size()).is_equal(20)
+	assert_int(mesh.edges.size()).is_equal(30)
+	assert_int(mesh.faces.size()).is_equal(12)
+	assert_int(_count_boundary_edges(mesh)).is_equal(0)
 
 
-# ---------------------------------------------------------------------------
-# Bottom strips share edges with side wall cells
-# ---------------------------------------------------------------------------
+func test_staircase_flipped_riser_normals_are_z_plus() -> void:
+	# Flipped ascent runs -Z: risers face +Z.
+	var mesh := StaircaseGenerator.generate(4, 1.0, 0.25, 0.3, 0, true)
+	for i in range(4):
+		assert_float(_normal(mesh, i * 2 + 1).dot(Vector3(0.0, 0.0, 1.0))).is_greater_equal(0.999)
 
-func test_staircase_bottom_strips_share_edges_with_side_walls() -> void:
-	var steps := 3
-	var mesh := StaircaseGenerator.generate(steps)
-	mesh.rebuild_edges()
-	for i in range(steps):
-		var bottom_idx: int = _bottom_strip_index(steps, i)
-		var has_shared: bool = false
-		for edge_idx in range(mesh.edges.size()):
-			var ed: GoBuildEdge = mesh.edges[edge_idx]
-			if ed.face_indices.has(bottom_idx):
-				has_shared = true
-				break
-		assert_bool(has_shared).is_true()
+
+func test_staircase_flipped_back_wall_at_z_zero() -> void:
+	# The back wall (ascent end) sits at z=0 when flipped; its outward
+	# normal points -Z. All verts stay within [0, total_depth].
+	var mesh := StaircaseGenerator.generate(4, 1.0, 0.25, 0.3, 0, true)
+	for v in mesh.vertices:
+		assert_float((v as Vector3).z).is_greater_equal(-0.001)
+		assert_float((v as Vector3).z).is_less_equal(1.201)
+	assert_float(_normal(mesh, 11).dot(Vector3(0.0, 0.0, -1.0))).is_greater_equal(0.999)
+
+
+func test_staircase_flip_round_trip_identity() -> void:
+	# Sanity: flipped vs unflipped differ; unflipped generation is stable.
+	var a := StaircaseGenerator.generate(4, 1.0, 0.25, 0.3, 0, false)
+	var b := StaircaseGenerator.generate(4, 1.0, 0.25, 0.3, 0, true)
+	var c := StaircaseGenerator.generate(4, 1.0, 0.25, 0.3, 0, false)
+	var differs := false
+	for i: int in a.vertices.size():
+		if not (a.vertices[i] as Vector3).is_equal_approx(b.vertices[i]):
+			differs = true
+			break
+	assert_bool(differs).is_true()
+	for i: int in a.vertices.size():
+		assert_that((a.vertices[i] as Vector3).is_equal_approx(c.vertices[i])).is_true()
 
 
 # ---------------------------------------------------------------------------
@@ -231,11 +262,3 @@ func test_staircase_all_uvs_in_unit_range() -> void:
 			assert_float(uv.x).is_less_equal(1.0 + 0.001)
 			assert_float(uv.y).is_greater_equal(0.0)
 			assert_float(uv.y).is_less_equal(1.0 + 0.001)
-
-
-# ---------------------------------------------------------------------------
-# Bake
-# ---------------------------------------------------------------------------
-
-func test_staircase_bake_returns_one_surface() -> void:
-	assert_int(StaircaseGenerator.generate().bake().get_surface_count()).is_equal(1)

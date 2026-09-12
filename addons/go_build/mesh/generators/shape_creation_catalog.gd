@@ -71,6 +71,7 @@ static func default_params(shape_name: String) -> Dictionary:
 				"step_width": 1.0,
 				"step_height": 0.25,
 				"step_depth": 0.3,
+				"flipped": false,
 			}
 		"Torus":
 			return {
@@ -148,6 +149,7 @@ static func preview_param_specs(shape_name: String) -> Array[Dictionary]:
 					"type": "float", "key": "step_depth", "label": "Step Depth",
 					"min": 0.01, "max": 100.0, "step": 0.01,
 				},
+				{"type": "bool", "key": "flipped", "label": "Flip Direction"},
 			]
 		"Torus":
 			return [
@@ -218,7 +220,7 @@ static func default_non_drawable_params(shape_name: String) -> Dictionary:
 		"Torus":
 			return {"rings": 16, "tube_segments": 8}
 		"Staircase":
-			return {"steps": 4}
+			return {"steps": 4, "flipped": false}
 		"Arch":
 			return {"angle_degrees": 180.0, "segments": 8, "thickness": 0.2}
 		"Polygon":
@@ -272,6 +274,7 @@ static func non_drawable_param_specs(shape_name: String) -> Array[Dictionary]:
 		"Staircase":
 			return [
 				{"type": "int", "key": "steps", "label": "Steps", "min": 1, "max": 256, "step": 1},
+				{"type": "bool", "key": "flipped", "label": "Flip Direction"},
 			]
 		"Arch":
 			return [
@@ -328,6 +331,7 @@ static func normalise_params(shape_name: String, raw_params: Dictionary) -> Dict
 			p["step_width"] = maxf(float(p.get("step_width", 1.0)), 0.01)
 			p["step_height"] = maxf(float(p.get("step_height", 0.25)), 0.01)
 			p["step_depth"] = maxf(float(p.get("step_depth", 0.3)), 0.01)
+			p["flipped"] = bool(p.get("flipped", false))
 		"Torus":
 			var major := maxf(float(p.get("radius_major", 0.5)), 0.02)
 			var minor := maxf(float(p.get("radius_minor", 0.2)), 0.01)
@@ -405,6 +409,8 @@ static func build_mesh(shape_name: String, params: Dictionary) -> GoBuildMesh:
 				float(p.get("step_width", 1.0)),
 				float(p.get("step_height", 0.25)),
 				float(p.get("step_depth", 0.3)),
+				0,
+				bool(p.get("flipped", false)),
 			)
 		"Arch":
 			return ArchGenerator.generate(

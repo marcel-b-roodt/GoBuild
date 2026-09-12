@@ -126,6 +126,7 @@ static func _staircase_params(w: float, d: float, h: float, extra: Dictionary) -
 		"step_width": w,
 		"step_height": h / float(steps),
 		"step_depth": d / float(steps),
+		"flipped": bool(extra.get("flipped", false)),
 	}
 	return p
 

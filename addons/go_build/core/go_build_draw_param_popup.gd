@@ -37,7 +37,6 @@ var _edit_node: GoBuildMeshInstance = null
 var _edit_shape_name: String = ""
 var _edit_drawn: Vector3 = Vector3.ZERO
 var _edit_params: Dictionary = {}
-var _edit_undo_snapshot: Dictionary = {}
 
 
 ## Build one widget per structural param spec and anchor the panel to the
@@ -130,9 +129,11 @@ func open_for_edit(node: GoBuildMeshInstance, shape_name: String, vp_rect: Rect2
 		return
 	_edit_node = node
 	_edit_shape_name = shape_name
-	var aabb: AABB = node.go_build_mesh.compute_aabb()
-	_edit_drawn = aabb.size
-	_edit_params = node.go_build_mesh.get_meta("go_build_params", {})
+	# Params meta is written on the NODE by the commit paths
+	# (draw controller / insert_shape) — read it there.
+	var committed: Dictionary = node.get_meta("go_build_params", {})
+	_edit_params = committed.duplicate(true)
+	_edit_drawn = _committed_drawn_size(shape_name, committed)
 	for child: Node in get_children():
 		child.queue_free()
 	var specs: Array[Dictionary] = _CATALOG_SCRIPT.non_drawable_param_specs(shape_name)
@@ -182,7 +183,29 @@ func open_for_edit(node: GoBuildMeshInstance, shape_name: String, vp_rect: Rect2
 	show()
 
 
+## Reconstruct the drawn AABB size (width/depth/height in metres) from the
+## committed generator params.  Per-step params divide the drawn size by
+## steps, so the drawn size must be recomputed rather than read from the
+## mesh AABB (which is in base-centre pivot space).
+func _committed_drawn_size(shape_name: String, committed: Dictionary) -> Vector3:
+	match shape_name:
+		"Staircase":
+			var steps: int = maxi(int(committed.get("steps", 4)), 1)
+			return Vector3(
+					float(committed.get("step_width", 1.0)),
+					float(committed.get("step_height", 0.25)) * float(steps),
+					float(committed.get("step_depth", 0.3)) * float(steps))
+		_:
+			return Vector3(
+					float(committed.get("width", 1.0)),
+					float(committed.get("height", 1.0)),
+					float(committed.get("depth", 1.0)))
+
+
 ## Regenerate the bound node's mesh from the stored shape + current params.
+## Per-step shapes (Staircase) keep the drawn totals fixed: the per-step
+## sizes are recomputed from [member _edit_drawn] so changing the step
+## count reslices the same block instead of rescaling it.
 func _regenerate_edit_mesh() -> void:
 	if _edit_node == null or not is_instance_valid(_edit_node):
 		return
@@ -194,24 +217,41 @@ func _regenerate_edit_mesh() -> void:
 	params["width"] = _edit_drawn.x
 	params["height"] = _edit_drawn.y
 	params["depth"] = _edit_drawn.z
+	if _edit_shape_name == "Staircase":
+		var steps: int = maxi(int(params.get("steps", 4)), 1)
+		params["step_height"] = _edit_drawn.y / float(steps)
+		params["step_depth"] = _edit_drawn.z / float(steps)
 	# Polygon re-edit: keep the stored outline + extrude direction from
 	# the commit meta (size keys above don't apply to polygons).
 	if _edit_shape_name == "Polygon":
-		var committed: Dictionary = _edit_node.go_build_mesh \
-				.get_meta("go_build_params", {})
+		var committed: Dictionary = _edit_node.get_meta("go_build_params", {})
 		for poly_key: String in ["polygon_points", "override_normal"]:
 			if committed.has(poly_key):
 				params[poly_key] = committed[poly_key]
 		params.erase("width")
 		params.erase("depth")
 	var gbm := _edit_node.go_build_mesh
-	var undo_snap: Dictionary = gbm.take_snapshot()
 	gbm.restore_snapshot(_edit_node.get_pristine_state())
 	var generated: GoBuildMesh = _CATALOG_SCRIPT.build_mesh(_edit_shape_name, params)
 	if generated != null:
+		# Pivot convention: committed meshes sit base-centre at the local
+		# origin — shift the regenerated mesh the same way so the node
+		# transform stays valid.
+		var pivot := Vector3.ZERO
+		var aabb: AABB = generated.compute_aabb()
+		pivot = Vector3(
+				aabb.position.x + aabb.size.x * 0.5,
+				aabb.position.y,
+				aabb.position.z + aabb.size.z * 0.5)
+		var all_idx: Array[int] = []
+		all_idx.resize(generated.vertices.size())
+		for i: int in all_idx.size():
+			all_idx[i] = i
+		generated.translate_vertices(all_idx, -pivot)
 		gbm.vertices = generated.vertices
 		gbm.faces = generated.faces
-		gbm.material_slots = generated.material_slots
+		# Keep the committed material slots — the generator returns an
+		# empty array and overwriting would wipe user-assigned materials.
 	gbm.rebuild_edges()
 	_edit_node.bake()
 	edit_applied.emit()

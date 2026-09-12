@@ -247,6 +247,16 @@ func hide_param_strip() -> void:
 	_close_draw_param_popup()
 
 
+## The visible floating draw param popup, or null.  The plugin uses this to
+## keep draw-commit routing away from clicks that land on the popup's own
+## controls (they must reach the popup's GUI, not the draw state machine).
+func get_param_popup() -> Control:
+	if _draw_param_popup != null and is_instance_valid(_draw_param_popup) \
+			and _draw_param_popup.visible:
+		return _draw_param_popup
+	return null
+
+
 # ---------------------------------------------------------------------------
 # Canonical insertion path
 # ---------------------------------------------------------------------------

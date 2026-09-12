@@ -36,9 +36,9 @@ func test_open_shows_widgets_for_structural_params() -> void:
 	p.show()
 	p.open("Staircase", _draw_ctrl, Rect2(0, 0, 800, 600))
 	assert_bool(p.visible).is_true()
-	# Title + one row per spec ("steps") = 2 children.
+	# Title + rows for specs (steps + flipped) = 1 child (the VBox).
 	var specs := ShapeCreationCatalog.non_drawable_param_specs("Staircase")
-	assert_int(specs.size()).is_equal(1)
+	assert_int(specs.size()).is_equal(2)
 	assert_int(p.get_child_count()).is_equal(1)
 
 
@@ -98,6 +98,143 @@ func test_draw_controller_writes_params_meta() -> void:
 	var src: String = _CTRL_GD.source_code
 	assert_bool(src.contains('set_meta("go_build_params"')).is_true()
 	assert_bool(src.contains('set_meta("go_build_shape"')).is_true()
+
+
+func test_committed_drawn_size_staircase_reconstructs_totals() -> void:
+	# Regression (user-reported): re-edit seeds drawn size from the mesh
+	# AABB (pivot space) instead of the committed params, so editing
+	# "steps" rescaled the whole staircase and moved it.  Drawn totals
+	# must be reconstructed: w, h = step_height*steps, d = step_depth*steps.
+	var p = _make_popup()
+	var size: Vector3 = p._committed_drawn_size("Staircase", {
+		"steps": 4, "step_width": 1.0, "step_height": 0.25, "step_depth": 0.3,
+	})
+	assert_float(size.x).is_equal_approx(1.0, 0.001)
+	assert_float(size.y).is_equal_approx(1.0, 0.001)
+	assert_float(size.z).is_equal_approx(1.2, 0.001)
+
+
+func test_committed_drawn_size_cube_reads_width_height_depth() -> void:
+	var p = _make_popup()
+	var size: Vector3 = p._committed_drawn_size("Cube", {
+		"width": 2.0, "height": 3.0, "depth": 4.0,
+	})
+	assert_float(size.x).is_equal_approx(2.0, 0.001)
+	assert_float(size.y).is_equal_approx(3.0, 0.001)
+	assert_float(size.z).is_equal_approx(4.0, 0.001)
+
+
+func test_regenerate_keeps_material_slots_and_pivot() -> void:
+	# Regression (user-reported): re-edit regenerate wiped committed
+	# material_slots and skipped the base-centre pivot shift, so the
+	# mesh moved on every edit.
+	var p = _make_popup()
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh("Cube",
+			{"width": 2.0, "height": 2.0, "depth": 2.0})
+	var committed_mat := StandardMaterial3D.new()
+	mesh.material_slots = [committed_mat]
+	# Pivot convention: committed meshes sit base-centre at local origin
+	# (the commit path shifts before capturing the pristine state).
+	var seed_aabb: AABB = mesh.compute_aabb()
+	var seed_pivot := Vector3(
+			seed_aabb.position.x + seed_aabb.size.x * 0.5,
+			seed_aabb.position.y,
+			seed_aabb.position.z + seed_aabb.size.z * 0.5)
+	var seed_idx: Array[int] = []
+	seed_idx.resize(mesh.vertices.size())
+	for i: int in seed_idx.size():
+		seed_idx[i] = i
+	mesh.translate_vertices(seed_idx, -seed_pivot)
+	node.go_build_mesh = mesh
+	node.capture_pristine_state()
+	node.set_meta("go_build_params", {"width": 2.0, "height": 2.0, "depth": 2.0})
+	p.open_for_edit(node, "Cube", Rect2(0, 0, 800, 600))
+	assert_bool(p.visible).is_true()
+	p._edit_params["subdivisions"] = 0
+	p._regenerate_edit_mesh()
+	var regenerated: GoBuildMesh = node.go_build_mesh
+	assert_int(regenerated.material_slots.size()).is_equal(1)
+	assert_bool(regenerated.material_slots[0] == committed_mat).is_true()
+	# Base-centre pivot: local AABB must be centred on X/Z and sit on y=0.
+	var aabb: AABB = regenerated.compute_aabb()
+	assert_float(aabb.position.x + aabb.size.x * 0.5).is_equal_approx(0.0, 0.001)
+	assert_float(aabb.position.z + aabb.size.z * 0.5).is_equal_approx(0.0, 0.001)
+	assert_float(aabb.position.y).is_equal_approx(0.0, 0.001)
+	# Pristine state must still match (re-edit stays live after regenerate).
+	assert_bool(node.is_pristine_state_valid()).is_true()
+
+
+func test_regenerate_staircase_steps_preserves_total_size() -> void:
+	# Regression (user-reported): changing "steps" on re-edit changed the
+	# staircase's size/position instead of only the step count.
+	var p = _make_popup()
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	var params: Dictionary = {
+		"steps": 4, "step_width": 1.0, "step_height": 0.25, "step_depth": 0.3,
+	}
+	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh("Staircase", params)
+	# Pivot convention: shift base-centre to origin before pristine capture.
+	var seed_aabb: AABB = mesh.compute_aabb()
+	var seed_pivot := Vector3(
+			seed_aabb.position.x + seed_aabb.size.x * 0.5,
+			seed_aabb.position.y,
+			seed_aabb.position.z + seed_aabb.size.z * 0.5)
+	var seed_idx: Array[int] = []
+	seed_idx.resize(mesh.vertices.size())
+	for i: int in seed_idx.size():
+		seed_idx[i] = i
+	mesh.translate_vertices(seed_idx, -seed_pivot)
+	node.go_build_mesh = mesh
+	node.capture_pristine_state()
+	node.set_meta("go_build_params", params)
+	p.open_for_edit(node, "Staircase", Rect2(0, 0, 800, 600))
+	assert_bool(p.visible).is_true()
+	# Popup seeds drawn size from committed params, not the mesh AABB.
+	var drawn: Vector3 = p._edit_drawn
+	assert_float(drawn.y).is_equal_approx(1.0, 0.001)
+	assert_float(drawn.z).is_equal_approx(1.2, 0.001)
+	# Change only steps → same total size, different topology.
+	p._edit_params["steps"] = 6
+	p._regenerate_edit_mesh()
+	var regenerated: GoBuildMesh = node.go_build_mesh
+	var aabb: AABB = regenerated.compute_aabb()
+	assert_float(aabb.size.x).is_equal_approx(1.0, 0.001)
+	assert_float(aabb.size.y).is_equal_approx(1.0, 0.001)
+	assert_float(aabb.size.z).is_equal_approx(1.2, 0.001)
+	assert_int(regenerated.faces.size()).is_equal(2 * 6 + 4)
+
+
+func test_regenerate_staircase_flips_direction() -> void:
+	# Flip Direction checkbox (persistent param): regenerating with
+	# flipped=true mirrors the staircase along Z; risers face +Z.
+	var p = _make_popup()
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	var params: Dictionary = {
+		"steps": 4, "step_width": 1.0, "step_height": 0.25, "step_depth": 0.3,
+	}
+	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh("Staircase", params)
+	var seed_aabb: AABB = mesh.compute_aabb()
+	var seed_pivot := Vector3(
+			seed_aabb.position.x + seed_aabb.size.x * 0.5,
+			seed_aabb.position.y,
+			seed_aabb.position.z + seed_aabb.size.z * 0.5)
+	var seed_idx: Array[int] = []
+	seed_idx.resize(mesh.vertices.size())
+	for i: int in seed_idx.size():
+		seed_idx[i] = i
+	mesh.translate_vertices(seed_idx, -seed_pivot)
+	node.go_build_mesh = mesh
+	node.capture_pristine_state()
+	node.set_meta("go_build_params", params)
+	p.open_for_edit(node, "Staircase", Rect2(0, 0, 800, 600))
+	assert_bool(p.visible).is_true()
+	p._edit_params["flipped"] = true
+	p._regenerate_edit_mesh()
+	var regenerated: GoBuildMesh = node.go_build_mesh
+	var riser_n: Vector3 = regenerated.compute_face_normal(regenerated.faces[1])
+	assert_float(riser_n.dot(Vector3(0.0, 0.0, 1.0))).is_greater_equal(0.999)
+	assert_int(regenerated.faces.size()).is_equal(2 * 4 + 4)
 
 
 func _find_spin(root: Node) -> SpinBox:

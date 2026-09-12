@@ -135,17 +135,18 @@ var _drag_snapshot: Dictionary = {}
 ## One-frame delay flag.  When the drag ends, we wait one frame to see if Godot
 ## re-set an override (successful drop) or not (cancel / Escape / right-click).
 var _drag_awaiting_drop: bool = false
+
 var _toolbar: HBoxContainer                      = null
 var _toolbar_wrap: PanelContainer                = null
 var _toolbar_row: HBoxContainer                  = null
 var _cog_menu_btn: MenuButton                    = null
+var _snap_settings_btn: Button                   = null
+var _snap_settings_label: Label                  = null
+var _snap_settings_popup: PopupPanel             = null
 
 ## Edit-mode buttons in the toolbar strip; kept in sync with the
 ## selection mode (mirrors the panel's own row).
 var _toolbar_mode_buttons: Array[Button]         = []
-var _snap_settings_btn: Button                   = null
-var _snap_settings_label: Label                  = null
-var _snap_settings_popup: PopupPanel             = null
 
 ## Nested Snap menu state (indices into the label arrays) for the live
 ## summary shown on the Snap MenuButton.
@@ -772,6 +773,18 @@ func _route_knife_input(event: InputEvent) -> bool:
 	return false
 
 
+## Track mouse position in SubViewport-local coords while a GUI drag is
+## active, for later raycasting (extracted from _input for the lint cap).
+func _track_drag_mouse_pos(mm: InputEventMouseMotion) -> void:
+	if not get_viewport().gui_is_dragging():
+		return
+	var vp_parent := (EditorInterface.get_editor_viewport_3d(0) \
+			as SubViewport).get_parent() as Control if \
+			EditorInterface.get_editor_viewport_3d(0) != null else null
+	if vp_parent != null:
+		_drag_mouse_pos = mm.position - vp_parent.get_global_rect().position
+
+
 ## Global input handler.  When a param preview or gizmo drag is active
 ## (MOUSE_MODE_CAPTURED), the viewport stops forwarding events through
 ## _forward_3d_gui_input, so the plugin intercepts them globally and delegates
@@ -779,8 +792,7 @@ func _route_knife_input(event: InputEvent) -> bool:
 ##
 ## Mode-switch keys (1-4) and grow/shrink (Ctrl+=/Ctrl+-) must also be handled
 ## here because Godot's built-in viewport shortcuts (1-6 for orthographic views)
-## consume these keys before [method _forward_3d_gui_input] is called.  The global
-## _input callback runs first, letting us intercept and mark them handled.
+## consume these keys before _forward_3d_gui_input is called.
 func _input(event: InputEvent) -> void:
 	# Modifier state cache — refreshed on every event; per-frame overlay
 	# and preview paths read the cache (no Input polling outside input).
@@ -790,17 +802,16 @@ func _input(event: InputEvent) -> void:
 		_mod_alt = (event as InputEventWithModifiers).alt_pressed
 	# Track mouse position in SubViewport-local coords during drags for raycasting.
 	if event is InputEventMouseMotion:
-		if get_viewport().gui_is_dragging():
-			var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
-			if vp != null:
-				var vp_parent: Control = vp.get_parent() as Control
-				if vp_parent != null:
-					_drag_mouse_pos = (event as InputEventMouseMotion).position \
-							- vp_parent.get_global_rect().position
+		_track_drag_mouse_pos(event as InputEventMouseMotion)
 	# Knife tool: while cutting, route mouse + key events (Escape/Enter).
 	if _route_knife_input(event):
 		return
 	if _shape_draw_controller != null and _shape_draw_controller.is_active():
+		# Clicks on the floating draw param popup belong to its controls —
+		# don't let them commit/cancel the draw state machine (the popup
+		# commit bug).  Check before any routing.
+		if event is InputEventMouseButton and _draw_param_popup_hovered(event):
+			return
 		if event is InputEventKey:
 			var key := event as InputEventKey
 			if key.keycode == KEY_ESCAPE and key.pressed and not key.echo:
@@ -857,11 +868,19 @@ func _input(event: InputEvent) -> void:
 	if _input_controller.handle_global_input(event):
 		get_viewport().set_input_as_handled()
 		return
-	if not (event is InputEventKey):
+	if _handle_global_input_tail(event):
 		return
+
+
+## Key-event tail of the global _input handler: knife toggle (K), mode
+## switches (1-4), grow/shrink.  Extracted to keep _input's return count
+## under the lint cap.  Returns true when the event was consumed.
+func _handle_global_input_tail(event: InputEvent) -> bool:
+	if not event is InputEventKey:
+		return false
 	var key := event as InputEventKey
 	if key.echo or not key.pressed:
-		return
+		return false
 	# Knife toggle: K works wherever the editor focus is (mirrors 1-4 mode
 	# switches, which use this global path because _forward_3d_gui_input only
 	# fires when the mouse is over the 3D viewport).
@@ -869,9 +888,10 @@ func _input(event: InputEvent) -> void:
 		_handle_knife_key()
 		if _edited_node != null:
 			get_viewport().set_input_as_handled()
-		return
+		return true
 	if _handle_mode_switch_in_global(key):
 		get_viewport().set_input_as_handled()
+	return true
 
 
 ## While the vertex painter is active, route its input (paint mode keys and
@@ -929,8 +949,29 @@ func _is_event_in_viewport(event: InputEvent, vp: SubViewport) -> bool:
 	var vp_parent: Control = vp.get_parent() as Control
 	if vp_parent == null:
 		return false
-	var vp_rect: Rect2 = vp_parent.get_global_rect()
-	return vp_rect.has_point(mouse_event.global_position)
+	return vp_parent.get_global_rect().has_point(mouse_event.global_position)
+
+
+## True when a mouse button event lands inside the visible floating draw
+## param popup.  Works for both routing paths: global `_input` events carry
+## window-space `global_position`; `_forward_3d_gui_input` events carry
+## viewport-local `position`, rebased by the viewport parent's global rect.
+func _draw_param_popup_hovered(event: InputEvent) -> bool:
+	if _panel == null:
+		return false
+	var drawer = _panel.get_create_drawer()
+	if drawer == null:
+		return false
+	var popup: Control = drawer.get_param_popup()
+	if popup == null:
+		return false
+	var mouse: InputEventMouse = event as InputEventMouse
+	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var vp_parent := vp.get_parent() as Control if vp != null else null
+	var window_pos: Vector2 = mouse.global_position
+	if vp_parent != null and not vp_parent.get_global_rect().has_point(window_pos):
+		window_pos = vp_parent.get_global_rect().position + mouse.position
+	return popup.get_global_rect().has_point(window_pos)
 
 
 ## Handle mode-switch shortcuts (1-4) and grow/shrink (Ctrl+=/Ctrl+-) in the
@@ -1135,6 +1176,10 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 		GoBuildDebug.log("[Knife] K seen in _forward_3d_gui_input (echo=%s editing=%s)" % [
 				str((event as InputEventKey).echo), str(_edited_node != null)])
 	if _shape_draw_controller != null and _shape_draw_controller.is_active():
+		# Clicks on the floating draw param popup belong to its controls —
+		# don't let them commit/cancel the draw state machine.
+		if event is InputEventMouseButton and _draw_param_popup_hovered(event):
+			return 0
 		var result: int = _shape_draw_controller.handle_input(camera, event)
 		if result != 0:
 			if not _shape_draw_controller.is_active():
@@ -2149,7 +2194,7 @@ func _disconnect_node_signals() -> void:
 # ---------------------------------------------------------------------------
 
 ## Delegates to [member _tool_pinner] to press the Physical/V button once.
-## Called deferred from mode-change handlers and [method _set_transform_mode].
+## Called deferred from mode-change handlers and _set_transform_mode.
 func _suppress_native_gizmo() -> void:
 	if _tool_pinner != null:
 		_tool_pinner.suppress()
