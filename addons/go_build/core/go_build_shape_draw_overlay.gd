@@ -19,6 +19,7 @@ static func state_label(
 		state: int,
 		_shift_held: bool,
 		_ctrl_held: bool,
+		snap_mode: int = 0,
 ) -> String:
 	if state == DrawState.IDLE:
 		return ""
@@ -31,12 +32,14 @@ static func state_label(
 			return "Create %s — %s | Drag sets width + orientation, click to fix" \
 					% [shape_name, shift_hint]
 		DrawState.LENGTH:
-			var parts: Array[String] = ["Set Length/Depth", "Shift: Square", "Ctrl: Snap"]
+			var parts: Array[String] = ["Set Length/Depth", "Shift: Square",
+					"Ctrl: %s Snap" % ("Grid" if snap_mode == 0 else "Delta")]
 			if _MAPPING_SCRIPT.is_radial(shape_name):
 				parts[0] = "Set Diameter"
 			return "Create %s — %s" % [shape_name, " | ".join(parts)]
 		DrawState.HEIGHT:
-			var parts2: Array[String] = ["Set Height", "Shift: Uniform", "Ctrl: Snap"]
+			var parts2: Array[String] = ["Set Height", "Shift: Uniform",
+					"Ctrl: %s Snap" % ("Grid" if snap_mode == 0 else "Delta")]
 			return "Create %s — %s" % [shape_name, " | ".join(parts2)]
 		DrawState.POLYGON:
 			return "Create %s — Click vertices, close loop or Enter to finish" % shape_name

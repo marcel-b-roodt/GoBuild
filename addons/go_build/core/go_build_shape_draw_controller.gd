@@ -99,6 +99,10 @@ var _polygon_points: Array[Vector3] = []
 var _polygon_close_threshold: float = 0.3
 
 var _snap_step: float = -1.0
+## Snap mode (toolbar Smart/Delta dropdown), mirroring
+## [enum GoBuildDragOperation.SnapMode]: Smart snaps cursor POSITIONS to the
+## world grid; Delta quantizes the drawn dimension VALUES instead.
+var _snap_mode: int = ShapeDrawMaths.SNAP_SMART
 var _last_camera: Camera3D = null
 var _last_screen_pos: Vector2 = Vector2.ZERO
 
@@ -176,6 +180,10 @@ func set_extra_param(key: String, value: Variant) -> void:
 
 func set_snap_step(step: float) -> void:
 	_snap_step = step
+
+
+func set_snap_mode(mode: int) -> void:
+	_snap_mode = mode
 
 
 func set_align_to_surface(value: bool) -> void:
@@ -304,7 +312,8 @@ func handle_input(camera: Camera3D, event: InputEvent) -> int:
 
 
 func build_state_label(shift_held: bool, ctrl_held: bool) -> String:
-	return _OVERLAY_SCRIPT.state_label(_shape_name, _state, shift_held, ctrl_held)
+	return _OVERLAY_SCRIPT.state_label(
+			_shape_name, _state, shift_held, ctrl_held, _snap_mode)
 
 
 func build_dims_label() -> String:
@@ -498,8 +507,12 @@ func _current_hit_pos(camera: Camera3D, screen_pos: Vector2) -> Vector3:
 ## Single generic snap entry point for the whole draw flow (anchor, width
 ## point, polygon vertices, crosshair, width/length targets): Ctrl + the
 ## toolbar snap step → ShapeDrawMaths.world_snap on the full 3D position.
+## Delta mode skips the position snap entirely — dimension values are
+## quantized instead (see ShapeDrawMaths).
 ## No per-state reimplementation — pass the raw cursor hit through this.
 func snap_point(pos: Vector3) -> Vector3:
+	if _snap_mode != ShapeDrawMaths.SNAP_SMART:
+		return pos
 	var snap: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 	if snap > 0.0 and _ctrl_held:
 		return _MATHS_SCRIPT.world_snap(pos, snap)
@@ -540,7 +553,7 @@ func _project_height(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> 
 	var normal_dir: Vector3 = _surface_basis.y if _align_to_surface else Vector3.UP
 	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 	return _MATHS_SCRIPT.height_result(
-			_anchor_world, hit, normal_dir, ctrl_held, step)["height"]
+			_anchor_world, hit, normal_dir, ctrl_held, step, _snap_mode)["height"]
 
 
 # ---------------------------------------------------------------------------
@@ -556,7 +569,7 @@ func _update_width(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> vo
 	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 	var n: Vector3 = _hit_normal if _hit_did_hit else Vector3.UP
 	var result := _MATHS_SCRIPT.width_result(
-			_anchor_world, snap_point(target), n, step, ctrl_held)
+			_anchor_world, snap_point(target), n, step, ctrl_held, _snap_mode)
 	if result.is_empty():
 		return
 	_drawn_width = result["width"]
@@ -581,7 +594,7 @@ func _update_length(
 	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 	var result := _MATHS_SCRIPT.length_result(
 			_anchor_world, snap_point(target), _surface_basis, _drawn_width,
-			shift_held, ctrl_held, step)
+			shift_held, ctrl_held, step, _snap_mode)
 	if result.is_empty():
 		return
 	_drawn_depth = result["depth"]
@@ -1261,6 +1274,9 @@ func _commit_shape() -> void:
 	var default_mat: Material = load("res://addons/go_build/go_build_material.tres")
 	if default_mat != null and node.go_build_mesh != null:
 		node.go_build_mesh.material_slots = [default_mat]
+		# The default material must reach the ArrayMesh and the insert's
+		# undo snapshot (the setter only baked the empty-slot mesh).
+		node.bake()
 	if parent == scene_root:
 		node.global_position = local_pos
 	else:

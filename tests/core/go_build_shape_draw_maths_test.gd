@@ -1,8 +1,10 @@
 ## Pure draw-flow maths tests — [ShapeDrawMaths].
 ##
-## Snap semantics (ProBuilder-style, single behaviour): Ctrl snaps
-## cursor POSITIONS to the world grid AND quantizes dimension VALUES;
-## the height snaps the TOP face's absolute coordinate.
+## Snap semantics (mirrors GoBuildDragOperation.SnapMode, single behaviour
+## per mode): Smart — Ctrl snaps cursor POSITIONS to the world grid, the
+## height snaps the TOP face's absolute coordinate, values are NOT
+## re-quantized.  Delta — positions stay freehand, dimension VALUES are
+## quantized to the grid step.
 @tool
 extends GdUnitTestSuite
 
@@ -52,18 +54,36 @@ func test_width_plain_measures_distance() -> void:
 
 
 func test_width_ctrl_snaps_cursor_position() -> void:
-	# Cursor at x=2.7 → snapped to 3 → width 3 (not 2.7).
+	# Cursor at x=2.7 → snapped to 3 → width 3 (not 2.7).  Smart mode.
 	var r := _MATHS.width_result(Vector3.ZERO, Vector3(2.7, 0, 0),
-			Vector3.UP, _STEP, true)
+			Vector3.UP, _STEP, true, _MATHS.SNAP_SMART)
 	assert_float(r["width"]).is_equal_approx(3.0, 0.001)
 
 
-func test_width_ctrl_offgrid_anchor_measures_from_anchor() -> void:
-	# Anchor off-grid (0.37): snapped cursor (3,0,0) → raw width 2.63,
-	# value-quantized to 3.0 (positions AND values snap under Ctrl).
+func test_width_smart_offgrid_anchor_no_value_quantize() -> void:
+	# Regression (user-reported): with an off-grid anchor the width value
+	# must NOT be quantized — the far edge follows the snapped cursor
+	# (3.0 − 0.37 = 2.63), so the geometry stays grid-aligned.
+	var r := _MATHS.width_result(Vector3(0.37, 0, 0), Vector3(3.0, 0, 0),
+			Vector3.UP, _STEP, true, _MATHS.SNAP_SMART)
+	assert_float(r["width"]).is_equal_approx(2.63, 0.001)
+
+
+func test_width_delta_snaps_value_not_position() -> void:
+	# Delta: cursor stays freehand; the width value is a grid increment
+	# (2.7 − 0.37 = 2.33 → snapped to 2.0).
 	var r := _MATHS.width_result(Vector3(0.37, 0, 0), Vector3(2.7, 0, 0),
-			Vector3.UP, _STEP, true)
-	assert_float(r["width"]).is_equal_approx(3.0, 0.001)
+			Vector3.UP, _STEP, true, _MATHS.SNAP_DELTA)
+	assert_float(r["width"]).is_equal_approx(2.0, 0.001)
+	var b: Basis = r["basis"]
+	# Orientation still follows the freehand cursor direction.
+	assert_vector(b.x).is_equal_approx(Vector3.RIGHT, Vector3.ONE * 0.001)
+
+
+func test_width_delta_degenerate_returns_empty() -> void:
+	var r := _MATHS.width_result(Vector3.ZERO, Vector3(0.2, 0, 0),
+			Vector3.UP, _STEP, true, _MATHS.SNAP_DELTA)
+	assert_bool(r.is_empty()).is_true()
 
 
 func test_width_degenerate_returns_empty() -> void:
@@ -99,17 +119,27 @@ func test_length_plain_measures_perpendicular_distance() -> void:
 
 
 func test_length_world_snap_snaps_cursor_position() -> void:
+	# Smart: cursor z=1.6 → snapped 2 → depth 2.
 	var basis := Basis(Vector3.RIGHT, Vector3.UP, Vector3.BACK)
-	# Cursor z=1.6 → snapped 2 → depth 2.
 	var r := _MATHS.length_result(Vector3.ZERO, Vector3(0, 0, 1.6),
-			basis, 2.0, false, true, _STEP)
+			basis, 2.0, false, true, _STEP, _MATHS.SNAP_SMART)
 	assert_float(r["depth"]).is_equal_approx(2.0, 0.001)
 
 
-func test_length_delta_snap_snaps_value() -> void:
+func test_length_smart_offgrid_anchor_no_value_quantize() -> void:
+	# Regression (user-reported): off-grid anchor → depth = distance to the
+	# snapped cursor (2.0 − 0.37 = 1.63), NOT re-quantized to 2.0.
 	var basis := Basis(Vector3.RIGHT, Vector3.UP, Vector3.BACK)
-	var r := _MATHS.length_result(Vector3.ZERO, Vector3(0, 0, 1.4),
-			basis, 2.0, false, true, _STEP)
+	var r := _MATHS.length_result(Vector3(0, 0, 0.37), Vector3(0, 0, 2.0),
+			basis, 2.0, false, true, _STEP, _MATHS.SNAP_SMART)
+	assert_float(r["depth"]).is_equal_approx(1.63, 0.001)
+
+
+func test_length_delta_snaps_value_not_position() -> void:
+	# Delta: cursor freehand; depth value quantized (1.4 → 1.0).
+	var basis := Basis(Vector3.RIGHT, Vector3.UP, Vector3.BACK)
+	var r := _MATHS.length_result(Vector3(0, 0, 0.37), Vector3(0, 0, 1.4),
+			basis, 2.0, false, true, _STEP, _MATHS.SNAP_DELTA)
 	assert_float(r["depth"]).is_equal_approx(1.0, 0.001)
 
 

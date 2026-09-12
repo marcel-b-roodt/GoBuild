@@ -326,6 +326,10 @@ func insert_shape(
 	var default_mat: Material = _DEFAULT_MAT
 	if default_mat != null and node.go_build_mesh != null:
 		node.go_build_mesh.material_slots = [default_mat]
+		# The default material must be captured by the insert's undo
+		# snapshot AND reach the ArrayMesh (the setter only baked the
+		# empty-slot mesh) — rebake now, before the undo action.
+		node.bake()
 
 	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
 	ur.create_action("Insert " + node_name)
@@ -343,7 +347,6 @@ func insert_shape(
 
 # ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 ## Return the currently edited [GoBuildMeshInstance] from the editor selection,
 ## or null if none is selected.
@@ -486,6 +489,7 @@ func _on_import_mesh_pressed() -> void:
 	var default_mat: Material = _DEFAULT_MAT
 	if default_mat != null:
 		node.go_build_mesh.material_slots = [default_mat]
+		node.bake()
 	var parent: Node = src_mi.get_parent()
 	if parent == null:
 		parent = scene_root

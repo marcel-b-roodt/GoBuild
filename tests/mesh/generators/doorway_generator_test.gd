@@ -17,18 +17,39 @@ const _DOORWAY_SCRIPT := preload("res://addons/go_build/mesh/generators/doorway_
 # ---------------------------------------------------------------------------
 
 func test_rect_face_count() -> void:
-	# 2 jamb boxes (6 faces each) + header box (4 — sides buried against
-	# the jambs are skipped to avoid coplanar z-fighting) = 16
-	assert_int(_DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, false).faces.size()).is_equal(16)
+	# 2 jamb boxes (6 faces each) + header through-quad pair (2) — the
+	# header/jamb seam is dissolved post-weld, so the header front/back +
+	# bottom + the buried jamb inner sections collapse into 2 quads.
+	assert_int(_DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, false).faces.size()).is_equal(14)
+
+
+func test_rect_user_dims_no_t_rings() -> void:
+	# Regression (user-dumped topology, 2026-09-12): the post-weld doorway
+	# had T-shaped rings on the inner walls (a vertex duplicated in one
+	# ring slot along a run of 3 collinear verts).  The repaired topology
+	# is 16 verts / 14 faces, every ring a clean quad.
+	var mesh := _DOORWAY_SCRIPT.generate(3.819528, 2.328407, 0.3, 1.909764, 1.862726, false)
+	assert_int(mesh.vertices.size()).is_equal(16)
+	assert_int(mesh.faces.size()).is_equal(14)
+	for face: GoBuildFace in mesh.faces:
+		assert_int(face.vertex_indices.size()).is_equal(4)
+
+
+func test_rect_all_rings_planar_quads() -> void:
+	var mesh := _DOORWAY_SCRIPT.generate(3.819528, 2.328407, 0.3, 1.909764, 1.862726, false)
+	for face: GoBuildFace in mesh.faces:
+		var pts: Array[Vector3] = []
+		for vi: int in face.vertex_indices:
+			pts.append(mesh.vertices[vi])
+		var n := mesh.compute_face_normal(face)
+		for p: Vector3 in pts:
+			assert_float(absf(n.dot(p - pts[0]))).is_less(0.001)
 
 
 func test_rect_vertex_count() -> void:
-	# 3 boxes × 8 verts (add_quad_grid 3×3×2 grid) — before weld.
 	var mesh := _DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, false)
-	# finalize() welds coincident verts; jamb/header share seams so the
-	# welded count is lower — just assert within a sane range.
-	assert_int(mesh.vertices.size()).is_greater(0)
-	assert_int(mesh.faces.size()).is_equal(16)
+	assert_int(mesh.vertices.size()).is_equal(16)
+	assert_int(mesh.faces.size()).is_equal(14)
 
 
 func test_rect_all_normals_point_outward() -> void:
@@ -157,10 +178,10 @@ func test_all_uvs_present() -> void:
 
 
 func test_weld_merges_shared_corners() -> void:
-	# Jamb boxes share corner positions with header/side slabs — weld should
-	# reduce below the naive 3-box × 24-vert grid count.
+	# Jamb boxes share corner positions with the header — weld reduces to
+	# the repaired topology's 16 verts.
 	var mesh := _DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, false)
-	assert_int(mesh.vertices.size()).is_less(72)
+	assert_int(mesh.vertices.size()).is_equal(16)
 
 
 # ---------------------------------------------------------------------------

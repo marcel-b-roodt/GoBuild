@@ -1989,6 +1989,8 @@ func _on_snap_mode_selected(index: int) -> void:
 		return
 	_snap_menu_mode_idx = index
 	_gizmo_plugin.snap_mode_override = index
+	if _shape_draw_controller != null:
+		_shape_draw_controller.set_snap_mode(index)
 	_update_snap_summary()
 
 
@@ -2188,10 +2190,6 @@ func _disconnect_node_signals() -> void:
 	if _edited_node.mesh_changed.is_connected(_on_mesh_changed):
 		_edited_node.mesh_changed.disconnect(_on_mesh_changed)
 
-
-# ---------------------------------------------------------------------------
-# Native gizmo suppression — delegates to Node3DEditorToolPinner
-# ---------------------------------------------------------------------------
 
 ## Delegates to [member _tool_pinner] to press the Physical/V button once.
 ## Called deferred from mode-change handlers and _set_transform_mode.

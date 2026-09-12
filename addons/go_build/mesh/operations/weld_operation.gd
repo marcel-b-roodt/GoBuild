@@ -151,18 +151,58 @@ static func apply_weld_by_threshold(mesh: GoBuildMesh, threshold: float = 0.0001
 # Shared post-merge clean-up
 # ---------------------------------------------------------------------------
 
-## Apply [param remap] to all face vertex indices, remove degenerate faces,
-## compact the vertex array, and rebuild edges.
+## Rewrite every face's [member GoBuildFace.vertex_indices] through
+## [param remap] (old vertex index → canonical survivor index).
 ##
-## [param remap] maps old vertex index → canonical survivor index.
-## Vertices not in the map are left unchanged.
-static func _apply_remap_and_clean(mesh: GoBuildMesh, remap: Dictionary) -> void:
-	# Rewrite face indices through the remap.
+## Weld-safe variant: when a face ring ALREADY contains the canonical index
+## elsewhere, remapping would duplicate it (ring …17…17… with two ring
+## slots for one position — the seam-ring corruption bug class).  In that
+## case the ring's OTHER occurrences are rewritten to the coincident-group
+## partner that is NOT yet present in the ring, keeping the ring a valid
+## polygon (each referenced vertex distinct) while still welding the
+## positions to the shared centroid.
+static func _remap_faces(mesh: GoBuildMesh, remap: Dictionary) -> void:
+	# Build the reverse table once: canonical → [all group members] so a
+	# ring that already holds the canonical can pick a distinct partner.
+	var partners: Dictionary = {}   # canonical → Array[int] (group members)
+	for old_vi: int in remap:
+		var canon: int = remap[old_vi]
+		if not partners.has(canon):
+			partners[canon] = [canon, old_vi]
+		else:
+			(partners[canon] as Array).append(old_vi)
+
 	for face: GoBuildFace in mesh.faces:
-		for k: int in face.vertex_indices.size():
-			var old_vi: int = face.vertex_indices[k]
-			if remap.has(old_vi):
-				face.vertex_indices[k] = remap[old_vi]
+		var ring: Array[int] = face.vertex_indices
+		for k: int in ring.size():
+			var old_vi: int = ring[k]
+			if not remap.has(old_vi):
+				continue
+			var canon: int = remap[old_vi]
+			# Does the canonical already appear elsewhere in this ring?
+			var canon_count: int = 0
+			for j: int in ring.size():
+				if j != k and ring[j] == canon:
+					canon_count += 1
+			if canon_count == 0:
+				ring[k] = canon
+				continue
+			# Ring already holds the canonical: swap this occurrence to a
+			# partner index not yet present (pre-weld members are all
+			# coincident, so any of them keeps the geometry intact).
+			var group: Array = partners.get(canon, [canon])
+			var replaced: bool = false
+			for cand: Variant in group:
+				var ci: int = cand
+				if not ring.has(ci):
+					ring[k] = ci
+					replaced = true
+					break
+			if not replaced:
+				# ponytail: all group members already referenced — fall
+				# back to the plain remap (produces the duplicated-slot
+				# ring; only possible in degenerate rings).
+				ring[k] = canon
 
 	# Remove degenerate faces: any face where the set of distinct vertex indices
 	# has fewer than 3 elements is no longer a valid polygon.
@@ -171,6 +211,16 @@ static func _apply_remap_and_clean(mesh: GoBuildMesh, remap: Dictionary) -> void
 		if _has_enough_distinct_verts(face):
 			new_faces.append(face)
 	mesh.faces = new_faces
+
+
+## Apply [param remap] to all face vertex indices, remove degenerate faces,
+## compact the vertex array, and rebuild edges.
+##
+## [param remap] maps old vertex index → canonical survivor index.
+## Vertices not in the map are left unchanged.
+static func _apply_remap_and_clean(mesh: GoBuildMesh, remap: Dictionary) -> void:
+	# Rewrite face indices through the remap.
+	_remap_faces(mesh, remap)
 
 	mesh.compact_vertices()
 	mesh.rebuild_edges()

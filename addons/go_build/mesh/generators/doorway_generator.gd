@@ -22,6 +22,8 @@ extends RefCounted
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _UTILS_SCRIPT := preload("res://addons/go_build/mesh/generators/mesh_generator_utils.gd")
+const _DISSOLVE_SCRIPT := preload("res://addons/go_build/mesh/operations/dissolve_operation.gd")
+const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
 
 
 ## Generate a doorway [GoBuildMesh] centred at the origin.
@@ -93,6 +95,12 @@ static func _generate_rectangular(
 				material_index, ["left", "right"] as Array[String])
 
 	mesh.finalize()
+	# Post-weld topology repair: dissolve the seam between the header slab
+	# and the jamb inner walls at the opening-top plane, then the header's
+	# internal front/back seam.  Result: jamb boxes with clean quads, one
+	# header through-quad pair, no buried faces.  See
+	# issues/2026-09-12-doorway-weld-rings.md.
+	_dissolve_header_seam(mesh, y_open_top)
 	return mesh
 
 
@@ -244,3 +252,55 @@ static func _add_box_x(
 		MeshGeneratorUtils.add_quad_grid(mesh,
 			Vector3(x0, y0, -hd), Vector3(x0, y0, hd),
 			Vector3(x0, y1, hd), Vector3(x0, y1, -hd), 1, 1, material_index)
+
+
+## Dissolve the header seam after [method GoBuildMesh.finalize].
+##
+## The header slab's bottom edges and the jamb inner walls' top edges meet
+## at the opening-top plane ([param y_open_top]).  Two dissolve rounds
+## there: (1) edges whose two faces have different axis classes (horizontal
+## header bottom ⊥ vertical inner wall), (2) the header's internal front/back
+## seam (both face centres above the seam).  The wall-top junction edges
+## stay — they are planar T-junctions by design, not seams.
+## See issues/2026-09-12-doorway-weld-rings.md.
+static func _dissolve_header_seam(mesh: GoBuildMesh, y_open_top: float) -> void:
+	for round: int in 4:
+		# (a) seam edges: horizontal face ⊥ vertical face at the plane.
+		var edges: Array[int] = []
+		for ei: int in mesh.edges.size():
+			var edge: GoBuildEdge = mesh.edges[ei]
+			if edge.face_indices.size() != 2:
+				continue
+			var mid: Vector3 = (
+					(mesh.vertices[edge.vertex_a] + mesh.vertices[edge.vertex_b]) * 0.5)
+			if absf(mid.y - y_open_top) >= 0.001:
+				continue
+			var na: Vector3 = mesh.compute_face_normal(mesh.faces[edge.face_indices[0]])
+			var nb: Vector3 = mesh.compute_face_normal(mesh.faces[edge.face_indices[1]])
+			if (absf(na.y) > 0.9) != (absf(nb.y) > 0.9):
+				edges.append(ei)
+		# (b) header-internal seam: both faces' centres sit in the header band.
+		if edges.is_empty():
+			for ei: int in mesh.edges.size():
+				var edge: GoBuildEdge = mesh.edges[ei]
+				if edge.face_indices.size() != 2:
+					continue
+				var mid: Vector3 = (
+						(mesh.vertices[edge.vertex_a] + mesh.vertices[edge.vertex_b]) * 0.5)
+				if absf(mid.y - y_open_top) >= 0.001:
+					continue
+				var centre_a := Vector3.ZERO
+				for vi: int in mesh.faces[edge.face_indices[0]].vertex_indices:
+					centre_a += mesh.vertices[vi]
+				centre_a /= float(mesh.faces[edge.face_indices[0]].vertex_indices.size())
+				var centre_b := Vector3.ZERO
+				for vi: int in mesh.faces[edge.face_indices[1]].vertex_indices:
+					centre_b += mesh.vertices[vi]
+				centre_b /= float(mesh.faces[edge.face_indices[1]].vertex_indices.size())
+				if centre_a.y > y_open_top + 0.001 \
+						and centre_b.y > y_open_top + 0.001:
+					edges.append(ei)
+		if edges.is_empty():
+			break
+		DissolveOperation.dissolve_edges(mesh, edges)
+	mesh.validate_edge_topology()

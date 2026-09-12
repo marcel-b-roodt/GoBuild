@@ -186,8 +186,26 @@ func _validate_property(property: Dictionary) -> void:
 
 ## Rebuild the [ArrayMesh] from [member go_build_mesh] and apply it to this node.
 ## Call this after any mutation to the GoBuildMesh data.
+##
+## When [member auto_uv_mode] is active, faces whose
+## [member GoBuildFace.uv_projection_mode] is [constant GoBuildFace.UvMode.NONE]
+## are re-projected on EVERY bake — generated/replaced face rings (regen,
+## re-edit, weld renumbering) arrive with stale or placeholder UVs, and the
+## "auto" contract is that un-projected faces always reflect the current
+## global mode.
 func bake() -> void:
-	_bake_internal(true)
+	if go_build_mesh == null:
+		mesh = null
+		mesh_changed.emit()
+		_update_collision_shape()
+		return
+	if auto_uv_mode != GoBuildFace.UvMode.NONE:
+		_apply_auto_uv()
+	mesh = go_build_mesh.bake()
+	_ensure_vertex_alpha_materials()
+	if _edit_cull_override:
+		_apply_cull_overrides()
+	mesh_changed.emit()
 	_update_collision_shape()
 
 
@@ -195,28 +213,25 @@ func bake() -> void:
 ## Use when the caller needs to modify the mesh and then do additional work
 ## before external observers should react — avoids disconnect/reconnect dances.
 func bake_silently() -> void:
-	_bake_internal(false)
-	_update_collision_shape()
-
-
-func _bake_internal(emit_changed: bool) -> void:
 	if go_build_mesh == null:
 		mesh = null
-		if emit_changed:
-			mesh_changed.emit()
+		_update_collision_shape()
 		return
+	if auto_uv_mode != GoBuildFace.UvMode.NONE:
+		_apply_auto_uv()
 	mesh = go_build_mesh.bake()
 	_ensure_vertex_alpha_materials()
 	if _edit_cull_override:
 		_apply_cull_overrides()
-	if emit_changed:
-		mesh_changed.emit()
+	_update_collision_shape()
 
 
 ## Rebuild the mesh in-place when possible, avoiding [member mesh] reassignment.
 ##
 ## This is ideal for high-frequency editor updates (e.g. object-mode world-space
 ## UV refresh) because it reuses the same [ArrayMesh] object reference.
+## Callers that want auto-UV re-projection must call [method _apply_auto_uv]
+## first (this is the "hot path" — no auto-UV work happens here).
 func bake_in_place() -> void:
 	if go_build_mesh == null:
 		mesh = null
