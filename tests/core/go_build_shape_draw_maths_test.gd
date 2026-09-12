@@ -86,6 +86,20 @@ func test_width_delta_degenerate_returns_empty() -> void:
 	assert_bool(r.is_empty()).is_true()
 
 
+func test_width_delta_position_still_grid_snapped() -> void:
+	# Delta mode: the width-point POSITION is grid-snapped in both modes
+	# (single clicked vertex on the grid is what "snapping" means);
+	# the width value derives from anchor→snapped-cursor distance.
+	# Controller-level: the raw 2.7 cursor is snapped to 3 BEFORE
+	# width_result — at the maths level Delta quantizes the VALUE
+	# (2.7 → 3.0 here since |2.7| quantizes up to 3.0?  No: 2.7 → 3.0
+	# by snappedf rounding).  Position snapping happens in
+	# snap_point; width_result with a snapped target measures it.
+	var r := _MATHS.width_result(Vector3.ZERO, Vector3(3.0, 0, 0),
+			Vector3.UP, _STEP, true, _MATHS.SNAP_DELTA)
+	assert_float(r["width"]).is_equal_approx(3.0, 0.001)
+
+
 func test_width_degenerate_returns_empty() -> void:
 	var r := _MATHS.width_result(Vector3.ZERO, Vector3(0.001, 0, 0),
 			Vector3.UP, _STEP, false)
@@ -203,6 +217,22 @@ func test_height_no_ctrl_never_snaps() -> void:
 	var r := _MATHS.height_result(Vector3.ZERO, Vector3(0, 2.3, 0),
 			Vector3.UP, false, _STEP)
 	assert_float(r["height"]).is_equal_approx(2.3, 0.001)
+
+
+func test_height_delta_quantizes_value_not_top() -> void:
+	# Delta: height VALUE is a grid increment (2.3 → 2.0); the top face
+	# keeps the anchor's absolute offset (0.37 + 2.0 = 2.37, off-grid).
+	var r := _MATHS.height_result(Vector3(0, 0.37, 0), Vector3(0, 2.67, 0),
+			Vector3.UP, true, _STEP, _MATHS.SNAP_DELTA)
+	assert_float(r["height"]).is_equal_approx(2.0, 0.001)
+
+
+func test_height_smart_snaps_top_face_to_grid() -> void:
+	# Smart: raw 2.3 from an off-grid anchor (0.37) → top lands on the
+	# grid plane y=3.0 → height 2.63.
+	var r := _MATHS.height_result(Vector3(0, 0.37, 0), Vector3(0, 2.67, 0),
+			Vector3.UP, true, _STEP, _MATHS.SNAP_SMART)
+	assert_float(r["height"]).is_equal_approx(2.63, 0.001)
 
 
 func test_height_clamped_to_minimum() -> void:

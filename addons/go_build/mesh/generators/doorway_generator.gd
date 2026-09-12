@@ -22,8 +22,6 @@ extends RefCounted
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _UTILS_SCRIPT := preload("res://addons/go_build/mesh/generators/mesh_generator_utils.gd")
-const _DISSOLVE_SCRIPT := preload("res://addons/go_build/mesh/operations/dissolve_operation.gd")
-const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
 
 
 ## Generate a doorway [GoBuildMesh] centred at the origin.
@@ -64,6 +62,16 @@ static func generate(
 
 ## Rectangular opening: two jamb columns + a header slab across the top.
 ## Wall centred on origin, base at y = -height/2.
+##
+## Decomposition (no weld tricks, no post-dissolve): jambs run the FULL
+## wall height; the header slab (its ±X sides buried against the jamb
+## inner walls → skipped) keeps all 4 of its own faces — front, back,
+## top, and the opening ceiling.  The jamb front/back quads and the
+## header front/back quads are separate coplanar pieces of the same
+## wall plane, split at the jamb-line edges — a clean crease, not a
+## seam.  20 verts / 16 faces.  Open H moves the opening top directly:
+## oh = 0 clamps the jamb boxes to full height; oh = height skips the
+## header entirely.  See issues/2026-09-12-doorway-weld-rings.md.
 static func _generate_rectangular(
 		width: float,
 		height: float,
@@ -75,7 +83,6 @@ static func _generate_rectangular(
 	var mesh := GoBuildMesh.new()
 	var hw := width * 0.5
 	var hh := height * 0.5
-	var hd := depth * 0.5
 	var base := -hh
 	var top := hh
 	var y_open_top := base + oh
@@ -84,23 +91,18 @@ static func _generate_rectangular(
 	var header_h := height - oh
 
 	# Jamb columns: from base to top (jambs run full height so the header
-	# sits on top of them — simpler split, no T-junction worries).
+	# sits between them — corner junctions only, no shared edges).
 	_add_box_x(mesh, base, top, depth, hw - jamb_w, hw, material_index)             # right
 	_add_box_x(mesh, base, top, depth, -hw, -hw + jamb_w, material_index)           # left
 
 	# Header slab above the opening.  Its side faces (±X) are buried
 	# against the jamb columns' inner faces — skip them (z-fighting).
+	# Header bottom = the opening's ceiling — visible, keep it.
 	if header_h > 0.0:
 		_add_box_x(mesh, y_open_top, top, depth, -hw + jamb_w, hw - jamb_w,
 				material_index, ["left", "right"] as Array[String])
 
 	mesh.finalize()
-	# Post-weld topology repair: dissolve the seam between the header slab
-	# and the jamb inner walls at the opening-top plane, then the header's
-	# internal front/back seam.  Result: jamb boxes with clean quads, one
-	# header through-quad pair, no buried faces.  See
-	# issues/2026-09-12-doorway-weld-rings.md.
-	_dissolve_header_seam(mesh, y_open_top)
 	return mesh
 
 
@@ -198,6 +200,19 @@ static func _generate_arched(
 		reveal.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
 		mesh.faces.append(reveal)
 
+		# Wall-top cap over the opening band (normal +Y): closes the top
+		# of the solid between the head quads — without it the wall top
+		# above the arc is an open hole (the user-reported broken top).
+		# Skipped when degenerate (apex flush with the wall top).
+		var ay0: float = spring_y + cos(-PI * 0.5 + PI * float(i) / float(segments)) * radius
+		var ay1: float = spring_y + cos(-PI * 0.5 + PI * float(i + 1) / float(segments)) * radius
+		if top - minf(ay0, ay1) > 0.0001:
+			var cap := GoBuildFace.new()
+			cap.vertex_indices = [ft0, ft1, bt1, bt0]
+			cap.material_index = material_index
+			cap.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
+			mesh.faces.append(cap)
+
 	mesh.finalize()
 	return mesh
 
@@ -252,55 +267,3 @@ static func _add_box_x(
 		MeshGeneratorUtils.add_quad_grid(mesh,
 			Vector3(x0, y0, -hd), Vector3(x0, y0, hd),
 			Vector3(x0, y1, hd), Vector3(x0, y1, -hd), 1, 1, material_index)
-
-
-## Dissolve the header seam after [method GoBuildMesh.finalize].
-##
-## The header slab's bottom edges and the jamb inner walls' top edges meet
-## at the opening-top plane ([param y_open_top]).  Two dissolve rounds
-## there: (1) edges whose two faces have different axis classes (horizontal
-## header bottom ⊥ vertical inner wall), (2) the header's internal front/back
-## seam (both face centres above the seam).  The wall-top junction edges
-## stay — they are planar T-junctions by design, not seams.
-## See issues/2026-09-12-doorway-weld-rings.md.
-static func _dissolve_header_seam(mesh: GoBuildMesh, y_open_top: float) -> void:
-	for round: int in 4:
-		# (a) seam edges: horizontal face ⊥ vertical face at the plane.
-		var edges: Array[int] = []
-		for ei: int in mesh.edges.size():
-			var edge: GoBuildEdge = mesh.edges[ei]
-			if edge.face_indices.size() != 2:
-				continue
-			var mid: Vector3 = (
-					(mesh.vertices[edge.vertex_a] + mesh.vertices[edge.vertex_b]) * 0.5)
-			if absf(mid.y - y_open_top) >= 0.001:
-				continue
-			var na: Vector3 = mesh.compute_face_normal(mesh.faces[edge.face_indices[0]])
-			var nb: Vector3 = mesh.compute_face_normal(mesh.faces[edge.face_indices[1]])
-			if (absf(na.y) > 0.9) != (absf(nb.y) > 0.9):
-				edges.append(ei)
-		# (b) header-internal seam: both faces' centres sit in the header band.
-		if edges.is_empty():
-			for ei: int in mesh.edges.size():
-				var edge: GoBuildEdge = mesh.edges[ei]
-				if edge.face_indices.size() != 2:
-					continue
-				var mid: Vector3 = (
-						(mesh.vertices[edge.vertex_a] + mesh.vertices[edge.vertex_b]) * 0.5)
-				if absf(mid.y - y_open_top) >= 0.001:
-					continue
-				var centre_a := Vector3.ZERO
-				for vi: int in mesh.faces[edge.face_indices[0]].vertex_indices:
-					centre_a += mesh.vertices[vi]
-				centre_a /= float(mesh.faces[edge.face_indices[0]].vertex_indices.size())
-				var centre_b := Vector3.ZERO
-				for vi: int in mesh.faces[edge.face_indices[1]].vertex_indices:
-					centre_b += mesh.vertices[vi]
-				centre_b /= float(mesh.faces[edge.face_indices[1]].vertex_indices.size())
-				if centre_a.y > y_open_top + 0.001 \
-						and centre_b.y > y_open_top + 0.001:
-					edges.append(ei)
-		if edges.is_empty():
-			break
-		DissolveOperation.dissolve_edges(mesh, edges)
-	mesh.validate_edge_topology()

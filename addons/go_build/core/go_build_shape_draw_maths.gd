@@ -117,22 +117,25 @@ static func length_result(
 
 ## HEIGHT step result from the raw cursor hit on the height plane.
 ## Keys: "height" (float).
-## [param snap_mode] is reserved for future mode-specific height snapping;
-## both modes currently snap the TOP face's absolute coordinate.
+## Smart snaps the TOP face's absolute coordinate to the grid; Delta
+## quantizes the height VALUE to a grid increment.
 static func height_result(
 		anchor: Vector3,
 		plane_hit: Vector3,
 		normal_dir: Vector3,
 		ctrl_held: bool,
 		step: float,
-		_snap_mode: int = SNAP_SMART,
+		snap_mode: int = SNAP_SMART,
 ) -> Dictionary:
 	var raw_h: float = (plane_hit - anchor).dot(normal_dir)
 	if ctrl_held and step > 0.0:
-		# Snap the TOP face's absolute coordinate to the world grid in
-		# BOTH modes: Smart keeps the top on a grid plane; Delta keeps
-		# the absolute top in whole-step increments from the world
-		# origin (the top position is the meaningful measure there).
-		var anchor_h: float = anchor.dot(normal_dir)
-		raw_h = snappedf(anchor_h + raw_h, step) - anchor_h
+		if snap_mode == SNAP_SMART:
+			# Smart: snap the TOP face's absolute coordinate to the grid
+			# — the top face lands on a grid plane (grid-aligned boxes
+			# even from an off-grid anchor).
+			var anchor_h: float = anchor.dot(normal_dir)
+			raw_h = snappedf(anchor_h + raw_h, step) - anchor_h
+		else:
+			# Delta: the height VALUE quantizes to a grid increment.
+			raw_h = snappedf(raw_h, step)
 	return {"height": maxf(raw_h, _MIN_DIM)}

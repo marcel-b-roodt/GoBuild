@@ -17,27 +17,25 @@ const _DOORWAY_SCRIPT := preload("res://addons/go_build/mesh/generators/doorway_
 # ---------------------------------------------------------------------------
 
 func test_rect_face_count() -> void:
-	# 2 jamb boxes (6 faces each) + header through-quad pair (2) — the
-	# header/jamb seam is dissolved post-weld, so the header front/back +
-	# bottom + the buried jamb inner sections collapse into 2 quads.
-	assert_int(_DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, false).faces.size()).is_equal(14)
+	# 2 jamb boxes (6 faces each) + header slab (front, back, top,
+	# opening ceiling — ±X sides buried against the jambs are skipped)
+	# = 16.  No dissolve tricks; the jamb/header junctions are corner
+	# junctions (no shared edges).
+	assert_int(_DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, false).faces.size()).is_equal(16)
 
 
-func test_rect_user_dims_no_t_rings() -> void:
-	# Regression (user-dumped topology, 2026-09-12): the post-weld doorway
-	# had T-shaped rings on the inner walls (a vertex duplicated in one
-	# ring slot along a run of 3 collinear verts).  The repaired topology
-	# is 16 verts / 14 faces, every ring a clean quad.
+func test_rect_user_dims_all_planar_quads() -> void:
+	# Regression (user-dumped topology, 2026-09-12): the post-weld
+	# dissolve corrupted the header (its own bottom-front/back edges
+	# got dissolved into warped quads, then the round-2 seam dissolve
+	# collapsed the mess — Open H stopped doing anything).  The clean
+	# decomposition needs no dissolve: 20 verts / 16 faces, every
+	# ring a planar quad, opening top moves with Open H.
 	var mesh := _DOORWAY_SCRIPT.generate(3.819528, 2.328407, 0.3, 1.909764, 1.862726, false)
-	assert_int(mesh.vertices.size()).is_equal(16)
-	assert_int(mesh.faces.size()).is_equal(14)
+	assert_int(mesh.vertices.size()).is_equal(20)
+	assert_int(mesh.faces.size()).is_equal(16)
 	for face: GoBuildFace in mesh.faces:
 		assert_int(face.vertex_indices.size()).is_equal(4)
-
-
-func test_rect_all_rings_planar_quads() -> void:
-	var mesh := _DOORWAY_SCRIPT.generate(3.819528, 2.328407, 0.3, 1.909764, 1.862726, false)
-	for face: GoBuildFace in mesh.faces:
 		var pts: Array[Vector3] = []
 		for vi: int in face.vertex_indices:
 			pts.append(mesh.vertices[vi])
@@ -46,10 +44,28 @@ func test_rect_all_rings_planar_quads() -> void:
 			assert_float(absf(n.dot(p - pts[0]))).is_less(0.001)
 
 
+func test_rect_open_h_moves_opening_top() -> void:
+	# Regression (user-reported): Open H must move the opening top.
+	# The opening-top plane (base + oh) carries the header's bottom
+	# corners — 4 verts (front/back × left/right flank).
+	var width := 4.5
+	var height := 4.4613
+	var ow := 1.5
+	for ratio: float in [0.1, 0.3, 0.5, 0.8]:
+		var oh := height * ratio
+		var mesh := _DOORWAY_SCRIPT.generate(width, height, 2.0, ow, oh, false)
+		var y_open_top := -height * 0.5 + oh
+		var at_open_top := 0
+		for v: Vector3 in mesh.vertices:
+			if absf(v.y - y_open_top) < 0.001 and absf(v.x) < ow * 0.5 + 0.001:
+				at_open_top += 1
+		assert_int(at_open_top).is_equal(4)
+
+
 func test_rect_vertex_count() -> void:
 	var mesh := _DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, false)
-	assert_int(mesh.vertices.size()).is_equal(16)
-	assert_int(mesh.faces.size()).is_equal(14)
+	assert_int(mesh.vertices.size()).is_equal(20)
+	assert_int(mesh.faces.size()).is_equal(16)
 
 
 func test_rect_all_normals_point_outward() -> void:
@@ -140,6 +156,25 @@ func test_arched_outer_apex_flush_with_wall_top() -> void:
 	assert_bool(found_top).is_true()
 
 
+func test_arched_wall_top_cap_closes_opening_band() -> void:
+	# Regression (user-reported): the wall top over the opening band
+	# (between the head quads) was an open hole.  A vertical ray down
+	# through the band must hit the cap (horizontal, y = wall top).
+	var mesh := _DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, true, 8)
+	var y_top := 1.25
+	var cap_faces := 0
+	for face: GoBuildFace in mesh.faces:
+		var all_top := true
+		var xs: Array[float] = []
+		for vi: int in face.vertex_indices:
+			if absf(mesh.vertices[vi].y - y_top) > 0.001:
+				all_top = false
+			xs.append(mesh.vertices[vi].x)
+		if all_top and xs.min() < 0.4 and xs.max() > -0.4:
+			cap_faces += 1
+	assert_int(cap_faces).is_greater(0)
+
+
 func test_arched_arched_vertices_on_expected_radii() -> void:
 	var ow := 1.0
 	var radius := ow * 0.5
@@ -179,9 +214,10 @@ func test_all_uvs_present() -> void:
 
 func test_weld_merges_shared_corners() -> void:
 	# Jamb boxes share corner positions with the header — weld reduces to
-	# the repaired topology's 16 verts.
+	# the clean decomposition's 20 verts (jamb corners + header bottom
+	# corners; the header's top corners coincide with the jamb tops).
 	var mesh := _DOORWAY_SCRIPT.generate(2.0, 2.5, 0.2, 1.0, 2.0, false)
-	assert_int(mesh.vertices.size()).is_equal(16)
+	assert_int(mesh.vertices.size()).is_equal(20)
 
 
 # ---------------------------------------------------------------------------

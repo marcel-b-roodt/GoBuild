@@ -507,12 +507,11 @@ func _current_hit_pos(camera: Camera3D, screen_pos: Vector2) -> Vector3:
 ## Single generic snap entry point for the whole draw flow (anchor, width
 ## point, polygon vertices, crosshair, width/length targets): Ctrl + the
 ## toolbar snap step → ShapeDrawMaths.world_snap on the full 3D position.
-## Delta mode skips the position snap entirely — dimension values are
-## quantized instead (see ShapeDrawMaths).
+## Applies in BOTH snap modes — a single clicked vertex on the grid is what
+## "snapping" means; only the derived dimension VALUES differ per mode
+## (Delta quantizes them, see ShapeDrawMaths).
 ## No per-state reimplementation — pass the raw cursor hit through this.
 func snap_point(pos: Vector3) -> Vector3:
-	if _snap_mode != ShapeDrawMaths.SNAP_SMART:
-		return pos
 	var snap: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 	if snap > 0.0 and _ctrl_held:
 		return _MATHS_SCRIPT.world_snap(pos, snap)
@@ -562,8 +561,8 @@ func _project_height(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> 
 
 ## WIDTH step: the segment anchor→cursor (projected on the surface plane)
 ## sets the width and its direction previews the shape's local +X.
-## Ctrl + World Snap: the cursor position lands on the world grid, so the
-## width segment and its orientation are grid-aligned by construction.
+## Ctrl: the width-point click lands on the world grid in BOTH modes
+## (snapped via snap_point); Delta additionally quantizes the width VALUE.
 func _update_width(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> void:
 	var target: Vector3 = _project_to_surface_plane(camera, screen_pos)
 	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)

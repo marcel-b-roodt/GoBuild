@@ -29,7 +29,7 @@ static func state_label(
 		DrawState.WIDTH:
 			var shift_hint: String = "Shift: Circle" \
 					if _MAPPING_SCRIPT.is_radial(shape_name) else "Shift: Square"
-			return "Create %s — %s | Drag sets width + orientation, click to fix" \
+			return "Create %s — %s | Ctrl: Grid Snap | Drag sets width + orientation, click to fix" \
 					% [shape_name, shift_hint]
 		DrawState.LENGTH:
 			var parts: Array[String] = ["Set Length/Depth", "Shift: Square",
