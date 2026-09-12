@@ -75,3 +75,12 @@ func test_all_shapes_have_even_ray_parity() -> void:
 		assert_that(mesh).is_not_null()
 		var bad: Array[int] = _parity_fails(mesh)
 		assert_array(bad).is_empty()
+
+
+func test_staircase_flipped_has_even_ray_parity() -> void:
+	# The flip pass reverses every ring; winding invariant must hold there
+	# too (draw-flow auto-flip relies on it).
+	var mesh: GoBuildMesh = _CATALOG.build_mesh("Staircase",
+			{"steps": 5, "step_width": 1.2, "step_height": 0.2, "step_depth": 0.3,
+					"flipped": true})
+	assert_array(_parity_fails(mesh)).is_empty()

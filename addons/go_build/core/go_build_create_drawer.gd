@@ -161,7 +161,12 @@ func _show_param_strip(shape_name: String, draw_ctrl: GoBuildShapeDrawController
 		var t: String = str(spec.get("type", ""))
 		var key: String = str(spec.get("key", ""))
 		var label_text: String = str(spec.get("label", key))
-		if t == "bool":
+		if t == "button":
+			var btn := Button.new()
+			btn.text = label_text
+			btn.pressed.connect(_on_param_button_pressed.bind(key, draw_ctrl))
+			bool_row.add_child(btn)
+		elif t == "bool":
 			var chk := CheckBox.new()
 			chk.text = label_text
 			var default_val = draw_ctrl.get_extra_params().get(key, spec.get("default", false))
@@ -231,6 +236,14 @@ func _on_param_changed(
 		_is_bool: bool,
 ) -> void:
 	draw_ctrl.set_extra_param(key, value)
+
+
+func _on_param_button_pressed(
+		key: String,
+		draw_ctrl: GoBuildShapeDrawController,
+) -> void:
+	draw_ctrl.set_extra_param(key,
+			not bool(draw_ctrl.get_extra_params().get(key, false)))
 
 
 func _on_param_spin_changed(

@@ -36,7 +36,7 @@ func test_open_shows_widgets_for_structural_params() -> void:
 	p.show()
 	p.open("Staircase", _draw_ctrl, Rect2(0, 0, 800, 600))
 	assert_bool(p.visible).is_true()
-	# Title + rows for specs (steps + flipped) = 1 child (the VBox).
+	# Title + rows for specs (steps + flip button) = 1 child (the VBox).
 	var specs := ShapeCreationCatalog.non_drawable_param_specs("Staircase")
 	assert_int(specs.size()).is_equal(2)
 	assert_int(p.get_child_count()).is_equal(1)
@@ -134,21 +134,7 @@ func test_regenerate_keeps_material_slots_and_pivot() -> void:
 			{"width": 2.0, "height": 2.0, "depth": 2.0})
 	var committed_mat := StandardMaterial3D.new()
 	mesh.material_slots = [committed_mat]
-	# Pivot convention: committed meshes sit base-centre at local origin
-	# (the commit path shifts before capturing the pristine state).
-	var seed_aabb: AABB = mesh.compute_aabb()
-	var seed_pivot := Vector3(
-			seed_aabb.position.x + seed_aabb.size.x * 0.5,
-			seed_aabb.position.y,
-			seed_aabb.position.z + seed_aabb.size.z * 0.5)
-	var seed_idx: Array[int] = []
-	seed_idx.resize(mesh.vertices.size())
-	for i: int in seed_idx.size():
-		seed_idx[i] = i
-	mesh.translate_vertices(seed_idx, -seed_pivot)
-	node.go_build_mesh = mesh
-	node.capture_pristine_state()
-	node.set_meta("go_build_params", {"width": 2.0, "height": 2.0, "depth": 2.0})
+	_seed_node(node, mesh, {"width": 2.0, "height": 2.0, "depth": 2.0})
 	p.open_for_edit(node, "Cube", Rect2(0, 0, 800, 600))
 	assert_bool(p.visible).is_true()
 	p._edit_params["subdivisions"] = 0
@@ -174,20 +160,7 @@ func test_regenerate_staircase_steps_preserves_total_size() -> void:
 		"steps": 4, "step_width": 1.0, "step_height": 0.25, "step_depth": 0.3,
 	}
 	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh("Staircase", params)
-	# Pivot convention: shift base-centre to origin before pristine capture.
-	var seed_aabb: AABB = mesh.compute_aabb()
-	var seed_pivot := Vector3(
-			seed_aabb.position.x + seed_aabb.size.x * 0.5,
-			seed_aabb.position.y,
-			seed_aabb.position.z + seed_aabb.size.z * 0.5)
-	var seed_idx: Array[int] = []
-	seed_idx.resize(mesh.vertices.size())
-	for i: int in seed_idx.size():
-		seed_idx[i] = i
-	mesh.translate_vertices(seed_idx, -seed_pivot)
-	node.go_build_mesh = mesh
-	node.capture_pristine_state()
-	node.set_meta("go_build_params", params)
+	_seed_node(node, mesh, params)
 	p.open_for_edit(node, "Staircase", Rect2(0, 0, 800, 600))
 	assert_bool(p.visible).is_true()
 	# Popup seeds drawn size from committed params, not the mesh AABB.
@@ -205,36 +178,95 @@ func test_regenerate_staircase_steps_preserves_total_size() -> void:
 	assert_int(regenerated.faces.size()).is_equal(2 * 6 + 4)
 
 
-func test_regenerate_staircase_flips_direction() -> void:
-	# Flip Direction checkbox (persistent param): regenerating with
-	# flipped=true mirrors the staircase along Z; risers face +Z.
+func test_regenerate_staircase_flip_button_inverts_param() -> void:
+	# Flip Direction is a momentary button (not a sticky toggle): press
+	# once → params inverted, mesh regenerated, popup stays open.
 	var p = _make_popup()
 	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
 	var params: Dictionary = {
 		"steps": 4, "step_width": 1.0, "step_height": 0.25, "step_depth": 0.3,
 	}
 	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh("Staircase", params)
-	var seed_aabb: AABB = mesh.compute_aabb()
-	var seed_pivot := Vector3(
-			seed_aabb.position.x + seed_aabb.size.x * 0.5,
-			seed_aabb.position.y,
-			seed_aabb.position.z + seed_aabb.size.z * 0.5)
-	var seed_idx: Array[int] = []
-	seed_idx.resize(mesh.vertices.size())
-	for i: int in seed_idx.size():
-		seed_idx[i] = i
-	mesh.translate_vertices(seed_idx, -seed_pivot)
-	node.go_build_mesh = mesh
-	node.capture_pristine_state()
-	node.set_meta("go_build_params", params)
+	_seed_node(node, mesh, params)
 	p.open_for_edit(node, "Staircase", Rect2(0, 0, 800, 600))
 	assert_bool(p.visible).is_true()
-	p._edit_params["flipped"] = true
-	p._regenerate_edit_mesh()
+	p._on_edit_button_pressed("flipped")
+	assert_bool(bool(p._edit_params["flipped"])).is_true()
+	assert_bool(p.visible).is_true()
+	assert_bool(node.is_pristine_state_valid()).is_true()
 	var regenerated: GoBuildMesh = node.go_build_mesh
 	var riser_n: Vector3 = regenerated.compute_face_normal(regenerated.faces[1])
 	assert_float(riser_n.dot(Vector3(0.0, 0.0, 1.0))).is_greater_equal(0.999)
 	assert_int(regenerated.faces.size()).is_equal(2 * 4 + 4)
+	# Meta updated so a later session re-opens with the flipped baseline.
+	assert_bool(bool(node.get_meta("go_build_params").get("flipped", false))).is_true()
+
+
+func test_popup_survives_repeated_regens() -> void:
+	# Regression (user-reported): the second popup edit closed the popup —
+	# the first regenerate left the mesh off-pristine, so the pristine
+	# guard killed re-edit mode.  Regeneration must re-baseline.
+	var p = _make_popup()
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	var params: Dictionary = {
+		"steps": 4, "step_width": 1.0, "step_height": 0.25, "step_depth": 0.3,
+	}
+	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh("Staircase", params)
+	_seed_node(node, mesh, params)
+	p.open_for_edit(node, "Staircase", Rect2(0, 0, 800, 600))
+	p._edit_params["steps"] = 6
+	p._regenerate_edit_mesh()
+	assert_bool(p.visible).is_true()
+	p._on_edit_button_pressed("flipped")
+	assert_bool(p.visible).is_true()
+	p._edit_params["steps"] = 3
+	p._regenerate_edit_mesh()
+	assert_bool(p.visible).is_true()
+	assert_bool(node.is_pristine_state_valid()).is_true()
+	assert_int(node.go_build_mesh.faces.size()).is_equal(2 * 3 + 4)
+
+
+func test_popup_closes_on_manual_mesh_edit() -> void:
+	# The mesh_changed watcher: any edit outside the popup (drag, knife,
+	# undo) ends re-edit mode — the params no longer describe the mesh.
+	var p = _make_popup()
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	var params: Dictionary = {"width": 2.0, "height": 2.0, "depth": 2.0}
+	var mesh: GoBuildMesh = _CATALOG_SCRIPT.build_mesh("Cube", params)
+	_seed_node(node, mesh, params)
+	p.open_for_edit(node, "Cube", Rect2(0, 0, 800, 600))
+	assert_bool(p.visible).is_true()
+	var gbm: GoBuildMesh = node.go_build_mesh
+	var all_idx: Array[int] = []
+	all_idx.resize(gbm.vertices.size())
+	for i: int in all_idx.size():
+		all_idx[i] = i
+	gbm.translate_vertices(all_idx, Vector3(0.5, 0, 0))
+	gbm.rebuild_edges()
+	node.bake()
+	assert_bool(p.visible).is_false()
+
+
+func _seed_node(
+		node: GoBuildMeshInstance,
+		mesh: GoBuildMesh,
+		params: Dictionary,
+) -> void:
+	# Pivot convention: committed meshes sit base-centre at local origin
+	# (the commit path shifts before capturing the pristine state).
+	var aabb: AABB = mesh.compute_aabb()
+	var pivot := Vector3(
+			aabb.position.x + aabb.size.x * 0.5,
+			aabb.position.y,
+			aabb.position.z + aabb.size.z * 0.5)
+	var idx: Array[int] = []
+	idx.resize(mesh.vertices.size())
+	for i: int in idx.size():
+		idx[i] = i
+	mesh.translate_vertices(idx, -pivot)
+	node.go_build_mesh = mesh
+	node.capture_pristine_state()
+	node.set_meta("go_build_params", params)
 
 
 func _find_spin(root: Node) -> SpinBox:

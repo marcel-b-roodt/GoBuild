@@ -149,7 +149,7 @@ static func preview_param_specs(shape_name: String) -> Array[Dictionary]:
 					"type": "float", "key": "step_depth", "label": "Step Depth",
 					"min": 0.01, "max": 100.0, "step": 0.01,
 				},
-				{"type": "bool", "key": "flipped", "label": "Flip Direction"},
+				{"type": "button", "key": "flipped", "label": "Flip Direction"},
 			]
 		"Torus":
 			return [
@@ -274,7 +274,7 @@ static func non_drawable_param_specs(shape_name: String) -> Array[Dictionary]:
 		"Staircase":
 			return [
 				{"type": "int", "key": "steps", "label": "Steps", "min": 1, "max": 256, "step": 1},
-				{"type": "bool", "key": "flipped", "label": "Flip Direction"},
+				{"type": "button", "key": "flipped", "label": "Flip Direction"},
 			]
 		"Arch":
 			return [

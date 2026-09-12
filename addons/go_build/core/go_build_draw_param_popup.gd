@@ -37,6 +37,9 @@ var _edit_node: GoBuildMeshInstance = null
 var _edit_shape_name: String = ""
 var _edit_drawn: Vector3 = Vector3.ZERO
 var _edit_params: Dictionary = {}
+## Suppresses the mesh_changed watcher while the popup regenerates the
+## bound node's own mesh (those bakes must not close re-edit mode).
+var _suppress_close: bool = false
 
 
 ## Build one widget per structural param spec and anchor the panel to the
@@ -64,7 +67,14 @@ func open(
 		var t: String = str(spec.get("type", ""))
 		var key: String = str(spec.get("key", ""))
 		var label_text: String = str(spec.get("label", key))
-		if t == "bool":
+		if t == "button":
+			# Momentary action, not state: press → fire once, then unpress.
+			var btn := Button.new()
+			btn.text = label_text
+			btn.add_theme_font_size_override("font_size", 10)
+			btn.pressed.connect(_on_button_pressed.bind(key))
+			vbox.add_child(btn)
+		elif t == "bool":
 			var chk := CheckBox.new()
 			chk.text = label_text
 			chk.add_theme_font_size_override("font_size", 10)
@@ -109,6 +119,7 @@ func _apply_popup_style() -> void:
 
 
 func close() -> void:
+	_disconnect_mesh_watcher()
 	_draw_ctrl = null
 	_edit_node = null
 	_edit_shape_name = ""
@@ -117,12 +128,38 @@ func close() -> void:
 	hide()
 
 
+## Watch the bound node for manual mesh edits (knife, drag, undo …).  Popup
+## regenerations suppress the flag so they don't close themselves.
+func _connect_mesh_watcher(node: GoBuildMeshInstance) -> void:
+	_disconnect_mesh_watcher()
+	if node != null and is_instance_valid(node):
+		_suppress_close = true
+		node.mesh_changed.connect(_on_edit_node_mesh_changed)
+		_suppress_close = false
+
+
+func _disconnect_mesh_watcher() -> void:
+	if _edit_node != null and is_instance_valid(_edit_node) \
+			and _edit_node.mesh_changed.is_connected(_on_edit_node_mesh_changed):
+		_edit_node.mesh_changed.disconnect(_on_edit_node_mesh_changed)
+
+
+## Manual mesh edit while re-editing → the params no longer describe the
+## mesh; close re-edit mode (the "un-edited" contract).
+func _on_edit_node_mesh_changed() -> void:
+	if _suppress_close or _edit_node == null:
+		return
+	close()
+
+
 ## Open in re-edit mode for [param node]: infers the shape from the node name,
-## stores draw params from the current AABB, and rebuilds on edits while
-## [member GoBuildMeshInstance.is_pristine_state_valid] holds.
+## stores draw params from the committed params meta, and rebuilds on edits
+## while the mesh stays generator-generated (manual edits close the popup
+## via the mesh_changed watcher).
 func open_for_edit(node: GoBuildMeshInstance, shape_name: String, vp_rect: Rect2) -> void:
 	_apply_popup_style()
 	_draw_ctrl = null
+	_disconnect_mesh_watcher()
 	if node == null or node.go_build_mesh == null \
 			or not node.is_pristine_state_valid():
 		hide()
@@ -149,7 +186,13 @@ func open_for_edit(node: GoBuildMeshInstance, shape_name: String, vp_rect: Rect2
 		var t: String = str(spec.get("type", ""))
 		var key: String = str(spec.get("key", ""))
 		var label_text: String = str(spec.get("label", key))
-		if t == "bool":
+		if t == "button":
+			var btn := Button.new()
+			btn.text = label_text
+			btn.add_theme_font_size_override("font_size", 10)
+			btn.pressed.connect(_on_edit_button_pressed.bind(key))
+			vbox.add_child(btn)
+		elif t == "bool":
 			var chk := CheckBox.new()
 			chk.text = label_text
 			chk.add_theme_font_size_override("font_size", 10)
@@ -180,6 +223,11 @@ func open_for_edit(node: GoBuildMeshInstance, shape_name: String, vp_rect: Rect2
 	position = Vector2(
 			vp_rect.end.x - _POPUP_WIDTH - _POPUP_MARGIN,
 			vp_rect.position.y + _POPUP_MARGIN)
+	# "Un-edited" indicator: green title while the mesh still matches its
+	# generator output — as long as this stays green, every popup edit
+	# regenerates from the original insertion.
+	title.add_theme_color_override("font_color", Color(0.55, 0.9, 0.55))
+	_connect_mesh_watcher(node)
 	show()
 
 
@@ -206,11 +254,16 @@ func _committed_drawn_size(shape_name: String, committed: Dictionary) -> Vector3
 ## Per-step shapes (Staircase) keep the drawn totals fixed: the per-step
 ## sizes are recomputed from [member _edit_drawn] so changing the step
 ## count reslices the same block instead of rescaling it.
+##
+## Regeneration is part of the popup's own editing loop — it re-baselines
+## the pristine snapshot and the params meta afterwards, so the next edit
+## also regenerates.  The mesh_changed watcher closes the popup only on
+## edits made outside the popup (knife, gizmo drag, undo …).
 func _regenerate_edit_mesh() -> void:
 	if _edit_node == null or not is_instance_valid(_edit_node):
 		return
 	if not _edit_node.is_pristine_state_valid():
-		# User edited the mesh since opening — close re-edit mode.
+		# Mesh changed outside the popup — params no longer describe it.
 		close()
 		return
 	var params: Dictionary = _edit_params.duplicate()
@@ -231,29 +284,34 @@ func _regenerate_edit_mesh() -> void:
 		params.erase("width")
 		params.erase("depth")
 	var gbm := _edit_node.go_build_mesh
-	gbm.restore_snapshot(_edit_node.get_pristine_state())
 	var generated: GoBuildMesh = _CATALOG_SCRIPT.build_mesh(_edit_shape_name, params)
-	if generated != null:
-		# Pivot convention: committed meshes sit base-centre at the local
-		# origin — shift the regenerated mesh the same way so the node
-		# transform stays valid.
-		var pivot := Vector3.ZERO
-		var aabb: AABB = generated.compute_aabb()
-		pivot = Vector3(
-				aabb.position.x + aabb.size.x * 0.5,
-				aabb.position.y,
-				aabb.position.z + aabb.size.z * 0.5)
-		var all_idx: Array[int] = []
-		all_idx.resize(generated.vertices.size())
-		for i: int in all_idx.size():
-			all_idx[i] = i
-		generated.translate_vertices(all_idx, -pivot)
-		gbm.vertices = generated.vertices
-		gbm.faces = generated.faces
-		# Keep the committed material slots — the generator returns an
-		# empty array and overwriting would wipe user-assigned materials.
+	if generated == null:
+		return
+	# Pivot convention: committed meshes sit base-centre at the local
+	# origin — shift the regenerated mesh the same way so the node
+	# transform stays valid.
+	var aabb: AABB = generated.compute_aabb()
+	var pivot := Vector3(
+			aabb.position.x + aabb.size.x * 0.5,
+			aabb.position.y,
+			aabb.position.z + aabb.size.z * 0.5)
+	var all_idx: Array[int] = []
+	all_idx.resize(generated.vertices.size())
+	for i: int in all_idx.size():
+		all_idx[i] = i
+	generated.translate_vertices(all_idx, -pivot)
+	_suppress_close = true
+	gbm.vertices = generated.vertices
+	gbm.faces = generated.faces
+	# Keep the committed material slots — the generator returns an
+	# empty array and overwriting would wipe user-assigned materials.
 	gbm.rebuild_edges()
 	_edit_node.bake()
+	# Re-baseline: the regenerated mesh is the new "generator-generated"
+	# state, and the live params are the new commit params.
+	_edit_node.capture_pristine_state()
+	_edit_node.set_meta("go_build_params", params)
+	_suppress_close = false
 	edit_applied.emit()
 
 
@@ -267,6 +325,13 @@ func _on_bool_changed(pressed: bool, key: String) -> void:
 		_draw_ctrl.set_extra_param(key, pressed)
 
 
+func _on_button_pressed(key: String) -> void:
+	# Momentary: invert the current value once, then restore the widget so
+	# the Button never reads as a sticky toggle.
+	if _draw_ctrl != null:
+		_draw_ctrl.set_extra_param(key, not bool(_draw_ctrl.get_extra_params().get(key, false)))
+
+
 func _on_edit_spin_changed(value: float, key: String, is_int: bool) -> void:
 	if _edit_node == null:
 		return
@@ -278,4 +343,11 @@ func _on_edit_bool_changed(pressed: bool, key: String) -> void:
 	if _edit_node == null:
 		return
 	_edit_params[key] = pressed
+	_regenerate_edit_mesh()
+
+
+func _on_edit_button_pressed(key: String) -> void:
+	if _edit_node == null:
+		return
+	_edit_params[key] = not bool(_edit_params.get(key, false))
 	_regenerate_edit_mesh()

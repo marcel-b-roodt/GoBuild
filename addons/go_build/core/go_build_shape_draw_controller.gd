@@ -491,16 +491,19 @@ func _current_hit_pos(camera: Camera3D, screen_pos: Vector2) -> Vector3:
 	var placement := _SHAPE_PLACEMENT_SCRIPT.find_placement(
 			camera, screen_pos, edited, _ghost)
 	if placement != null:
-		if _align_to_surface:
-			var snap: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
-			if snap > 0.0 and _ctrl_held:
-				var snapped: Vector3 = Vector3(
-					snappedf(placement.world_pos.x, snap),
-					placement.world_pos.y,
-					snappedf(placement.world_pos.z, snap))
-				return snapped
-		return placement.world_pos
+		return snap_point(placement.world_pos)
 	return Vector3.ZERO
+
+
+## Single generic snap entry point for the whole draw flow (anchor, width
+## point, polygon vertices, crosshair, width/length targets): Ctrl + the
+## toolbar snap step → ShapeDrawMaths.world_snap on the full 3D position.
+## No per-state reimplementation — pass the raw cursor hit through this.
+func snap_point(pos: Vector3) -> Vector3:
+	var snap: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
+	if snap > 0.0 and _ctrl_held:
+		return _MATHS_SCRIPT.world_snap(pos, snap)
+	return pos
 
 
 func _project_to_surface_plane(camera: Camera3D, screen_pos: Vector2) -> Vector3:
@@ -540,7 +543,6 @@ func _project_height(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> 
 			_anchor_world, hit, normal_dir, ctrl_held, step)["height"]
 
 
-
 # ---------------------------------------------------------------------------
 # Width / length / height computation
 # ---------------------------------------------------------------------------
@@ -554,7 +556,7 @@ func _update_width(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> vo
 	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 	var n: Vector3 = _hit_normal if _hit_did_hit else Vector3.UP
 	var result := _MATHS_SCRIPT.width_result(
-			_anchor_world, target, n, step, ctrl_held)
+			_anchor_world, snap_point(target), n, step, ctrl_held)
 	if result.is_empty():
 		return
 	_drawn_width = result["width"]
@@ -578,13 +580,14 @@ func _update_length(
 	var target: Vector3 = _project_to_surface_plane(camera, screen_pos)
 	var step: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
 	var result := _MATHS_SCRIPT.length_result(
-			_anchor_world, target, _surface_basis, _drawn_width,
+			_anchor_world, snap_point(target), _surface_basis, _drawn_width,
 			shift_held, ctrl_held, step)
 	if result.is_empty():
 		return
 	_drawn_depth = result["depth"]
 	_drag_dir_z = result["drag_dir_z"]
 	_drag_dir_x = 1.0
+	_derive_flipped_from_drag()
 
 
 ## Lock the orientation from the width segment: local +X along the segment,
@@ -610,9 +613,19 @@ func _update_height(
 	_drawn_height = maxf(h, _MIN_DIM)
 
 
-# ---------------------------------------------------------------------------
-# Flush offset — positions shape so it sits on the surface
-# ---------------------------------------------------------------------------
+## Staircase draw contract: clicks 1 and 2 are on the TOP LANDING.  The
+## depth drag's sign (relative to local +Z) picks the flipped state so the
+## ascent-end (top step) always sits at the anchor under clicks 1-2 and the
+## descent continues in the drag direction.  Called at LENGTH and commit.
+func _derive_flipped_from_drag() -> void:
+	if _shape_name != "Staircase":
+		return
+	# Block always extends from the anchor along the drag (origin offset =
+	# half·drag_dir_z).  drag +Z → anchor at block start (z=0) → the
+	# flipped mirror puts the ascent end there.  drag −Z → anchor at the
+	# block end (z=total) → unflipped already tops out there.
+	_extra_params["flipped"] = _drag_dir_z > 0.0
+
 
 # ---------------------------------------------------------------------------
 # Ghost management
@@ -950,18 +963,7 @@ func _position_ghost_from_aabb(scaled_aabb: AABB) -> void:
 func _get_current_ghost_pos() -> Vector3:
 	if _last_camera == null:
 		return Vector3.ZERO
-	var placement := _SHAPE_PLACEMENT_SCRIPT.find_placement(
-		_last_camera, _last_screen_pos, _edited_node, _ghost)
-	if placement != null:
-		if _align_to_surface:
-			var snap: float = _TRANSFORM_HELPERS_SCRIPT.get_snap_step(_snap_step)
-			if snap > 0.0 and _ctrl_held:
-				return Vector3(
-					snappedf(placement.world_pos.x, snap),
-					placement.world_pos.y,
-					snappedf(placement.world_pos.z, snap))
-		return placement.world_pos
-	return Vector3.ZERO
+	return _current_hit_pos(_last_camera, _last_screen_pos)
 
 
 func _remove_ghost() -> void:
@@ -1171,6 +1173,7 @@ func _commit_shape() -> void:
 		cancel()
 		return
 	_release_mouse_capture()
+	_derive_flipped_from_drag()
 	var params: Dictionary
 	var is_polygon: bool = _MAPPING_SCRIPT.needs_polygon_step(_shape_name)
 	if is_polygon:
