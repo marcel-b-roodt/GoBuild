@@ -173,7 +173,9 @@ static func _endpoint_crossing(
 
 static func apply(mesh: GoBuildMesh, points: Array, closed: bool = false,
 		edge_hits: Array = []) -> bool:
-	if mesh == null or points.size() < 3:
+	# 2-point strokes are valid SEAMS (a drawn edge between two ring
+	# points) — only an empty stroke bails.
+	if mesh == null or points.size() < 2:
 		return false
 	var v0: int = mesh.vertices.size()
 	var e0: int = mesh.edges.size()
@@ -758,8 +760,16 @@ static func _resolve_runs(mesh: GoBuildMesh, points: Array, closed: bool) -> Arr
 		if closed or first_i > 0:
 			entry = _crossing_nearest_to_end(mesh, face,
 					picked[prev_i]["position"], picked[first_i]["position"])
+		# An OPEN-stroke start ON the ring (edge-snapped end) must not shadow
+		# the segment's own ring exit: the first pick is where the path STARTS,
+		# but the ring edge it crosses (or re-enters through) may lie further
+		# along — the run must partition at that crossing too (a 2-point
+		# stroke would otherwise resolve as two touch points and cut nothing).
 		if entry.is_empty():
 			entry = _endpoint_crossing(mesh, face, pts[0], -1)
+		if entry.is_empty() and pts.size() >= 2:
+			entry = _crossing_nearest_to_start(mesh, face,
+					picked[first_i]["position"], picked[indices[1]]["position"])
 		if entry.is_empty() and (closed or first_i > 0):
 			# The incoming PICK may itself sit on this face's ring (a snap
 			# grabbed a shared-edge vertex under the NEIGHBOUR's face index
@@ -778,6 +788,13 @@ static func _resolve_runs(mesh: GoBuildMesh, points: Array, closed: bool) -> Arr
 					picked[last_i]["position"], picked[next_i]["position"])
 		if exit.is_empty():
 			exit = _endpoint_crossing(mesh, face, pts[pts.size() - 1], -1)
+		if exit.is_empty() and pts.size() >= 2:
+			# Open-stroke end on the ring: the ring edge the SECOND-to-last
+			# segment crosses (toward the last pick) is the run's real exit —
+			# without it a 2-point stroke resolves as two touch points.
+			exit = _crossing_nearest_to_end(mesh, face,
+					picked[indices[indices.size() - 2]]["position"],
+					picked[last_i]["position"])
 		if exit.is_empty() and (closed or last_i < n - 1):
 			# Same for the OUTGOING point (the next run's first point may
 			# be a shared ring member this run's path walks toward).

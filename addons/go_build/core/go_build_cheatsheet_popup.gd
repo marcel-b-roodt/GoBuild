@@ -147,6 +147,9 @@ static func _get_sections() -> Array[Dictionary]:
 			{key = "N", desc = "Toggle face normals"},
 			{key = "M", desc = "Merge vertices"},
 			{key = "Delete / X", desc = "Delete elements"},
+			{key = "K", desc = "Knife cut (K/Esc cancels)"},
+			{key = "Enter", desc = "Knife: commit open stroke"},
+			{key = "Ctrl + Enter", desc = "Knife: commit closed loop"},
 		]
 	})
 	sections.append({

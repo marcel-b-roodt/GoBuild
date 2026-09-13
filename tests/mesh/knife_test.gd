@@ -694,6 +694,70 @@ func test_open_cut_revisiting_path_rejected_clean() -> void:
 	assert_int(m.faces.size()).is_equal(6)
 
 
+func test_seam_two_points_inserts_drawn_edge() -> void:
+	# 2026-09-13 session: a 2-point open stroke with both ends on RING
+	# EDGES (edge-snapped) resolved as two single-touch runs —
+	# "+0f +0v +0e", nothing inserted.  Blender's knife seam: the drawn
+	# edge must split the face into two (+1f +2v: the 2 ring splits;
+	# +3e: 4 split halves − 1 original + 2 drawn edges).
+	var m := _make_cube_2x2x1()
+	var pts: Array = [
+		{"face_index": 2, "position": Vector3(-0.6, -1.0, 0.5)},
+		{"face_index": 2, "position": Vector3(-0.6, 1.0, 0.5)},
+	]
+	assert_bool(_KNIFE.apply(m, pts, false)).is_true()
+	# The seam edge exists between the two (split) ring points.
+	var seam_found := false
+	var seam_vi := [-1, -1]
+	for e: GoBuildEdge in m.edges:
+		var pa: Vector3 = m.vertices[e.vertex_a]
+		var pb: Vector3 = m.vertices[e.vertex_b]
+		if absf(pa.x - pb.x) < 1e-4 and absf(pa.x - -0.6) < 1e-4 \
+				and absf(pa.z - pb.z) < 1e-4:
+			seam_found = true
+			seam_vi = [e.vertex_a, e.vertex_b]
+	assert_bool(seam_found).is_true()
+	# The +Z face split at the seam: each half's ring holds both endpoints.
+	var halves := 0
+	for f: GoBuildFace in m.faces:
+		var ring: Array[int] = f.vertex_indices
+		if ring.has(seam_vi[0]) and ring.has(seam_vi[1]) \
+				and absf(m.vertices[ring[0]].z - 0.5) < 1e-4:
+			halves += 1
+	assert_int(halves).is_equal(2)
+	assert_int(m.faces.size()).is_equal(7)
+	# A later cut THROUGH the seam splits the face there: run a second
+	# stroke crossing the seam edge mid-face (the seam now sits between
+	# the split halves at face index 2 — stroke its band's interior).
+	var pts2: Array = [
+		{"face_index": 2, "position": Vector3(-0.3, -0.5, 0.5)},
+		{"face_index": 2, "position": Vector3(-0.3, 0.5, 0.5)},
+		{"face_index": 2, "position": Vector3(0.5, 0.0, 0.5)},
+	]
+	assert_bool(_KNIFE.apply(m, pts2, false)).is_true()
+	assert_int(m.faces.size()).is_greater(7)
+	for f: GoBuildFace in m.faces:
+		var uniq := {}
+		for vi: int in f.vertex_indices:
+			uniq[vi] = true
+		assert_int(uniq.size()).is_equal(f.vertex_indices.size())
+
+
+func test_seam_snapped_corners_zero_new_vertices() -> void:
+	# Both ends snapped to existing ring CORNERS: the seam edge connects
+	# them with ZERO new vertices (+1f +1e — the face splits in two).
+	var m := _make_cube_2x2x1()
+	var pts: Array = [
+		{"face_index": 2, "position": Vector3(-1.0, -1.0, 0.5)},
+		{"face_index": 2, "position": Vector3(1.0, 1.0, 0.5)},
+	]
+	var v0: int = m.vertices.size()
+	assert_bool(_KNIFE.apply(m, pts, false)).is_true()
+	assert_int(m.vertices.size()).is_equal(v0)
+	assert_bool(m.find_edge(0, 7) >= 0 or m.find_edge(7, 0) >= 0).is_true()
+	assert_int(m.faces.size()).is_equal(7)
+
+
 func test_closed_loop_user_stroke_offface_clamped() -> void:
 	# Probe 32: the user's stroke with p1 outside the face — the clamp
 	# projects it to the ring edge (single-member hug on the 2×2 cube);

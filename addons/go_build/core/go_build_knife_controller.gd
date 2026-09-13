@@ -50,7 +50,7 @@ var _marker_material: StandardMaterial3D = null
 var _first_material: StandardMaterial3D = null
 var _scene_root: Node = null
 ## On-screen stroke popup ("Undo Point" / "Close Loop") shown while cutting.
-var _popup: PopupPanel = null
+var _popup: PanelContainer = null
 
 
 func is_active() -> bool:
@@ -71,22 +71,31 @@ func undo_last_point() -> void:
 	_update_markers()
 
 
-## Show the stroke popup (Undo Point / Close Loop) while cutting.
+## Show the stroke popup (Undo Point / Commit) while cutting.
 ##
-## PopupPanel used as a plain container (shown via [code]visible[/code],
-## never [code]popup()[/code]): keeps the themed panel chrome and a
-## stable content-driven size without registering as a transient
-## popup — transient popups close on outside clicks, which swallows
-## the tool's anchor clicks.  The panel exists only while the knife
-## stroke is active; cancel/confirm hide it.
+## PanelContainer used as a plain container (shown via [code]visible[/code],
+## never [code]popup()[/code]): stable content-driven size without
+## registering as a transient popup — transient popups close on outside
+## clicks, which swallows the tool's anchor clicks.  Same style/positioning
+## contract as the Create Shape Parameters popup (top-right of the
+## viewport, opaque stylebox): _plugin_popup_anchor shares the param
+## popup's anchor and _popup_stack_offset pushes this panel below the
+## param popup when both are visible (popup stack, no overlap).
+## The panel exists only while the knife stroke is active; cancel/confirm
+## hide it.
 func _show_popup() -> void:
 	_hide_popup()
 	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
 	var vp_parent := vp.get_parent() as Control
-	var container: Control = EditorInterface.get_base_control()
-	if vp == null or vp_parent == null or container == null:
+	if vp == null or vp_parent == null:
 		return
-	var panel := PopupPanel.new()
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("3a3f47eb")
+	style.set_corner_radius_all(4)
+	style.set_content_margin_all(8.0)
+	panel.add_theme_stylebox_override("panel", style)
+	panel.z_index = 100
 	var vbox := VBoxContainer.new()
 	var title := Label.new()
 	title.text = "Knife"
@@ -94,20 +103,61 @@ func _show_popup() -> void:
 	vbox.add_child(title)
 	var undo_btn := Button.new()
 	undo_btn.text = "Undo Point (Backspace)"
+	undo_btn.add_theme_font_size_override("font_size", 10)
 	undo_btn.pressed.connect(undo_last_point)
 	vbox.add_child(undo_btn)
 	var close_btn := Button.new()
-	close_btn.text = "Close Loop (Ctrl+Enter)"
-	close_btn.pressed.connect(func() -> void: _confirm(true))
+	close_btn.text = "Commit (Enter / Ctrl+Enter)"
+	close_btn.add_theme_font_size_override("font_size", 10)
+	close_btn.pressed.connect(_on_commit_button)
 	vbox.add_child(close_btn)
 	panel.add_child(vbox)
-	container.add_child(panel)
-	var vp_rect: Rect2 = vp_parent.get_global_rect()
-	panel.position = vp_rect.position + Vector2(
-			vp_rect.size.x - 160.0, 16.0)
-	panel.visible = true
+	vp_parent.get_parent().add_child(panel)
+	# Top-right of the viewport, directly below the param popup when that
+	# is also visible (the plugin's popup stack resolves the offset).
+	panel.position = _plugin_popup_anchor() + _popup_stack_offset()
 	panel.reset_size()
+	panel.visible = true
 	_popup = panel
+
+
+## The popup stack's top-right anchor: vp top-right - margin (the Create
+## Shape Parameters popup's anchor), so both popups share one layout rule.
+func _plugin_popup_anchor() -> Vector2:
+	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var vp_parent: Control = vp.get_parent() as Control if vp != null else null
+	if vp == null or vp_parent == null:
+		var container: Control = EditorInterface.get_base_control()
+		return container.get_global_rect().position if container != null \
+				else Vector2.ZERO
+	var margin := 8.0
+	return Vector2(
+			vp_parent.get_global_rect().end.x - 180.0 - margin,
+			vp_parent.get_global_rect().position.y + margin)
+
+
+## Vertical offset below the param popup when it is visible (the knife
+## popup must coexist, not overlap).  0 when no param popup is showing.
+func _popup_stack_offset() -> Vector2:
+	if _plugin == null:
+		return Vector2.ZERO
+	var panel_ref: Variant = _plugin.get("_panel")
+	if panel_ref == null or not is_instance_valid(panel_ref as Object):
+		return Vector2.ZERO
+	var drawer: Variant = (panel_ref as Object).call("get_create_drawer")
+	if drawer == null:
+		return Vector2.ZERO
+	var popup: Control = drawer.call("get_param_popup")
+	if popup == null or not is_instance_valid(popup) or not popup.visible:
+		return Vector2.ZERO
+	return Vector2(0.0, popup.size.y + 8.0)
+
+
+func _on_commit_button() -> void:
+	# Buttons can't distinguish Enter vs Ctrl+Enter — commit with the
+	# visual-closure heuristic (same as plain Enter).  Enabled from 2
+	# points (seam) upward; the op rejects non-cuttable strokes cleanly.
+	_confirm(false)
 
 
 func _hide_popup() -> void:
@@ -188,8 +238,8 @@ func handle_input(camera: Camera3D, event: InputEvent, edited_node: GoBuildMeshI
 				and not _hit_points.is_empty():
 			undo_last_point()
 			return 1
-		if key.pressed and not key.echo and key.keycode == KEY_ENTER \
-				and _hit_points.size() >= 3:
+		if key.pressed and not key.echo and (key.keycode == KEY_ENTER \
+				or key.keycode == KEY_KP_ENTER) and _hit_points.size() >= 2:
 			# Enter confirms; Ctrl+Enter forces the closed form regardless of
 			# where the cursor sits (the visual-closure heuristic only
 			# applies to plain Enter).
@@ -229,7 +279,8 @@ func _handle_click(camera: Camera3D, screen_pos: Vector2,
 		return 0
 
 	# Closing click: near the first point? (green marker in Create Polygon).
-	# Guard: needs 3+ points AND the click to be close on SCREEN.
+	# Guard: needs 3+ points (a 2-point stroke commits via Enter instead)
+	# AND the click to be close on SCREEN.
 	if not _hit_points.is_empty() and _hit_points.size() >= 3:
 		var first_pos: Vector3 = _hit_points[0]["position"]
 		var first_world: Vector3 = node.global_transform * first_pos
@@ -406,7 +457,7 @@ func _apply_grid_snap(_camera: Camera3D, _node: GoBuildMeshInstance,
 
 ## Confirm: run the op through undo/redo and reset.
 func _confirm(closed: bool = false) -> int:
-	if _edited_node == null or _plugin == null or _hit_points.size() < 3:
+	if _edited_node == null or _plugin == null or _hit_points.size() < 2:
 		print("[Knife] confirm aborted: node=%s pts=%d" % [
 				str(_edited_node != null), _hit_points.size() if _edited_node != null else 0])
 		cancel()
@@ -686,13 +737,13 @@ func _draw_hint(overlay: Control, font: Font) -> void:
 	# state-label behaviour: you must always know the mode is on).
 	var hint: String
 	if _hit_points.is_empty():
-		hint = "Knife — click on the surface to start cutting (Ctrl: grid snap, Esc/right-click cancels)"
-	elif _hit_points.size() < 3:
-		hint = "Knife — add %d more point%s (Ctrl: grid snap, Esc cancels)" % [
-				3 - _hit_points.size(), "" if _hit_points.size() == 2 else "s"]
+		hint = "Knife — click on the surface to start (Ctrl: grid snap, Esc/right-click cancels)"
+	elif _hit_points.size() == 1:
+		hint = "Knife — pick the seam's other end, or another point (Esc cancels)"
+	elif _hit_points.size() == 2:
+		hint = "Knife — Enter commits the seam between these points (Esc cancels)"
 	else:
-		hint = "Knife — click near the first (green) point or press Enter to finish (%d pts)" \
-				% _hit_points.size()
+		hint = "Knife — Enter: seam, Ctrl+Enter: closed loop (%d pts)" % _hit_points.size()
 	var pos := Vector2(12, overlay.size.y - 12)
 	overlay.draw_string(font, pos + Vector2(1, 1), hint,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0, 0, 0, 0.6))
