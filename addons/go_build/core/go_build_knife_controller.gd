@@ -500,7 +500,8 @@ func _pending_axis_screen() -> Vector2:
 	var prev := _hit_points[_hit_points.size() - 2]["position"] as Vector3
 	var older := _hit_points[_hit_points.size() - 3]["position"] as Vector3
 	var d := prev - older
-	return Vector2.ZERO if d.length_squared() < 1e-12 else d.normalized()
+	return Vector2.ZERO if d.length_squared() < 1e-12 else Vector2(
+			d.normalized().x, d.normalized().z)
 
 
 ## Parameter of the cursor's projection onto the axis ray (from + dir * t).

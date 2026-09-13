@@ -1222,7 +1222,7 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 		_draw_snap_grid(overlay)
 	elif _input_controller != null and _input_controller.has_active_param_preview():
 		_draw_param_preview_hint(overlay)
-	else:
+	elif _knife_controller == null or not _knife_controller.is_active():
 		_draw_mode_hint(overlay)
 	_draw_selection_dims(overlay)
 	_draw_shape_draw_overlay(overlay)
