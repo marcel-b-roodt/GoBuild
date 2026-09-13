@@ -72,6 +72,9 @@ func _ready() -> void:
 	# ── Live symmetry ────────────────────────────────────────────────────
 	var sym_row := HBoxContainer.new()
 	_content.add_child(sym_row)
+	# ponytail: hidden until symmetry is user-ready — delete the block to
+	# ship it; sync/handler below stay harmless on the null/dead UI.
+	sym_row.visible = false
 
 	var sym_lbl := Label.new()
 	sym_lbl.text = "Symmetry:"
