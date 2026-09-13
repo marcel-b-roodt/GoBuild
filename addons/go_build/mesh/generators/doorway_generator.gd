@@ -63,13 +63,12 @@ static func generate(
 ## Rectangular opening: jamb columns + a header band across the FULL wall
 ## width.  Wall centred on origin, base at y = -height/2.
 ##
-## Decomposition: jambs run base → opening top (their tops buried against
-## the header band's bottom, skipped); the header band spans the full
-## wall width from the opening top to the wall top — its bottom face is
-## the opening ceiling (visible), the strips over the jambs are buried
-## (no face).  No buried inner-wall spans above the opening: Open H moves
-## the jamb inner walls, ceiling and the front/back split line together.
-## 16 faces.  See issues/2026-09-12-doorway-weld-rings.md.
+## Decomposition: jambs run base → opening top (tops buried against the
+## header band's bottom, skipped; ±X outer sides replaced by the
+## full-height outer quads); the header band spans the full wall width
+## from the opening top to the wall top — its bottom face is the opening
+## ceiling (visible), the strips over the jambs are buried (no face).
+## 14 faces.  See issues/2026-09-12-doorway-weld-rings.md.
 static func _generate_rectangular(
 		width: float,
 		height: float,
@@ -87,22 +86,29 @@ static func _generate_rectangular(
 	var r := ow * 0.5
 	var hd := depth * 0.5
 
-	# Jamb columns: base → opening top, outside the opening.  Their top
-	# faces are buried against the header band above — skip them.
+	# Jamb columns: base → opening top, outside the opening.  Tops buried
+	# against the header band (skip); outer sides (±X at the wall face)
+	# replaced by the full-height outer quads below — seam-closing pieces.
 	_add_box_x(mesh, base, y_open_top, depth, r, hw, material_index,
-			["top"] as Array[String])       # right
+			["top", "right"] as Array[String])      # right
 	_add_box_x(mesh, base, y_open_top, depth, -hw, -r, material_index,
-			["top"] as Array[String])       # left
+			["top", "left"] as Array[String])       # left
 
 	# Header band: opening top → wall top, FULL wall width.  Front,
 	# back, top stay whole; the bottom is only the opening ceiling (the
-	# strips over the jambs are buried against their tops — no face).
+	# strips over the jambs are buried against their tops — no face);
+	# ±X sides replaced by the full-height outer quads.
 	_add_box_x(mesh, y_open_top, top, depth, -hw, hw, material_index,
 			["bottom", "left", "right"] as Array[String])
 	MeshGeneratorUtils.add_quad_grid(mesh,
 			Vector3(r, y_open_top, hd), Vector3(-r, y_open_top, hd),
 			Vector3(-r, y_open_top, -hd), Vector3(r, y_open_top, -hd),
 			1, 1, material_index)
+
+	# Wall outer sides (normal ±X): full-height quads base → wall top at
+	# x = ±hw.  One piece each — no seam at the opening-top plane.
+	_add_outer_quad(mesh, hw, base, top, hd, true, material_index)    # +X
+	_add_outer_quad(mesh, hw, base, top, hd, false, material_index)   # -X
 
 	mesh.finalize()
 	return mesh
@@ -258,6 +264,40 @@ static func _add_flank_quad(
 		mesh.vertices.append(Vector3(x0, spring_y, -hd))
 		mesh.vertices.append(Vector3(x0, top, -hd))
 		mesh.vertices.append(Vector3(x1, top, -hd))
+	face.material_index = material_index
+	face.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
+	mesh.faces.append(face)
+
+
+## Add one full-height wall outer side quad (normal ±X) at x = ±[param hw],
+## spanning [param base] → [param top] through the wall thickness.
+## One piece — no seam at the opening-top plane.
+static func _add_outer_quad(
+		mesh: GoBuildMesh,
+		hw: float,
+		base: float,
+		top: float,
+		hd: float,
+		positive_x: bool,
+		material_index: int,
+) -> void:
+	var x := hw if positive_x else -hw
+	var face := GoBuildFace.new()
+	face.vertex_indices = [
+		mesh.vertices.size(), mesh.vertices.size() + 1,
+		mesh.vertices.size() + 2, mesh.vertices.size() + 3]
+	if positive_x:
+		# Normal +X: (x,base,+hd) → (x,base,-hd) → (x,top,-hd) → (x,top,+hd)
+		mesh.vertices.append(Vector3(x, base, hd))
+		mesh.vertices.append(Vector3(x, base, -hd))
+		mesh.vertices.append(Vector3(x, top, -hd))
+		mesh.vertices.append(Vector3(x, top, hd))
+	else:
+		# Normal -X
+		mesh.vertices.append(Vector3(x, base, -hd))
+		mesh.vertices.append(Vector3(x, base, hd))
+		mesh.vertices.append(Vector3(x, top, hd))
+		mesh.vertices.append(Vector3(x, top, -hd))
 	face.material_index = material_index
 	face.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
 	mesh.faces.append(face)
