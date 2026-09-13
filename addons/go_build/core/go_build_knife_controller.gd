@@ -30,8 +30,11 @@ const _RAY_LENGTH: float = 4000.0
 const _CLOSE_THRESHOLD_PX: float = 14.0
 const _VERTEX_SNAP_PX: float = 12.0
 const _EDGE_SNAP_PX: float = 8.0
+const _MIDPOINT_SNAP_PX: float = 7.0
+const _FACE_CENTER_SNAP_PX: float = 7.0
 const _HOVER_EDGE_COLOR := Color(1.0, 0.85, 0.3, 0.95)
 const _HOVER_DOT_COLOR := Color(1.0, 0.95, 0.5, 1.0)
+const _CONSTRAINT_COLOR := Color(0.45, 0.75, 1.0, 0.9)
 
 var _state: int = State.IDLE
 var _plugin: EditorPlugin = null
@@ -39,7 +42,8 @@ var _edited_node: GoBuildMeshInstance = null
 ## Picked points: each { face_index, position, snapped_vertex, snapped_edge }.
 var _hit_points: Array = []
 ## Hover snap state from the last mouse motion:
-## { face_index, position, snapped_vertex, edge_index, screen } — empty when
+## { face_index, position, snapped_vertex, edge_index, screen,
+##   midpoint_edge (-1), face_center (-1), constrained (bool) } — empty when
 ## the cursor is off-mesh.
 var _hover: Dictionary = {}
 var _last_screen_pos := Vector2.ZERO
@@ -231,7 +235,8 @@ func handle_input(camera: Camera3D, event: InputEvent, edited_node: GoBuildMeshI
 		return 0
 	if event is InputEventMouseMotion:
 		_handle_hover(camera, (event as InputEventMouseMotion).position,
-				(event as InputEventMouseMotion).ctrl_pressed)
+				(event as InputEventMouseMotion).ctrl_pressed
+				and (event as InputEventMouseMotion).shift_pressed)
 		return 1
 	if event is InputEventKey:
 		var key := event as InputEventKey
@@ -269,7 +274,7 @@ func handle_input(camera: Camera3D, event: InputEvent, edited_node: GoBuildMeshI
 			return 1
 		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
 			return _handle_click(camera, mb.position, edited_node,
-					mb.ctrl_pressed)
+					mb.ctrl_pressed and mb.shift_pressed)
 	return 0
 
 
@@ -302,6 +307,23 @@ func _handle_click(camera: Camera3D, screen_pos: Vector2,
 	var hit_point: Vector3 = _hover["position"]
 	var snapped_vi: int = _hover["snapped_vertex"]
 	var snapped_ei: int = _hover["edge_index"]
+	var mid_ei: int = _hover.get("midpoint_edge", -1)
+	var center_fi: int = _hover.get("face_center", -1)
+
+	# Overlay snaps (Blender midpoint/centre): upgrade the base position.
+	if mid_ei >= 0:
+		var e_ov: GoBuildEdge = gbm.edges[mid_ei]
+		hit_point = (gbm.vertices[e_ov.vertex_a]
+				+ gbm.vertices[e_ov.vertex_b]) * 0.5
+		face_index = _hover["face_index"]
+		print("[Knife] midpoint snap: edge %d" % mid_ei)
+	elif center_fi >= 0 and snapped_vi < 0 and snapped_ei < 0:
+		var c := Vector3.ZERO
+		for cvi: int in gbm.faces[center_fi].vertex_indices:
+			c += gbm.vertices[cvi]
+		hit_point = c / float(gbm.faces[center_fi].vertex_indices.size())
+		face_index = center_fi
+		print("[Knife] face-centre snap: face %d" % center_fi)
 
 	# ── Record.
 	# Dedupe: identical position to the previous point = double-click bounce.
@@ -348,6 +370,30 @@ func _handle_hover(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> vo
 	# exposes hidden elements).  Cutting through the mesh surprised users
 	# and produced geometry nobody drew.
 
+	# Shift axis-constraint: project the cursor's face/edge hit onto the
+	# line through the previous point along its dominant in-plane axis
+	# (computed once per hover, in the pending segment's SCREEN space).
+	# Resolved BEFORE the snap chain — an element snap near the constrained
+	# line still wins (Blender), the constraint only bounds the free hit.
+	if _hit_points.size() >= 2:
+		var from := _last_anchor_screen(camera)
+		var axis := _pending_axis_screen()
+		if axis != Vector2.ZERO:
+			var to := from + axis * 4000.0
+			var t: float = _closest_param_on_ray(screen_pos, from, axis)
+			var clamped := from + axis * clampf(t, -4000.0, 4000.0)
+			_hover = {
+				"face_index": _last_point_face(),
+				"position": _local_from_screen(camera, node, clamped),
+				"snapped_vertex": -1, "edge_index": -1,
+				"screen": clamped, "constrained": true,
+				"midpoint_edge": -1, "face_center": -1,
+			}
+			return
+	_hover = {
+		"constrained": false, "midpoint_edge": -1, "face_center": -1,
+	}
+
 	# Context face: the face under the cursor (empty when outside the
 	# silhouette — snapping still works, Blender-style, but the run grouping
 	# then falls back to a face of the snapped element).
@@ -361,18 +407,17 @@ func _handle_hover(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> vo
 		var fi: int = ctx.get("face_index", -1) if not ctx.is_empty() else -1
 		if fi < 0 or not gbm.faces[fi].vertex_indices.has(snapped_vi):
 			fi = _face_of_vertex(gbm, snapped_vi)
-		_hover = {
-			"face_index": fi,
-			"position": gbm.vertices[snapped_vi],
-			"snapped_vertex": snapped_vi, "edge_index": -1,
-			"screen": screen_pos,
-		}
+		_hover["face_index"] = fi
+		_hover["position"] = gbm.vertices[snapped_vi]
+		_hover["snapped_vertex"] = snapped_vi
+		_hover["screen"] = screen_pos
 		return
 
-	# ── 2. Edge snap — nearest edge of ANY face, occlusion-checked; the point
-	# lands ON the edge (Blender behaviour), not at the face ray-hit.
+	# ── 1b. Edge snap — nearest edge of ANY face, occlusion-checked; the
+	# point lands ON the edge (Blender behaviour), not at the face ray-hit.
 	var snapped_ei: int = _PICKING_SCRIPT.find_nearest_edge(
 			camera, screen_pos, node, gbm, _EDGE_SNAP_PX, true)
+	var edge_foot := Vector2.INF
 	if snapped_ei >= 0:
 		var e: GoBuildEdge = gbm.edges[snapped_ei]
 		var wa: Vector3 = node.global_transform * gbm.vertices[e.vertex_a]
@@ -391,40 +436,186 @@ func _handle_hover(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> vo
 		var len_sq: float = seg2.length_squared()
 		var foot := sb if len_sq < 1e-9 else sa + seg2 * clampf(
 				(screen_pos - sa).dot(seg2) / len_sq, 0.0, 1.0)
-		var edge_point := _ray_line_hit(camera, foot, wa, wb)
+		edge_foot = foot
 		var fi: int = ctx.get("face_index", -1) if not ctx.is_empty() else -1
 		if fi < 0 or not gbm.faces[fi].vertex_indices.has(e.vertex_a) \
 				or not gbm.faces[fi].vertex_indices.has(e.vertex_b):
 			fi = _face_of_vertex(gbm, e.vertex_a)
-		_hover = {
-			"face_index": fi,
-			# Mesh-local (every other branch stores local — mixed spaces made
-			# edge-snapped first points land off-mesh).
-			"position": node.global_transform.affine_inverse() * edge_point,
-			"snapped_vertex": -1, "edge_index": snapped_ei,
-			"screen": screen_pos,
-		}
-		return
+		_hover["face_index"] = fi
+		# Mesh-local (every other branch stores local — mixed spaces made
+		# edge-snapped first points land off-mesh).
+		_hover["position"] = node.global_transform.affine_inverse() \
+				* _ray_line_hit(camera, foot, wa, wb)
+		_hover["snapped_vertex"] = -1
+		_hover["edge_index"] = snapped_ei
+		_hover["screen"] = screen_pos
+	else:
+		if ctx.is_empty():
+			_clear_hover()
+			return
+		# ── Raw surface hit — Ctrl grid-snaps it (world x/z, Create
+		# convention).
+		var hit_point: Vector3 = ctx["position"]
+		hit_point = _apply_grid_snap(camera, node,
+				node.global_transform * hit_point, ctrl_held)
+		_hover["face_index"] = ctx["face_index"]
+		_hover["position"] = node.global_transform.affine_inverse() * hit_point
+		_hover["snapped_vertex"] = -1
+		_hover["edge_index"] = -1
+		_hover["screen"] = screen_pos
 
-	# ── 3. Raw surface hit (needs the face hit) — Ctrl grid-snaps it
-	# (world x/z, Create convention).
-	if ctx.is_empty():
-		_clear_hover()
-		return
-	var hit_point: Vector3 = ctx["position"]
-	hit_point = _apply_grid_snap(camera, node, node.global_transform * hit_point,
-			ctrl_held)
-	_hover = {
-		"face_index": ctx["face_index"], "position": node.global_transform.affine_inverse() * hit_point,
-		"snapped_vertex": -1, "edge_index": -1,
-		"screen": screen_pos,
-	}
+	# ── 1c. Midpoint + face-centre overlays: AFTER the base chain, a hit
+	# within the overlay radius upgrades the current position (element
+	# snaps stay authoritative — Blender's midpoint yields to vertex/edge).
+	_hover["midpoint_edge"] = _overlay_midpoint_edge(
+			camera, node, gbm, screen_pos, edge_foot)
+	_hover["face_center"] = _overlay_face_center(
+			camera, node, gbm, screen_pos, ctx)
 
 
 ## A face containing [param vi] (the snap context face) — -1 when orphaned.
 func _face_of_vertex(gbm: GoBuildMesh, vi: int) -> int:
 	var faces: Array[int] = gbm.faces_of_vertex(vi)
 	return faces[0] if not faces.is_empty() else -1
+
+
+# ---------------------------------------------------------------------------
+# Shift axis-constraint helpers (pending segment locks to its dominant
+# in-plane axis — screen-space, so it works for any face orientation)
+# ---------------------------------------------------------------------------
+
+## Screen position of the last recorded point (the constraint origin).
+func _last_anchor_screen(camera: Camera3D) -> Vector2:
+	var wp: Vector3 = _edited_node.global_transform \
+			* (_hit_points[_hit_points.size() - 2]["position"] as Vector3)
+	return camera.unproject_position(wp)
+
+
+## Unit direction of the previous segment in SCREEN space — the constraint
+## axis is the pending segment's continuation, so straight strokes stay
+## straight without the user steering.  ZERO with no usable previous segment.
+func _pending_axis_screen() -> Vector2:
+	var prev := _hit_points[_hit_points.size() - 2]["position"] as Vector3
+	var older := _hit_points[_hit_points.size() - 3]["position"] as Vector3
+	var d := prev - older
+	return Vector2.ZERO if d.length_squared() < 1e-12 else d.normalized()
+
+
+## Parameter of the cursor's projection onto the axis ray (from + dir * t).
+static func _closest_param_on_ray(p: Vector2, from: Vector2, dir: Vector2) -> float:
+	var d := p - from
+	return d.dot(dir)
+
+
+## Screen position of the previous point (the constrained anchor).
+func _last_point_screen(camera: Camera3D) -> Vector2:
+	var wp: Vector3 = _edited_node.global_transform \
+			* (_hit_points[_hit_points.size() - 1]["position"] as Vector3)
+	return camera.unproject_position(wp)
+
+
+## Mesh-local point whose WORLD projection is [param screen_p], clamped to
+## the previous point's face plane (an unconstrained plane hit may leave the
+## face — the clamp keeps the constrained point on the surface being cut).
+func _local_from_screen(camera: Camera3D, node: GoBuildMeshInstance,
+		screen_p: Vector2) -> Vector3:
+	var gbm := node.go_build_mesh
+	var fi: int = _last_point_face()
+	var ray_o := camera.project_ray_origin(screen_p)
+	var ray_d := camera.project_ray_normal(screen_p)
+	if fi < 0:
+		# No face context (rare) — intersect at the anchor's distance.
+		var anchor_w: Vector3 = node.global_transform \
+				* (_hit_points[_hit_points.size() - 1]["position"] as Vector3)
+		var t0: float = (anchor_w - ray_o).length()
+		return node.global_transform.affine_inverse() * (ray_o + ray_d * t0)
+	var n := gbm.compute_face_normal(gbm.faces[fi])
+	var origin_w := node.global_transform * gbm.vertices[
+			gbm.faces[fi].vertex_indices[0]]
+	var n_w := (node.global_transform.basis * n).normalized()
+	var denom := ray_d.dot(n_w)
+	if absf(denom) < 1e-6:
+		return node.global_transform.affine_inverse() * origin_w
+	var t := (origin_w - ray_o).dot(n_w) / denom
+	return node.global_transform.affine_inverse() * (ray_o + ray_d * t)
+
+
+func _last_point_face() -> int:
+	return (_hit_points[_hit_points.size() - 1].get("face_index", -1)) as int
+
+
+# ---------------------------------------------------------------------------
+# Midpoint / face-centre overlay snaps
+# ---------------------------------------------------------------------------
+
+## Nearest edge MIDPOINT within the overlay radius — searched only among
+## edges ALREADY within the vertex/edge snap radii or whose screen distance
+## to the cursor is small; when an element snap holds, the overlay only
+## upgrades if the cursor is even closer to the midpoint (Blender: midpoint
+## beats a loose edge grab, loses to a deliberate vertex/edge snap).
+## Returns the edge index, -1 when no midpoint qualifies.
+func _overlay_midpoint_edge(camera: Camera3D, node: GoBuildMeshInstance,
+		gbm: GoBuildMesh, screen_pos: Vector2, edge_foot: Vector2) -> int:
+	var snapped_ei: int = _hover["edge_index"]
+	var base_r: float
+	if snapped_ei >= 0:
+		# An edge snap is active: the midpoint only wins when the cursor is
+		# closer to the midpoint than to the loose edge foot.
+		base_r = _MIDPOINT_SNAP_PX + 2.0
+		if not edge_foot.is_finite() or screen_pos.distance_to(edge_foot) \
+				< screen_pos.distance_to(
+						camera.unproject_position(_edge_midpoint_world(
+								camera, node, gbm, snapped_ei))):
+			return -1
+	else:
+		base_r = _MIDPOINT_SNAP_PX
+	var best := -1
+	var best_d: float = base_r
+	for ei: int in gbm.edges.size():
+		var m_world := _edge_midpoint_world(camera, node, gbm, ei)
+		if camera.is_position_behind(m_world):
+			continue
+		var d: float = camera.unproject_position(m_world).distance_to(screen_pos)
+		if d < best_d:
+			best_d = d
+			best = ei
+	return best
+
+
+func _edge_midpoint_world(_camera: Camera3D, node: GoBuildMeshInstance,
+		gbm: GoBuildMesh, ei: int) -> Vector3:
+	var e: GoBuildEdge = gbm.edges[ei]
+	return node.global_transform * ((gbm.vertices[e.vertex_a]
+			+ gbm.vertices[e.vertex_b]) * 0.5)
+
+
+## Nearest visible face CENTRE within the overlay radius (raw surface hits
+## only — an element snap beats the centre).  Falls back to the context
+## face from [param ctx] when the radius scan misses but the cursor sits
+## close to a face's centre (small faces).  Returns the face index, -1.
+func _overlay_face_center(camera: Camera3D, node: GoBuildMeshInstance,
+		gbm: GoBuildMesh, screen_pos: Vector2, ctx: Dictionary) -> int:
+	var best := -1
+	var best_d: float = _FACE_CENTER_SNAP_PX
+	for fi: int in gbm.faces.size():
+		var c_world := _face_center_world(node, gbm, fi)
+		if camera.is_position_behind(c_world):
+			continue
+		var d: float = camera.unproject_position(c_world).distance_to(screen_pos)
+		if d < best_d:
+			best_d = d
+			best = fi
+	if best >= 0:
+		return best
+	return ctx.get("face_index", -1) if not ctx.is_empty() else -1
+
+
+func _face_center_world(node: GoBuildMeshInstance, gbm: GoBuildMesh,
+		fi: int) -> Vector3:
+	var c := Vector3.ZERO
+	for vi: int in gbm.faces[fi].vertex_indices:
+		c += gbm.vertices[vi]
+	return node.global_transform * (c / float(gbm.faces[fi].vertex_indices.size()))
 
 
 ## Intersect the camera ray through [param ray_screen] with the 3D edge
@@ -692,6 +883,25 @@ func _draw_hover_highlight(overlay: Control, camera: Camera3D, inv: Transform3D)
 		var wv: Vector3 = inv * _edited_node.go_build_mesh.vertices[svi]
 		if not camera.is_position_behind(wv):
 			overlay.draw_circle(camera.unproject_position(wv), 4.0, _HOVER_DOT_COLOR)
+	# Midpoint / face-centre overlay indicators.
+	if (_hover.get("midpoint_edge", -1) as int) >= 0:
+		var me: int = _hover["midpoint_edge"]
+		var e2: GoBuildEdge = _edited_node.go_build_mesh.edges[me]
+		var mid_local := (_edited_node.go_build_mesh.vertices[e2.vertex_a]
+				+ _edited_node.go_build_mesh.vertices[e2.vertex_b]) * 0.5
+		var wm: Vector3 = inv * mid_local
+		if not camera.is_position_behind(wm):
+			overlay.draw_arc(camera.unproject_position(wm), 4.5,
+					0.0, TAU, 16, _HOVER_DOT_COLOR, 1.5)
+	if (_hover.get("face_center", -1) as int) >= 0 \
+			and (_hover["snapped_vertex"] as int) < 0 \
+			and (_hover["edge_index"] as int) < 0:
+		var fc: int = _hover["face_center"]
+		var wf: Vector3 = inv * _face_center_world(
+				_edited_node, _edited_node.go_build_mesh, fc)
+		if not camera.is_position_behind(wf):
+			overlay.draw_arc(camera.unproject_position(wf), 4.5,
+					0.0, TAU, 16, _CONSTRAINT_COLOR, 1.5)
 
 
 ## Rubber band from the last recorded point to the current snap position
@@ -717,7 +927,16 @@ func _draw_rubber_band(overlay: Control, camera: Camera3D, inv: Transform3D) -> 
 		return
 	if _hover.is_empty():
 		return
-	_CURSOR_OVERLAY.draw_rubber_band(overlay, last_screen, _last_screen_pos)
+	_CURSOR_OVERLAY.draw_rubber_band(overlay, last_screen,
+			camera.unproject_position(
+					inv * (_hover["position"] as Vector3))
+					if _hover.get("constrained", false)
+					else _last_screen_pos)
+	# Shift constraint: draw the constrained pending segment in blue.
+	if _hover.get("constrained", false):
+		overlay.draw_line(last_screen, camera.unproject_position(
+				inv * (_hover["position"] as Vector3)),
+				_CONSTRAINT_COLOR, 2.0)
 	# Faint preview of the loop's closing segment from the snap position.
 	if _hit_points.size() >= 3 and not camera.is_position_behind(first_wp):
 		var hover_sp: Vector2 = camera.unproject_position(
@@ -743,11 +962,12 @@ func _draw_hint(overlay: Control, font: Font) -> void:
 	if _hit_points.is_empty():
 		hint = "Knife — click on the surface to start (Ctrl: grid snap, Esc/right-click cancels)"
 	elif _hit_points.size() == 1:
-		hint = "Knife — pick the seam's other end, or another point (Esc cancels)"
+		hint = "Knife — pick the seam's other end (Shift: straight, Esc cancels)"
 	elif _hit_points.size() == 2:
-		hint = "Knife — Enter commits the seam between these points (Esc cancels)"
+		hint = "Knife — Enter commits the seam (Shift: straight, Esc cancels)"
 	else:
-		hint = "Knife — Enter: seam, Ctrl+Enter: closed loop (%d pts)" % _hit_points.size()
+		hint = "Knife — Enter: seam, Ctrl+Enter: closed loop, Shift: straight (%d pts)" \
+				% _hit_points.size()
 	var pos := Vector2(12, overlay.size.y - 12)
 	overlay.draw_string(font, pos + Vector2(1, 1), hint,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0, 0, 0, 0.6))

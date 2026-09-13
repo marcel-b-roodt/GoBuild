@@ -17,7 +17,6 @@ extends RefCounted
 # Self-preloads — dependency order.
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
-const _TRIANGULATE_SCRIPT := preload("res://addons/go_build/mesh/triangulate.gd")
 
 
 ## Generate a prism [GoBuildMesh] from a polygon outline.
@@ -105,32 +104,40 @@ static func generate(
 		mesh.faces.append(side)
 
 	# ── Cap faces ──────────────────────────────────────────────────────────
-	# Caps are triangulated via ear-clipping to support concave polygons.
-	# The bake pipeline uses fan triangulation for n-gon faces, which is
-	# only correct for convex polygons. By producing only triangle faces
-	# here, we avoid that limitation entirely.
+	# Single n-gon per cap (the outline ring).  The bake pipeline's
+	# Triangulate.triangulate_face is convexity-gated (fan convex, ear-clip
+	# concave), so a concave cap n-gon bakes correctly — and the knife
+	# works on the face ring instead of pre-shattered fan diagonals.
 	#
-	# Base cap (bottom): triangles wound CW from outside (-normal direction).
-	# Top cap: triangles wound CCW from outside (+normal direction).
-	var tris: Array = Triangulate.ear_clip(points, normal)
-
+	# Base cap (bottom): wound CW from outside (-normal direction).
+	# Top cap: wound CCW from outside (+normal direction).
 	if cap_bottom:
 		var base_uvs: Array[Vector2] = _planar_uv(points, -normal)
-		for tri in tris:
-			var face := GoBuildFace.new()
-			face.vertex_indices = [int(tri[2]), int(tri[1]), int(tri[0])]
-			face.material_index = material_index
-			face.uvs = [base_uvs[int(tri[2])], base_uvs[int(tri[1])], base_uvs[int(tri[0])]]
-			mesh.faces.append(face)
+		var base := GoBuildFace.new()
+		var base_ring: Array[int] = []
+		base_ring.resize(n)
+		for i: int in n:
+			base_ring[i] = n - 1 - i
+		base.vertex_indices = base_ring
+		base.material_index = material_index
+		var base_uvs_rev: Array[Vector2] = []
+		base_uvs_rev.resize(n)
+		for i: int in n:
+			base_uvs_rev[i] = base_uvs[n - 1 - i]
+		base.uvs = base_uvs_rev
+		mesh.faces.append(base)
 
 	if cap_top:
 		var top_uvs: Array[Vector2] = _planar_uv(points, normal)
-		for tri in tris:
-			var face := GoBuildFace.new()
-			face.vertex_indices = [n + int(tri[0]), n + int(tri[1]), n + int(tri[2])]
-			face.material_index = material_index
-			face.uvs = [top_uvs[int(tri[0])], top_uvs[int(tri[1])], top_uvs[int(tri[2])]]
-			mesh.faces.append(face)
+		var top := GoBuildFace.new()
+		var top_ring: Array[int] = []
+		top_ring.resize(n)
+		for i: int in n:
+			top_ring[i] = n + i
+		top.vertex_indices = top_ring
+		top.material_index = material_index
+		top.uvs = top_uvs
+		mesh.faces.append(top)
 
 	mesh.finalize()
 	return mesh
