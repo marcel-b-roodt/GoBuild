@@ -663,24 +663,22 @@ static func _resolve_runs(mesh: GoBuildMesh, points: Array, closed: bool) -> Arr
 		return []
 
 	var n: int = picked.size()
-	# Closed stroke with every point on ONE face (interior or ring boundary
-	# — a point on a shared edge may have been picked under a neighbour's
-	# cursor-face): remap all points to that geometric owner so the stroke
-	# resolves as a single-face loop.  Without this, an all-on-ring-edges
-	# quad scatters into per-face runs and the owner face only sees
-	# touch points — the drawn loop never cuts it.  Runs BEFORE clamping:
-	# clamping a snap-grabbed shared point to the WRONG cursor-face's ring
-	# displaced it to that face's boundary (a bottom-edge click became a
-	# top-edge hug), and the owner remap could not undo the move.
-	if closed:
-		var owner := _single_face_owner(mesh, picked)
-		if owner >= 0:
-			for p: Dictionary in picked:
-				p["face_index"] = owner
-		else:
-			# No single face holds the stroke (the drawn polygon spans
-			# several coplanar faces — earlier cuts partitioned the
-			# surface).  Re-pick each point's face geometrically: the
+	# ALL strokes (open or closed) with every point on ONE face: remap to
+	# that geometric owner.  Snapped picks land on shared ring vertices/edges
+	# and are recorded under the CURSOR face — which may be a side face
+	# while the drawn chord runs across the cap.  The closed branch handled
+	# this; an OPEN 2-point stroke (corner-to-corner seam) never remapped,
+	# both runs resolved entry==exit ("single touch point") and inserted
+	# nothing.  Open-stroke consensus is only safe when ALL points agree on
+	# one owner (an open stroke may legitimately span several faces).
+	var owner := _single_face_owner(mesh, picked)
+	if owner >= 0:
+		for p: Dictionary in picked:
+			p["face_index"] = owner
+	elif closed:
+		# No single face holds the stroke (the drawn polygon spans
+		# several coplanar faces — earlier cuts partitioned the
+		# surface).  Re-pick each point's face geometrically: the
 			# first candidate face (picked face, then ring-adjacent ones)
 			# whose polygon contains the point.  Without this, points
 			# recorded under one cursor-face keep that face and the runs
@@ -729,8 +727,13 @@ static func _resolve_runs(mesh: GoBuildMesh, points: Array, closed: bool) -> Arr
 	# the neighbour face across the crossed edge.  Without this, the
 	# neighbour's territory inside the drawn polygon is never cut (the
 	# "incomplete quad" — only one face's part was partitioned).
-	if closed:
-		groups = _split_groups_at_exits(mesh, picked, groups)
+	# OPEN strokes too: with the owner remap above, a snapped pick under a
+	# side-face index remaps to the cap — but a genuinely multi-face open
+	# stroke (pick A under face X, pick B under face Y) still groups into
+	# two touch runs whose segment never re-pierces either face's ring
+	# (the chord is skew to both planes).  The exit-split turns the runs
+	# into entry/exit-anchored bands on the right faces.
+	groups = _split_groups_at_exits(mesh, picked, groups)
 
 	var is_loop: bool = closed and groups.size() == 1
 	var resolved: Array = []

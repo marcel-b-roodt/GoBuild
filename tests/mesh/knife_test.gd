@@ -758,6 +758,47 @@ func test_seam_snapped_corners_zero_new_vertices() -> void:
 	assert_int(m.faces.size()).is_equal(7)
 
 
+func test_seam_snapped_corners_scattered_cursor_faces() -> void:
+	# 2026-09-13 session: a 2-point corner-to-corner seam on an n-gon cap
+	# with the picks recorded under DIFFERENT cursor faces (side faces —
+	# snapping grabs a shared vertex under whatever face the cursor was
+	# over) resolved as two single-touch runs and inserted nothing.  The
+	# resolver's coplanar-consensus remap now covers OPEN strokes too: one
+	# face holds both picks (the cap) → remap → the seam cuts it.
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(-1.6, 0, -2.8), Vector3(2.4, 0, -2.8), Vector3(2.4, 0, 1.2),
+		Vector3(-1.6, 0, 1.2), Vector3(-1.6, 0, 3.2),
+		Vector3(-1.6, -4, -2.8), Vector3(2.4, -4, -2.8), Vector3(2.4, -4, 1.2),
+		Vector3(-1.6, -4, 1.2), Vector3(-1.6, -4, 3.2),
+	]
+	for ring: Array in [[0, 1, 6, 5], [1, 2, 7, 6], [2, 3, 8, 7],
+			[3, 4, 9, 8], [4, 0, 5, 9]]:
+		var f := GoBuildFace.new()
+		f.vertex_indices.assign(ring)
+		m.faces.append(f)
+	var cap := GoBuildFace.new()
+	cap.vertex_indices = [0, 1, 2, 3, 4]
+	m.faces.append(cap)
+	var bot := GoBuildFace.new()
+	bot.vertex_indices = [5, 6, 7, 8, 9]
+	m.faces.append(bot)
+	m.rebuild_edges()
+	var f0: int = m.faces.size()
+	assert_bool(_KNIFE.apply(m, [
+		{"face_index": 0, "position": m.vertices[0]},
+		{"face_index": 1, "position": m.vertices[2]},
+	], false)).is_true()
+	# The cap split into two n-gons; the seam edge 0—2 exists.
+	assert_int(m.faces.size()).is_equal(f0 + 1)
+	assert_bool(m.find_edge(0, 2) >= 0 or m.find_edge(2, 0) >= 0).is_true()
+	for f: GoBuildFace in m.faces:
+		var uniq := {}
+		for vi: int in f.vertex_indices:
+			uniq[vi] = true
+		assert_int(uniq.size()).is_equal(f.vertex_indices.size())
+
+
 func test_closed_loop_user_stroke_offface_clamped() -> void:
 	# Probe 32: the user's stroke with p1 outside the face — the clamp
 	# projects it to the ring edge (single-member hug on the 2×2 cube);

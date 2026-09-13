@@ -86,7 +86,7 @@ func undo_last_point() -> void:
 func _show_popup() -> void:
 	_hide_popup()
 	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
-	var vp_parent := vp.get_parent() as Control
+	var vp_parent: Control = vp.get_parent() as Control if vp != null else null
 	if vp == null or vp_parent == null:
 		return
 	var panel := PanelContainer.new()
@@ -112,7 +112,11 @@ func _show_popup() -> void:
 	close_btn.pressed.connect(_on_commit_button)
 	vbox.add_child(close_btn)
 	panel.add_child(vbox)
-	vp_parent.get_parent().add_child(panel)
+	# Same parent as the Create param popup (base control = canvas root):
+	# get_global_rect() coordinates are only valid for children of the
+	# canvas root — parenting deeper (vp_parent.get_parent()) put the panel
+	# under a layout container that re-laid it out (invisible popup).
+	EditorInterface.get_base_control().add_child(panel)
 	# Top-right of the viewport, directly below the param popup when that
 	# is also visible (the plugin's popup stack resolves the offset).
 	panel.position = _plugin_popup_anchor() + _popup_stack_offset()
