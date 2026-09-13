@@ -371,18 +371,17 @@ func _handle_hover(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> vo
 	# exposes hidden elements).  Cutting through the mesh surprised users
 	# and produced geometry nobody drew.
 
-	# Shift axis-constraint: project the cursor's face/edge hit onto the
-	# line through the previous point along its dominant in-plane axis
-	# (computed once per hover, in the pending segment's SCREEN space).
-	# Resolved BEFORE the snap chain — an element snap near the constrained
-	# line still wins (Blender), the constraint only bounds the free hit.
-	if _hit_points.size() >= 2:
-		var from := _last_anchor_screen(camera)
-		var axis := _pending_axis_screen()
-		if axis != Vector2.ZERO:
-			var to := from + axis * 4000.0
+	# Shift axis-constraint: ONLY while Shift is held, the pending segment
+	# locks to the previous segment's SCREEN-space direction through the
+	# LAST recorded point (unprojected — works for any face orientation).
+	# Resolved BEFORE the snap chain; the constraint replaces the free hit.
+	if shift_held and _hit_points.size() >= 2:
+		var ca := _constraint_screen(camera)
+		if not ca.is_empty():
+			var from: Vector2 = ca[0]
+			var axis: Vector2 = ca[1]
 			var t: float = _closest_param_on_ray(screen_pos, from, axis)
-			var clamped := from + axis * clampf(t, -4000.0, 4000.0)
+			var clamped := from + axis * t
 			_hover = {
 				"face_index": _last_point_face(),
 				"position": _local_from_screen(camera, node, clamped),
@@ -482,39 +481,32 @@ func _face_of_vertex(gbm: GoBuildMesh, vi: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Shift axis-constraint helpers (pending segment locks to its dominant
-# in-plane axis — screen-space, so it works for any face orientation)
+# Shift axis-constraint helpers (pending segment locks to the previous
+# segment's direction — screen-space, so it works for any face orientation)
 # ---------------------------------------------------------------------------
 
-## Screen position of the last recorded point (the constraint origin).
-func _last_anchor_screen(camera: Camera3D) -> Vector2:
-	var wp: Vector3 = _edited_node.global_transform \
-			* (_hit_points[_hit_points.size() - 2]["position"] as Vector3)
-	return camera.unproject_position(wp)
-
-
-## Unit direction of the previous segment in SCREEN space — the constraint
-## axis is the pending segment's continuation, so straight strokes stay
-## straight without the user steering.  ZERO with no usable previous segment.
-func _pending_axis_screen() -> Vector2:
-	var prev := _hit_points[_hit_points.size() - 2]["position"] as Vector3
-	var older := _hit_points[_hit_points.size() - 3]["position"] as Vector3
-	var d := prev - older
-	return Vector2.ZERO if d.length_squared() < 1e-12 else Vector2(
-			d.normalized().x, d.normalized().z)
+## Constraint anchor + unit axis in SCREEN space: the LAST recorded point
+## projected through the current camera, and the previous segment's screen
+## direction (last two points unprojected).  Empty when the direction is
+## degenerate or a point is behind the camera.
+func _constraint_screen(camera: Camera3D) -> Array:
+	var inv: Transform3D = _edited_node.global_transform
+	var n: int = _hit_points.size()
+	var last_w: Vector3 = inv * (_hit_points[n - 1]["position"] as Vector3)
+	var prev_w: Vector3 = inv * (_hit_points[n - 2]["position"] as Vector3)
+	if camera.is_position_behind(last_w) or camera.is_position_behind(prev_w):
+		return []
+	var from: Vector2 = camera.unproject_position(last_w)
+	var dir := camera.unproject_position(prev_w) - from
+	if dir.length_squared() < 1e-9:
+		return []
+	return [from, dir.normalized()]
 
 
 ## Parameter of the cursor's projection onto the axis ray (from + dir * t).
 static func _closest_param_on_ray(p: Vector2, from: Vector2, dir: Vector2) -> float:
 	var d := p - from
 	return d.dot(dir)
-
-
-## Screen position of the previous point (the constrained anchor).
-func _last_point_screen(camera: Camera3D) -> Vector2:
-	var wp: Vector3 = _edited_node.global_transform \
-			* (_hit_points[_hit_points.size() - 1]["position"] as Vector3)
-	return camera.unproject_position(wp)
 
 
 ## Mesh-local point whose WORLD projection is [param screen_p], clamped to
