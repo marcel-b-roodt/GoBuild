@@ -142,6 +142,63 @@ func test_rect_header_faces_above_opening() -> void:
 	assert_bool(found_above).is_true()
 
 
+func test_rect_outer_sides_full_height() -> void:
+	# Regression (user-reported): the wall's outer sides (±X at x = ±hw)
+	# stopped at the opening top, leaving an open seam up to the wall top
+	# (2 stray edges per side).  The outer quads are now ONE full-height
+	# quad per side: base → wall top, no seam at the opening-top plane.
+	var width := 2.0
+	var mesh := _DOORWAY_SCRIPT.generate(width, 2.5, 0.4, 1.0, 2.0, false)
+	var hw := width * 0.5
+	var hd := 0.2
+	for side: int in [-1, 1]:
+		# Exactly one face lives on the plane x = ±hw and it is full height.
+		var outer := []
+		for face: GoBuildFace in mesh.faces:
+			var on_plane := true
+			var ys: Array[float] = []
+			for vi: int in face.vertex_indices:
+				var v: Vector3 = mesh.vertices[vi]
+				if absf(v.x - hw * side) > 0.001:
+					on_plane = false
+				ys.append(v.y)
+			if on_plane:
+				outer.append(face)
+				assert_float(ys.min()).is_equal_approx(-1.25, 0.001)
+				assert_float(ys.max()).is_equal_approx(1.25, 0.001)
+		assert_int(outer.size()).is_equal(1)
+
+
+func test_arched_flanks_full_height_single_quad() -> void:
+	# Regression (user-reported): the arched jamb strips were split at the
+	# spring line (short outer sides, front/back seam).  The flank strips
+	# are now ONE full-height quad per side per plane: base → wall top.
+	var ow := 1.5
+	var mesh := _DOORWAY_SCRIPT.generate(3.0, 4.0, 2.0, ow, 3.5, true, 8)
+	var hd := 1.0
+	for plane: int in [0, 1]:   # 0 = front/back planes, 1 = ±X planes
+		for side: int in [-1, 1]:
+			var found := false
+			for face: GoBuildFace in mesh.faces:
+				var verts: Array = []
+				var ys: Array[float] = []
+				var on_plane := true
+				for vi: int in face.vertex_indices:
+					var v: Vector3 = mesh.vertices[vi]
+					ys.append(v.y)
+					if plane == 0:
+						if absf(v.z - hd * side) > 0.001:
+							on_plane = false
+					else:
+						if absf(v.x - side * (3.0 * 0.5)) > 0.001:
+							on_plane = false
+				if on_plane and ys.min() <= -1.999 and ys.max() >= 1.999:
+					# Full height: base (-2) → wall top (+2) coverage.
+					if ys.min() < -1.9 and ys.max() > 1.9:
+						found = true
+			assert_bool(found).is_true()
+
+
 # ---------------------------------------------------------------------------
 # Arched mode
 # ---------------------------------------------------------------------------
