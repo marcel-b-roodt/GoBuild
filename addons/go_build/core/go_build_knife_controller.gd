@@ -235,8 +235,8 @@ func handle_input(camera: Camera3D, event: InputEvent, edited_node: GoBuildMeshI
 		return 0
 	if event is InputEventMouseMotion:
 		_handle_hover(camera, (event as InputEventMouseMotion).position,
-				(event as InputEventMouseMotion).ctrl_pressed
-				and (event as InputEventMouseMotion).shift_pressed)
+				(event as InputEventMouseMotion).ctrl_pressed,
+				(event as InputEventMouseMotion).shift_pressed)
 		return 1
 	if event is InputEventKey:
 		var key := event as InputEventKey
@@ -357,7 +357,8 @@ func _handle_click(camera: Camera3D, screen_pos: Vector2,
 ## does NOT require the cursor inside a face — Blender's knife snaps to
 ## vertices/edges slightly outside the silhouette too.
 ## Result stored in _hover; empty when the cursor misses the mesh.
-func _handle_hover(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> void:
+func _handle_hover(camera: Camera3D, screen_pos: Vector2,
+		ctrl_held: bool, shift_held: bool = false) -> void:
 	_last_screen_pos = screen_pos
 	_has_screen_pos = true
 	var node := _edited_node
