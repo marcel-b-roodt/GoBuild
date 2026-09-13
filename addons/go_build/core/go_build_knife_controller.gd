@@ -411,6 +411,7 @@ func _handle_hover(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> vo
 		_hover["face_index"] = fi
 		_hover["position"] = gbm.vertices[snapped_vi]
 		_hover["snapped_vertex"] = snapped_vi
+		_hover["edge_index"] = -1
 		_hover["screen"] = screen_pos
 		return
 
@@ -471,7 +472,7 @@ func _handle_hover(camera: Camera3D, screen_pos: Vector2, ctrl_held: bool) -> vo
 	_hover["midpoint_edge"] = _overlay_midpoint_edge(
 			camera, node, gbm, screen_pos, edge_foot)
 	_hover["face_center"] = _overlay_face_center(
-			camera, node, gbm, screen_pos, ctx)
+			camera, node, gbm, screen_pos)
 
 
 ## A face containing [param vi] (the snap context face) — -1 when orphaned.
@@ -591,11 +592,13 @@ func _edge_midpoint_world(_camera: Camera3D, node: GoBuildMeshInstance,
 
 
 ## Nearest visible face CENTRE within the overlay radius (raw surface hits
-## only — an element snap beats the centre).  Falls back to the context
-## face from [param ctx] when the radius scan misses but the cursor sits
-## close to a face's centre (small faces).  Returns the face index, -1.
+## only — an element snap beats the centre).  Radius miss → -1: the centre
+## snap must only fire NEAR the centre, never as an unconditional fallback
+## (a concave outline's vertex-average centre can sit outside the polygon —
+## the "blue ring off the shape / displaced click" bug).
+## Returns the face index, -1.
 func _overlay_face_center(camera: Camera3D, node: GoBuildMeshInstance,
-		gbm: GoBuildMesh, screen_pos: Vector2, ctx: Dictionary) -> int:
+		gbm: GoBuildMesh, screen_pos: Vector2) -> int:
 	var best := -1
 	var best_d: float = _FACE_CENTER_SNAP_PX
 	for fi: int in gbm.faces.size():
@@ -606,9 +609,7 @@ func _overlay_face_center(camera: Camera3D, node: GoBuildMeshInstance,
 		if d < best_d:
 			best_d = d
 			best = fi
-	if best >= 0:
-		return best
-	return ctx.get("face_index", -1) if not ctx.is_empty() else -1
+	return best
 
 
 func _face_center_world(node: GoBuildMeshInstance, gbm: GoBuildMesh,
