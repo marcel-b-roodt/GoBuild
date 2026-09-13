@@ -303,6 +303,7 @@ func _handle_click(camera: Camera3D, screen_pos: Vector2,
 	_handle_hover(camera, screen_pos, ctrl_held)
 	if _hover.is_empty():
 		return 0   # Missed the mesh — ignore click.
+	var gbm := node.go_build_mesh
 	var face_index: int = _hover["face_index"]
 	var hit_point: Vector3 = _hover["position"]
 	var snapped_vi: int = _hover["snapped_vertex"]
