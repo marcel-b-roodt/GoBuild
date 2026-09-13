@@ -119,15 +119,18 @@ static func _generate_rectangular(
 ##
 ## Decomposition (all pieces butt cleanly, interior seams invisible):
 ##   - 2 jamb boxes: x outside the opening, y from base to spring line
-##     (tops buried against the head band, skipped)
+##     (tops buried against the head band, skipped; front/back and ±X
+##     outer sides replaced by full-height pieces)
+##   - Full-height flank strips over the jambs (front/back, base → wall
+##     top) and full-height outer quads at x = ±hw — one piece each,
+##     no seam at the spring plane
 ##   - Head band x ∈ [-width/2, +width/2], y ∈ [spring, wall top]:
 ##     front/back faces are per-arc-segment strips over the opening
-##     (arc → wall top) plus a flat flank strip on each side
-##     (spring → wall top over the jambs); the wall-top quad closes it;
-##     the reveal quads through the wall thickness form the arched
-##     hole surface.  No spandrel boxes, no exposed flank plane above
-##     the arc — the opening above the spring line is bounded only by
-##     the reveal (Open H moves spring_y, the arc and the reveal with it).
+##     (arc → wall top); the wall-top quad closes it; the reveal quads
+##     through the wall thickness form the arched hole surface.  No
+##     spandrel boxes, no exposed flank plane above the arc — the
+##     opening above the spring line is bounded only by the reveal
+##     (Open H moves spring_y, the arc and the reveal with it).
 static func _generate_arched(
 		width: float,
 		height: float,
@@ -146,12 +149,13 @@ static func _generate_arched(
 	var radius := ow * 0.5
 	var spring_y: float = maxf(base + oh - radius, base)  # arc centre height
 
-	# Jamb columns: base → spring line, outside the opening.  Their top
-	# faces are buried against the head band's flank strips above — skip.
+	# Jamb columns: base → spring line, outside the opening.  Tops buried
+	# against the head band's flank strips above; front/back and ±X outer
+	# sides replaced by the full-height flank strips / outer quads below.
 	_add_box_x(mesh, base, spring_y, depth, radius, hw, material_index,
-			["top"] as Array[String])       # right
+			["top", "right", "front", "back"] as Array[String])     # right
 	_add_box_x(mesh, base, spring_y, depth, -hw, -radius, material_index,
-			["top"] as Array[String])       # left
+			["top", "left", "front", "back"] as Array[String])      # left
 
 	# ── Arc head: semicircle from -90° (left flank at (-radius, spring_y))
 	# to +90° (right flank), apex at (0, spring_y + radius) = opening top.
@@ -173,14 +177,19 @@ static func _generate_arched(
 		mesh.vertices.append(Vector3(ax, ay, -hd))   # back arc
 		mesh.vertices.append(Vector3(ax, top, -hd))  # back top
 
-	# Left/right flank strips (spring → wall top over the jambs, front +
-	# back) — replace the spandrel boxes; their bottom edges are shared
-	# with the jamb tops (buried interface, no face) and their side edges
-	# with the outer wall.
-	_add_flank_quad(mesh, -hw, -radius, spring_y, top, hd, true, material_index)
-	_add_flank_quad(mesh, -hw, -radius, spring_y, top, hd, false, material_index)
-	_add_flank_quad(mesh, radius, hw, spring_y, top, hd, true, material_index)
-	_add_flank_quad(mesh, radius, hw, spring_y, top, hd, false, material_index)
+	# Left/right flank strips over the jambs — FULL height (base → wall
+	# top, front + back), one quad each: replaces both the jamb boxes'
+	# front/back strips and the head band's flank strips; side edges
+	# shared with the outer wall quads, top edge with the wall top.
+	_add_flank_quad(mesh, -hw, -radius, base, top, hd, true, material_index)
+	_add_flank_quad(mesh, -hw, -radius, base, top, hd, false, material_index)
+	_add_flank_quad(mesh, radius, hw, base, top, hd, true, material_index)
+	_add_flank_quad(mesh, radius, hw, base, top, hd, false, material_index)
+
+	# Wall outer sides (normal ±X): full-height quads base → wall top at
+	# x = ±hw.  One piece each — no seam at the spring plane.
+	_add_outer_quad(mesh, hw, base, top, hd, true, material_index)    # +X
+	_add_outer_quad(mesh, hw, base, top, hd, false, material_index)   # -X
 
 	for i in range(segments):
 		var fa0 := vert_base + i * 4
@@ -224,10 +233,10 @@ static func _generate_arched(
 			mesh.vertices.size() + 2, mesh.vertices.size() + 3]
 		cap.material_index = material_index
 		cap.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
-		mesh.vertices.append(Vector3(-hw, top, -hd))
-		mesh.vertices.append(Vector3(hw, top, -hd))
-		mesh.vertices.append(Vector3(hw, top, hd))
 		mesh.vertices.append(Vector3(-hw, top, hd))
+		mesh.vertices.append(Vector3(hw, top, hd))
+		mesh.vertices.append(Vector3(hw, top, -hd))
+		mesh.vertices.append(Vector3(-hw, top, -hd))
 		mesh.faces.append(cap)
 
 	mesh.finalize()
