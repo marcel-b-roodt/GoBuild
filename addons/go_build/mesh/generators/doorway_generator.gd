@@ -60,18 +60,16 @@ static func generate(
 			width, height, depth, opening_width, opening_height, material_index)
 
 
-## Rectangular opening: two jamb columns + a header slab across the top.
-## Wall centred on origin, base at y = -height/2.
+## Rectangular opening: jamb columns + a header band across the FULL wall
+## width.  Wall centred on origin, base at y = -height/2.
 ##
-## Decomposition (no weld tricks, no post-dissolve): jambs run the FULL
-## wall height; the header slab (its ±X sides buried against the jamb
-## inner walls → skipped) keeps all 4 of its own faces — front, back,
-## top, and the opening ceiling.  The jamb front/back quads and the
-## header front/back quads are separate coplanar pieces of the same
-## wall plane, split at the jamb-line edges — a clean crease, not a
-## seam.  20 verts / 16 faces.  Open H moves the opening top directly:
-## oh = 0 clamps the jamb boxes to full height; oh = height skips the
-## header entirely.  See issues/2026-09-12-doorway-weld-rings.md.
+## Decomposition: jambs run base → opening top (their tops buried against
+## the header band's bottom, skipped); the header band spans the full
+## wall width from the opening top to the wall top — its bottom face is
+## the opening ceiling (visible), the strips over the jambs are buried
+## (no face).  No buried inner-wall spans above the opening: Open H moves
+## the jamb inner walls, ceiling and the front/back split line together.
+## 16 faces.  See issues/2026-09-12-doorway-weld-rings.md.
 static func _generate_rectangular(
 		width: float,
 		height: float,
@@ -86,36 +84,44 @@ static func _generate_rectangular(
 	var base := -hh
 	var top := hh
 	var y_open_top := base + oh
+	var r := ow * 0.5
+	var hd := depth * 0.5
 
-	var jamb_w := (width - ow) * 0.5
-	var header_h := height - oh
+	# Jamb columns: base → opening top, outside the opening.  Their top
+	# faces are buried against the header band above — skip them.
+	_add_box_x(mesh, base, y_open_top, depth, r, hw, material_index,
+			["top"] as Array[String])       # right
+	_add_box_x(mesh, base, y_open_top, depth, -hw, -r, material_index,
+			["top"] as Array[String])       # left
 
-	# Jamb columns: from base to top (jambs run full height so the header
-	# sits between them — corner junctions only, no shared edges).
-	_add_box_x(mesh, base, top, depth, hw - jamb_w, hw, material_index)             # right
-	_add_box_x(mesh, base, top, depth, -hw, -hw + jamb_w, material_index)           # left
-
-	# Header slab above the opening.  Its side faces (±X) are buried
-	# against the jamb columns' inner faces — skip them (z-fighting).
-	# Header bottom = the opening's ceiling — visible, keep it.
-	if header_h > 0.0:
-		_add_box_x(mesh, y_open_top, top, depth, -hw + jamb_w, hw - jamb_w,
-				material_index, ["left", "right"] as Array[String])
+	# Header band: opening top → wall top, FULL wall width.  Front,
+	# back, top stay whole; the bottom is only the opening ceiling (the
+	# strips over the jambs are buried against their tops — no face).
+	_add_box_x(mesh, y_open_top, top, depth, -hw, hw, material_index,
+			["bottom", "left", "right"] as Array[String])
+	MeshGeneratorUtils.add_quad_grid(mesh,
+			Vector3(r, y_open_top, hd), Vector3(-r, y_open_top, hd),
+			Vector3(-r, y_open_top, -hd), Vector3(r, y_open_top, -hd),
+			1, 1, material_index)
 
 	mesh.finalize()
 	return mesh
 
 
-## Arched opening: jambs below the spring line, spandrel boxes above them
-## beside the arc, and an arc-to-ceiling head over the opening.
+## Arched opening: jambs below the spring line and a head band from the
+## spring line to the wall top, minus the semicircular arc void.
 ##
 ## Decomposition (all pieces butt cleanly, interior seams invisible):
 ##   - 2 jamb boxes: x outside the opening, y from base to spring line
-##   - 2 spandrel boxes: same x band, y from spring line to wall top
-##   - Arc head across x ∈ [-ow/2, +ow/2]: semicircle centred at
-##     (0, spring_y) swept from -90° to +90°, filled up to the wall top with
-##     per-segment front/back quads plus a reveal quad through the wall
-##     thickness (the arched hole surface).
+##     (tops buried against the head band, skipped)
+##   - Head band x ∈ [-width/2, +width/2], y ∈ [spring, wall top]:
+##     front/back faces are per-arc-segment strips over the opening
+##     (arc → wall top) plus a flat flank strip on each side
+##     (spring → wall top over the jambs); the wall-top quad closes it;
+##     the reveal quads through the wall thickness form the arched
+##     hole surface.  No spandrel boxes, no exposed flank plane above
+##     the arc — the opening above the spring line is bounded only by
+##     the reveal (Open H moves spring_y, the arc and the reveal with it).
 static func _generate_arched(
 		width: float,
 		height: float,
@@ -135,18 +141,11 @@ static func _generate_arched(
 	var spring_y: float = maxf(base + oh - radius, base)  # arc centre height
 
 	# Jamb columns: base → spring line, outside the opening.  Their top
-	# faces are buried against the spandrel boxes above — skip them.
+	# faces are buried against the head band's flank strips above — skip.
 	_add_box_x(mesh, base, spring_y, depth, radius, hw, material_index,
 			["top"] as Array[String])       # right
 	_add_box_x(mesh, base, spring_y, depth, -hw, -radius, material_index,
 			["top"] as Array[String])       # left
-
-	# Spandrel boxes: spring line → wall top, same x bands.  Their bottom
-	# faces are buried against the jambs below — skip them.
-	_add_box_x(mesh, spring_y, top, depth, radius, hw, material_index,
-			["bottom"] as Array[String])    # right
-	_add_box_x(mesh, spring_y, top, depth, -hw, -radius, material_index,
-			["bottom"] as Array[String])    # left
 
 	# ── Arc head: semicircle from -90° (left flank at (-radius, spring_y))
 	# to +90° (right flank), apex at (0, spring_y + radius) = opening top.
@@ -167,6 +166,15 @@ static func _generate_arched(
 		mesh.vertices.append(Vector3(ax, top, hd))   # front top
 		mesh.vertices.append(Vector3(ax, ay, -hd))   # back arc
 		mesh.vertices.append(Vector3(ax, top, -hd))  # back top
+
+	# Left/right flank strips (spring → wall top over the jambs, front +
+	# back) — replace the spandrel boxes; their bottom edges are shared
+	# with the jamb tops (buried interface, no face) and their side edges
+	# with the outer wall.
+	_add_flank_quad(mesh, -hw, -radius, spring_y, top, hd, true, material_index)
+	_add_flank_quad(mesh, -hw, -radius, spring_y, top, hd, false, material_index)
+	_add_flank_quad(mesh, radius, hw, spring_y, top, hd, true, material_index)
+	_add_flank_quad(mesh, radius, hw, spring_y, top, hd, false, material_index)
 
 	for i in range(segments):
 		var fa0 := vert_base + i * 4
@@ -200,26 +208,63 @@ static func _generate_arched(
 		reveal.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
 		mesh.faces.append(reveal)
 
-		# Wall-top cap over the opening band (normal +Y): closes the top
-		# of the solid between the head quads — without it the wall top
-		# above the arc is an open hole (the user-reported broken top).
-		# Skipped when degenerate (apex flush with the wall top).
-		var ay0: float = spring_y + cos(-PI * 0.5 + PI * float(i) / float(segments)) * radius
-		var ay1: float = spring_y + cos(-PI * 0.5 + PI * float(i + 1) / float(segments)) * radius
-		if top - minf(ay0, ay1) > 0.0001:
-			var cap := GoBuildFace.new()
-			cap.vertex_indices = [ft0, ft1, bt1, bt0]
-			cap.material_index = material_index
-			cap.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
-			mesh.faces.append(cap)
+	# Wall-top quad (normal +Y): closes the head band between the front/
+	# back strips — spans the full wall width.  Skipped when degenerate
+	# (apex flush with the wall top: strips have zero height).
+	if top - spring_y - radius > 0.0001:
+		var cap := GoBuildFace.new()
+		cap.vertex_indices = [
+			mesh.vertices.size(), mesh.vertices.size() + 1,
+			mesh.vertices.size() + 2, mesh.vertices.size() + 3]
+		cap.material_index = material_index
+		cap.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
+		mesh.vertices.append(Vector3(-hw, top, -hd))
+		mesh.vertices.append(Vector3(hw, top, -hd))
+		mesh.vertices.append(Vector3(hw, top, hd))
+		mesh.vertices.append(Vector3(-hw, top, hd))
+		mesh.faces.append(cap)
 
 	mesh.finalize()
 	return mesh
 
 
+## Add one head-band flank strip quad: spring → wall top over the jamb band
+## [param x0, param x1], on the front (normal +Z) when [param front] or the
+## back (normal -Z) face of the wall.
+static func _add_flank_quad(
+		mesh: GoBuildMesh,
+		x0: float,
+		x1: float,
+		spring_y: float,
+		top: float,
+		hd: float,
+		front: bool,
+		material_index: int,
+) -> void:
+	var face := GoBuildFace.new()
+	if front:
+		face.vertex_indices = [
+			mesh.vertices.size(), mesh.vertices.size() + 1,
+			mesh.vertices.size() + 2, mesh.vertices.size() + 3]
+		mesh.vertices.append(Vector3(x0, spring_y, hd))
+		mesh.vertices.append(Vector3(x1, spring_y, hd))
+		mesh.vertices.append(Vector3(x1, top, hd))
+		mesh.vertices.append(Vector3(x0, top, hd))
+	else:
+		face.vertex_indices = [
+			mesh.vertices.size(), mesh.vertices.size() + 1,
+			mesh.vertices.size() + 2, mesh.vertices.size() + 3]
+		mesh.vertices.append(Vector3(x1, spring_y, -hd))
+		mesh.vertices.append(Vector3(x0, spring_y, -hd))
+		mesh.vertices.append(Vector3(x0, top, -hd))
+		mesh.vertices.append(Vector3(x1, top, -hd))
+	face.material_index = material_index
+	face.uvs = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
+	mesh.faces.append(face)
+
+
 ## Add a closed rectangular box spanning [param y0, param y1] × full depth ×
 ## [param x0, param x1].
-## Used for jamb columns / header / side slabs — all axis-aligned boxes.
 ## [param skip] omits named faces ("front", "back", "top", "bottom",
 ## "left", "right") when they are buried against a neighbouring box —
 ## coincident coplanar faces z-fight.

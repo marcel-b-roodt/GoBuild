@@ -86,16 +86,10 @@ func test_width_delta_degenerate_returns_empty() -> void:
 	assert_bool(r.is_empty()).is_true()
 
 
-func test_width_delta_position_still_grid_snapped() -> void:
-	# Delta mode: the width-point POSITION is grid-snapped in both modes
-	# (single clicked vertex on the grid is what "snapping" means);
-	# the width value derives from anchor→snapped-cursor distance.
-	# Controller-level: the raw 2.7 cursor is snapped to 3 BEFORE
-	# width_result — at the maths level Delta quantizes the VALUE
-	# (2.7 → 3.0 here since |2.7| quantizes up to 3.0?  No: 2.7 → 3.0
-	# by snappedf rounding).  Position snapping happens in
-	# snap_point; width_result with a snapped target measures it.
-	var r := _MATHS.width_result(Vector3.ZERO, Vector3(3.0, 0, 0),
+func test_width_delta_freehand_position_value_snapped() -> void:
+	# Delta after POSITION: cursor stays freehand, the width VALUE
+	# quantizes (2.7 − 0.0 = 2.7 → snapped to 3.0).
+	var r := _MATHS.width_result(Vector3.ZERO, Vector3(2.7, 0, 0),
 			Vector3.UP, _STEP, true, _MATHS.SNAP_DELTA)
 	assert_float(r["width"]).is_equal_approx(3.0, 0.001)
 
