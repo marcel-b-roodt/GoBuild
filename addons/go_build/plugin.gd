@@ -1474,6 +1474,12 @@ func _handle_keyboard_shortcut(key: InputEventKey) -> int:
 ## Handle single-key action shortcuts (W/E/R transform modes, Delete/X, M, F).
 ## Returns 1 if consumed, 0 if passed through, -1 if not matched.
 func _handle_action_key(keycode: Key) -> int:
+	# K is NOT handled here: the global _input tail
+	# (_handle_global_input_tail) already toggles the knife — handling it
+	# here too toggled ON→OFF within one keypress when the cursor was
+	# over the viewport (the "first click never primed" bug).
+	if keycode == KEY_K:
+		return 0
 	match keycode:
 		KEY_W:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
 		KEY_E:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.ROTATE)
@@ -1942,7 +1948,6 @@ func begin_param_preview(preview: GoBuildParamPreview) -> void:
 # ---------------------------------------------------------------------------
 # Signal handlers
 # ---------------------------------------------------------------------------
-
 func _on_selection_changed() -> void:
 	if _edited_node:
 		_edited_node.update_gizmos()
@@ -1951,7 +1956,6 @@ func _on_selection_changed() -> void:
 		_uv_panel.refresh()
 	if _vc_painter:
 		_vc_painter.refresh()
-
 
 func _on_mesh_changed() -> void:
 	update_overlays()
@@ -2181,18 +2185,16 @@ func _on_edited_node_removed() -> void:
 func _disconnect_node_signals() -> void:
 	if _edited_node == null:
 		return
-	if _edited_node.selection.selection_changed.is_connected(_on_selection_changed):
-		_edited_node.selection.selection_changed.disconnect(_on_selection_changed)
-	if _edited_node.selection.mode_changed.is_connected(_on_mode_changed):
-		_edited_node.selection.mode_changed.disconnect(_on_mode_changed)
+	var sel := _edited_node.selection
+	if sel.selection_changed.is_connected(_on_selection_changed):
+		sel.selection_changed.disconnect(_on_selection_changed)
+	if sel.mode_changed.is_connected(_on_mode_changed):
+		sel.mode_changed.disconnect(_on_mode_changed)
 	if _edited_node.tree_exiting.is_connected(_on_edited_node_removed):
 		_edited_node.tree_exiting.disconnect(_on_edited_node_removed)
 	if _edited_node.mesh_changed.is_connected(_on_mesh_changed):
 		_edited_node.mesh_changed.disconnect(_on_mesh_changed)
-
-
 ## Delegates to [member _tool_pinner] to press the Physical/V button once.
-## Called deferred from mode-change handlers and _set_transform_mode.
 func _suppress_native_gizmo() -> void:
 	if _tool_pinner != null:
 		_tool_pinner.suppress()
