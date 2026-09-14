@@ -13,9 +13,7 @@ extends RefCounted
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
-const _PACK_SCRIPT := preload("res://addons/go_build/uv/uv_pack_islands.gd")
-
-const _UV_EPSILON: float = 0.0001
+const _ISLAND_SELECT := preload("res://addons/go_build/uv/uv_island_select.gd")
 
 
 ## Stitch UV islands in [param mesh] for faces in [param selected_faces].
@@ -69,53 +67,7 @@ static func apply(mesh: GoBuildMesh, selected_faces: Array[int]) -> int:
 
 static func _build_islands_from_selection(
 		mesh: GoBuildMesh, selected_faces: Array[int]) -> Array[Array]:
-	var selected_set: Dictionary = {}
-	for fi: int in selected_faces:
-		selected_set[fi] = true
-
-	var visited: Dictionary = {}
-	var uv_to_faces := _build_uv_vertex_map_selected(mesh, selected_set)
-
-	var islands: Array[Array] = []
-	for fi: int in selected_faces:
-		if visited.has(fi):
-			continue
-		var island: Array[int] = []
-		var stack: Array[int] = [fi]
-		while not stack.is_empty():
-			var cur: int = stack.pop_back()
-			if visited.has(cur):
-				continue
-			visited[cur] = true
-			island.append(cur)
-			var face: GoBuildFace = mesh.faces[cur]
-			for uv: Vector2 in face.uvs:
-				var key := _uv_key(uv)
-				if uv_to_faces.has(key):
-					for nb: int in uv_to_faces[key]:
-						if not visited.has(nb) and selected_set.has(nb):
-							stack.append(nb)
-		islands.append(island)
-	return islands
-
-
-static func _build_uv_vertex_map_selected(
-		mesh: GoBuildMesh, selected_set: Dictionary) -> Dictionary:
-	var m: Dictionary = {}
-	for fi: int in selected_set:
-		var face: GoBuildFace = mesh.faces[fi]
-		for uv: Vector2 in face.uvs:
-			var key := _uv_key(uv)
-			if not m.has(key):
-				m[key] = []
-			m[key].append(fi)
-	return m
-
-
-static func _uv_key(uv: Vector2) -> StringName:
-	var ix: int = roundi(uv.x / _UV_EPSILON)
-	var iy: int = roundi(uv.y / _UV_EPSILON)
-	return StringName("%d|%d" % [ix, iy])
+	return UvIslandSelect.build_all_islands(mesh, selected_faces)
 
 
 # ---------------------------------------------------------------------------

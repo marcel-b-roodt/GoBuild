@@ -38,16 +38,26 @@ static func select_island(mesh: GoBuildMesh, seed_face: int) -> Array[int]:
 	return result
 
 
-## Return all UV islands as an array of face-index arrays.
-## Mirrors [code]UvPackIslands._build_islands[/code] but is safe to call
-## independently (no dependency on UvPackIslands internals).
-static func build_all_islands(mesh: GoBuildMesh) -> Array[Array]:
+## Return all UV islands as an array of face-index arrays, restricted to
+## [param face_filter] when non-empty (only filtered faces are seeded and
+## only filtered neighbours traversed).  The canonical island flood fill —
+## pack and stitch delegate here.
+static func build_all_islands(mesh: GoBuildMesh,
+		face_filter: Array[int] = []) -> Array[Array]:
 	if mesh.faces.is_empty():
 		return []
-	var uv_to_faces := UvTopology.build_uv_vertex_map(mesh)
+	var filter_set: Dictionary = {}
+	if not face_filter.is_empty():
+		for fi: int in face_filter:
+			filter_set[fi] = true
+	var uv_to_faces := UvTopology.build_uv_vertex_map_for(mesh, filter_set) \
+			if not filter_set.is_empty() \
+			else UvTopology.build_uv_vertex_map(mesh)
 	var visited: Dictionary = {}
+	var seeds: Array[int] = face_filter if not face_filter.is_empty() \
+			else GoBuildMesh.all_face_indices(mesh.faces.size())
 	var islands: Array[Array] = []
-	for fi: int in mesh.faces.size():
+	for fi: int in seeds:
 		if visited.has(fi):
 			continue
 		var island: Array[int] = []
@@ -63,7 +73,9 @@ static func build_all_islands(mesh: GoBuildMesh) -> Array[Array]:
 				var key := UvTopology.uv_key(uv)
 				if uv_to_faces.has(key):
 					for nb: int in uv_to_faces[key]:
-						if not visited.has(nb):
+						if not visited.has(nb) \
+								and (filter_set.is_empty()
+										or filter_set.has(nb)):
 							stack.append(nb)
 		islands.append(island)
 	return islands

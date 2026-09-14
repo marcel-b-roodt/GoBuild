@@ -96,6 +96,28 @@ func _on_target_mesh_changed() -> void:
 	_rebuild_bg_dropdown()
 
 
+## The canvas's mesh, or null (the one guard for canvas/target/mesh chains).
+func _get_gbm() -> GoBuildMesh:
+	if _canvas == null or _canvas._target == null \
+			or _canvas._target.go_build_mesh == null:
+		return null
+	return _canvas._target.go_build_mesh
+
+
+## Commit a mesh-mutating UV operation as one undoable action: bake, then
+## create_action("name", do=restore(new snapshot), undo=restore(snapshot)).
+func _commit_uv_undo(action_name: String, snapshot: Dictionary) -> void:
+	_canvas._target.bake_in_place()
+	if _plugin == null:
+		return
+	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
+	ur.create_action(action_name)
+	var gbm: GoBuildMesh = _get_gbm()
+	ur.add_do_method(_canvas._target, "restore_and_bake", gbm.take_snapshot())
+	ur.add_undo_method(_canvas._target, "restore_and_bake", snapshot)
+	ur.commit_action()
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -419,7 +441,7 @@ func trigger_add_tex() -> void:
 
 
 func _on_add_tex_pressed() -> void:
-	if _canvas == null or _canvas._target == null or _canvas._target.go_build_mesh == null:
+	if _get_gbm() == null:
 		return
 	if _tex_file_dialog == null:
 		_tex_file_dialog = EditorFileDialog.new()
@@ -441,21 +463,16 @@ func _on_add_tex_pressed() -> void:
 
 
 func _on_tex_file_selected(path: String) -> void:
-	if _canvas == null or _canvas._target == null or _canvas._target.go_build_mesh == null:
+	var gbm: GoBuildMesh = _get_gbm()
+	if gbm == null or _plugin == null:
 		return
-	if _plugin == null:
-		return
-
-	var gbm: GoBuildMesh = _canvas._target.go_build_mesh
 	var snapshot := gbm.take_snapshot()
 
 	var sel_faces: Array[int] = []
 	if _canvas._target.selection.get_mode() == SelectionManager.Mode.FACE:
 		sel_faces = _canvas._target.selection.get_selected_faces()
 	if sel_faces.is_empty():
-		sel_faces.resize(gbm.faces.size())
-		for i: int in gbm.faces.size():
-			sel_faces[i] = i
+		sel_faces = GoBuildMesh.all_face_indices(gbm.faces.size())
 
 	var mat: Material = null
 	var mat_slot_idx: int = -1
@@ -498,13 +515,7 @@ func _on_tex_file_selected(path: String) -> void:
 
 	MaterialAssignOperation.apply_to_selected_faces(gbm, sel_faces, mat_slot_idx, mat)
 
-	_canvas._target.bake_in_place()
-
-	var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-	ur.create_action("Add Texture to Faces")
-	ur.add_do_method(_canvas._target, "restore_and_bake", gbm.take_snapshot())
-	ur.add_undo_method(_canvas._target, "restore_and_bake", snapshot)
-	ur.commit_action()
+	_commit_uv_undo("Add Texture to Faces", snapshot)
 
 	_rebuild_bg_dropdown()
 	_canvas.set_bg_material_index(mat_slot_idx)
@@ -522,25 +533,22 @@ func _on_snap_changed(value: float) -> void:
 
 
 func _on_pack_pressed() -> void:
-	if _canvas == null or _canvas._target == null or _canvas._target.go_build_mesh == null:
+	var gbm: GoBuildMesh = _get_gbm()
+	if gbm == null:
 		return
-	var gbm: GoBuildMesh = _canvas._target.go_build_mesh
 	var snapshot := gbm.take_snapshot()
 	var count := UvPackIslands.apply(gbm)
-	_canvas._target.bake_in_place()
-	if _plugin != null and count > 0:
-		var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-		ur.create_action("Pack UV Islands (%d)" % count)
-		ur.add_do_method(_canvas._target, "restore_and_bake", gbm.take_snapshot())
-		ur.add_undo_method(_canvas._target, "restore_and_bake", snapshot)
-		ur.commit_action()
+	if count > 0:
+		_commit_uv_undo("Pack UV Islands (%d)" % count, snapshot)
+	else:
+		_canvas._target.bake_in_place()
 	_canvas.queue_redraw()
 
 
 func _on_stitch_pressed() -> void:
-	if _canvas == null or _canvas._target == null or _canvas._target.go_build_mesh == null:
+	var gbm: GoBuildMesh = _get_gbm()
+	if gbm == null:
 		return
-	var gbm: GoBuildMesh = _canvas._target.go_build_mesh
 	var sel_faces: Array[int] = []
 	if _canvas._target.selection.get_mode() == SelectionManager.Mode.FACE:
 		sel_faces = _canvas._target.selection.get_selected_faces()
@@ -548,20 +556,17 @@ func _on_stitch_pressed() -> void:
 		return
 	var snapshot := gbm.take_snapshot()
 	var count := UvStitchIslands.apply(gbm, sel_faces)
-	_canvas._target.bake_in_place()
-	if _plugin != null and count > 0:
-		var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-		ur.create_action("Stitch UV Islands (%d merged)" % count)
-		ur.add_do_method(_canvas._target, "restore_and_bake", gbm.take_snapshot())
-		ur.add_undo_method(_canvas._target, "restore_and_bake", snapshot)
-		ur.commit_action()
+	if count > 0:
+		_commit_uv_undo("Stitch UV Islands (%d merged)" % count, snapshot)
+	else:
+		_canvas._target.bake_in_place()
 	_canvas.queue_redraw()
 
 
 func _on_prep_tex_pressed() -> void:
-	if _canvas == null or _canvas._target == null or _canvas._target.go_build_mesh == null:
+	var gbm: GoBuildMesh = _get_gbm()
+	if gbm == null:
 		return
-	var gbm: GoBuildMesh = _canvas._target.go_build_mesh
 	var snapshot := gbm.take_snapshot()
 	var xform: Transform3D = (
 		_canvas._target.global_transform
@@ -569,20 +574,17 @@ func _on_prep_tex_pressed() -> void:
 		else Transform3D.IDENTITY
 	)
 	var count := UvPrepareForTexturing.apply(gbm, xform)
-	_canvas._target.bake_in_place()
-	if _plugin != null and count > 0:
-		var ur: EditorUndoRedoManager = _plugin.get_undo_redo()
-		ur.create_action("Prepare for Texturing (%d islands)" % count)
-		ur.add_do_method(_canvas._target, "restore_and_bake", gbm.take_snapshot())
-		ur.add_undo_method(_canvas._target, "restore_and_bake", snapshot)
-		ur.commit_action()
+	if count > 0:
+		_commit_uv_undo("Prepare for Texturing (%d islands)" % count, snapshot)
+	else:
+		_canvas._target.bake_in_place()
 	_canvas.queue_redraw()
 
 
 func _on_export_uv_pressed() -> void:
-	if _canvas == null or _canvas._target == null or _canvas._target.go_build_mesh == null:
+	var gbm: GoBuildMesh = _get_gbm()
+	if gbm == null:
 		return
-	var gbm: GoBuildMesh = _canvas._target.go_build_mesh
 	var dialog := EditorFileDialog.new()
 	dialog.access = EditorFileDialog.ACCESS_FILESYSTEM
 	dialog.file_mode = EditorFileDialog.FILE_MODE_SAVE_FILE

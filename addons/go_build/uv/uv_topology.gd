@@ -29,6 +29,21 @@ static func build_uv_vertex_map(mesh: GoBuildMesh) -> Dictionary:
 	return m
 
 
+## Same map restricted to [param face_set] (only those faces are walked
+## and only their UVs keyed).
+static func build_uv_vertex_map_for(
+		mesh: GoBuildMesh, face_set: Dictionary) -> Dictionary:
+	var m: Dictionary = {}
+	for fi: int in face_set:
+		var face: GoBuildFace = mesh.faces[fi]
+		for uv: Vector2 in face.uvs:
+			var key := uv_key(uv)
+			if not m.has(key):
+				m[key] = []
+			m[key].append(fi)
+	return m
+
+
 ## Quantise a UV position to a [StringName] key for dictionary lookup.
 ##
 ## Two UVs within [constant UV_EPSILON] of each other produce the same key,

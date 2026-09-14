@@ -16,6 +16,7 @@ extends RefCounted
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _UV_TOPO_SCRIPT := preload("res://addons/go_build/uv/uv_topology.gd")
+const _ISLAND_SELECT := preload("res://addons/go_build/uv/uv_island_select.gd")
 
 
 ## Pack all UV islands of [param mesh] into the 0-1 tile with a [param margin]
@@ -54,35 +55,9 @@ static func apply(mesh: GoBuildMesh, margin: float = 0.02) -> int:
 
 ## Build a list of UV islands. Each island is an [Array[int]] of face indices.
 ## Two faces are connected if they share a UV vertex position (within epsilon).
+## Delegates to the canonical flood fill in UvIslandSelect.
 static func _build_islands(mesh: GoBuildMesh) -> Array[Array]:
-	var n: int = mesh.faces.size()
-	var visited: Array[bool] = []
-	visited.resize(n)
-	visited.fill(false)
-
-	var uv_to_faces := UvTopology.build_uv_vertex_map(mesh)
-
-	var islands: Array[Array] = []
-	for fi: int in n:
-		if visited[fi]:
-			continue
-		var island: Array[int] = []
-		var stack: Array[int] = [fi]
-		while not stack.is_empty():
-			var cur: int = stack.pop_back()
-			if visited[cur]:
-				continue
-			visited[cur] = true
-			island.append(cur)
-			var face: GoBuildFace = mesh.faces[cur]
-			for uv: Vector2 in face.uvs:
-				var key := UvTopology.uv_key(uv)
-				if uv_to_faces.has(key):
-					for nb: int in uv_to_faces[key]:
-						if not visited[nb]:
-							stack.append(nb)
-		islands.append(island)
-	return islands
+	return UvIslandSelect.build_all_islands(mesh)
 
 
 # ---------------------------------------------------------------------------
