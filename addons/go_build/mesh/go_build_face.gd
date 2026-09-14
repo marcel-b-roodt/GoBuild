@@ -56,3 +56,20 @@ enum UvMode {
 ## Only meaningful for [constant UvMode.CYLINDRICAL] and [constant UvMode.SPHERICAL].
 @export var uv_seam_rotation: float = 0.0
 
+
+## Deep copy of every face field (arrays duplicated, not shared).
+## Use for snapshots and face replacements — keeps undo intact when new
+## fields are added here.
+func clone() -> GoBuildFace:
+	var copy := GoBuildFace.new()
+	copy.vertex_indices.assign(vertex_indices)
+	copy.uvs.assign(uvs)
+	copy.uv2s.assign(uv2s)
+	copy.material_index = material_index
+	copy.smooth_group = smooth_group
+	copy.uv_projection_mode = uv_projection_mode
+	copy.uv_scale = uv_scale
+	copy.uv_offset = uv_offset
+	copy.uv_seam_rotation = uv_seam_rotation
+	return copy
+

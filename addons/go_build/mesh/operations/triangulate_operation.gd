@@ -84,7 +84,7 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 		new_faces.resize(tris.size())
 		for ti: int in tris.size():
 			var tri: Array = tris[ti]
-			var tface := GoBuildFace.new()
+			var tface := face.clone()
 			var vis: Array[int] = []
 			vis.resize(3)
 			var uvs: Array[Vector2] = []
@@ -98,12 +98,6 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 					uvs[li] = Vector2.ZERO
 			tface.vertex_indices = vis
 			tface.uvs = uvs
-			tface.material_index = face.material_index
-			tface.smooth_group = face.smooth_group
-			tface.uv_projection_mode = face.uv_projection_mode
-			tface.uv_scale = face.uv_scale
-			tface.uv_offset = face.uv_offset
-			tface.uv_seam_rotation = face.uv_seam_rotation
 			new_faces[ti] = tface
 
 		# Replace original face with first triangle, append the rest.

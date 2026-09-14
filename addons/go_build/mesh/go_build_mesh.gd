@@ -1223,17 +1223,7 @@ func take_snapshot() -> Dictionary:
 
 	var faces_copy: Array[GoBuildFace] = []
 	for face in faces:
-		var nf := GoBuildFace.new()
-		nf.vertex_indices.assign(face.vertex_indices)
-		nf.uvs.assign(face.uvs)
-		nf.uv2s.assign(face.uv2s)
-		nf.material_index = face.material_index
-		nf.smooth_group = face.smooth_group
-		nf.uv_projection_mode = face.uv_projection_mode
-		nf.uv_scale = face.uv_scale
-		nf.uv_offset = face.uv_offset
-		nf.uv_seam_rotation = face.uv_seam_rotation
-		faces_copy.append(nf)
+		faces_copy.append(face.clone())
 
 	var slots_copy: Array[Material] = []
 	slots_copy.assign(material_slots)
@@ -1276,17 +1266,7 @@ func restore_snapshot(snapshot: Dictionary) -> void:
 	hard_edge_pairs = restored_pairs
 	var fresh_faces: Array[GoBuildFace] = []
 	for f: GoBuildFace in snapshot["faces"]:
-		var nf := GoBuildFace.new()
-		nf.vertex_indices.assign(f.vertex_indices)
-		nf.uvs.assign(f.uvs)
-		nf.uv2s.assign(f.uv2s)
-		nf.material_index = f.material_index
-		nf.smooth_group   = f.smooth_group
-		nf.uv_projection_mode = f.uv_projection_mode
-		nf.uv_scale = f.uv_scale
-		nf.uv_offset = f.uv_offset
-		nf.uv_seam_rotation = f.uv_seam_rotation
-		fresh_faces.append(nf)
+		fresh_faces.append(f.clone())
 	faces.assign(fresh_faces)
 	material_slots.assign(snapshot["material_slots"])
 	if snapshot.has("vertex_colors"):

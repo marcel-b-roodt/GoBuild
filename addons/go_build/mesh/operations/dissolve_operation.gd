@@ -241,16 +241,10 @@ static func _merge_face_pair(
 	if merged_uvs.size() > merged_ring.size():
 		merged_uvs.resize(merged_ring.size())
 
-	# Replace face_a with the merged face.
-	var merged_face := GoBuildFace.new()
+	# Replace face_a with the merged face (clone keeps all UV/smooth fields).
+	var merged_face := face_a.clone()
 	merged_face.vertex_indices = merged_ring
 	merged_face.uvs = merged_uvs
-	merged_face.material_index = face_a.material_index
-	merged_face.smooth_group = face_a.smooth_group
-	merged_face.uv_projection_mode = face_a.uv_projection_mode
-	merged_face.uv_scale = face_a.uv_scale
-	merged_face.uv_offset = face_a.uv_offset
-	merged_face.uv_seam_rotation = face_a.uv_seam_rotation
 
 	mesh.faces[fi_a] = merged_face
 	mesh.faces.remove_at(fi_b)
@@ -375,18 +369,13 @@ static func _dissolve_single_vertex(
 	if ring.size() < 3:
 		return
 
-	# Build the merged face with correct winding.
-	var merged_face := GoBuildFace.new()
+	# Build the merged face with correct winding (clone keeps all UV/smooth
+	# fields from the first adjacent face).
+	var merged_face := mesh.faces[face_indices[0]].clone()
 	merged_face.vertex_indices = ring
 	merged_face.uvs = []
 	merged_face.uvs.resize(ring.size())
 	merged_face.uvs.fill(Vector2.ZERO)
-	merged_face.material_index = mesh.faces[face_indices[0]].material_index
-	merged_face.smooth_group = mesh.faces[face_indices[0]].smooth_group
-	merged_face.uv_projection_mode = mesh.faces[face_indices[0]].uv_projection_mode
-	merged_face.uv_scale = mesh.faces[face_indices[0]].uv_scale
-	merged_face.uv_offset = mesh.faces[face_indices[0]].uv_offset
-	merged_face.uv_seam_rotation = mesh.faces[face_indices[0]].uv_seam_rotation
 
 	# Replace the first face with the merged face and remove the rest.
 	mesh.faces[face_indices[0]] = merged_face
