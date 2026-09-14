@@ -6,16 +6,40 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.8.1] — 2026-06-30
+## [0.11.0] — 2026-09-14
 
 ### Fixed
-- Shape draw: interactive shapes now grow upward from the base during the HEIGHT
-  phase; previously the base was treated as the top of the AABB and height extended
-  downward (fix in `_align_y_to_normal` — outward normal convention)
-- Drag-and-drop on UV canvas: fixed `_can_drop_data` and `_drop_data` signatures
-  to use `Variant` instead of `Dictionary` (Godot 4 API requirement)
+- Snap Selection to Grid no longer tears apart welded (coincident) vertices —
+  the vertex collection now expands coincident groups via the canonical
+  `TransformHelpers.get_affected_vertex_indices`
+
+### Changed
+- Consolidation pass (~600 net lines deleted, no behaviour change):
+  - `GoBuildFace.clone()` — the single deep-copy path for snapshots, undo and
+    face merges (was 6 hand-rolled 9-field copies; new face fields can no
+    longer be silently dropped by undo)
+  - `GoBuildMesh.align_ring_winding` — one canonical Newell-then-flip winding
+    fix (was 5 hand-rolled copies + a cross-product heuristic in bridge)
+  - `GoBuildMesh.unique_valid_indices` / `all_face_indices` — shared input
+    filters replacing 9 operation prologues and 5 resize+fill loops
+  - Knife: `_split_on_edge_points` (2 copies → 1), `_crossing_nearest` (2
+    mirror twins → 1), named tolerance constants (`_ON_POINT_TOL`,
+    `_ENDPOINT_TOL`, `_OCCLUSION_SLACK`), `_pos_key` position-key helper
+  - `GoBuildDrawer._build_param_widgets` — one param-widget builder for the
+    create drawer's strip and the draw param popup's two modes (4 parallel
+    handler pairs collapsed)
+  - UV: one canonical island flood fill (`UvIslandSelect.build_all_islands`
+    with a face filter; pack and stitch delegate), `_commit_uv_undo` +
+    `_get_gbm` in the UV panel
+  - Plugin: `_draw_shadowed_text` (9 shadow/fill pairs), `_editor_vp` /
+    `_editor_camera` / `_edited_mesh` guards, set_target fan-out loops;
+    panel's 24-arm drawer open/close matrix → one mode list + loop
+- Dead code purge: 14 zero-caller helpers/consts, unused preloads, the
+  unreachable KEY_K match arm and the `knife_cut_operation.gd` pass-through
+  file (controller calls `GoBuildKnife.apply` directly)
 
 ---
+
 
 ## [Unreleased]
 
@@ -166,6 +190,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   happened to traverse the ring clockwise; now computes the Newell normal of the
   ring and compares it to the average outward normal of the original faces, reversing
   the ring if they disagree
+
+## [0.8.1] — 2026-06-30
+
+### Fixed
+- Shape draw: interactive shapes now grow upward from the base during the HEIGHT
+  phase; previously the base was treated as the top of the AABB and height extended
+  downward (fix in `_align_y_to_normal` — outward normal convention)
+- Drag-and-drop on UV canvas: fixed `_can_drop_data` and `_drop_data` signatures
+  to use `Variant` instead of `Dictionary` (Godot 4 API requirement)
+
+---
 
 ## [0.8.0] — 2026-06-29
 
