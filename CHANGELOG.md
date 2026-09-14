@@ -8,10 +8,48 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fixed
-- Snap Selection to Grid no longer tears apart welded (coincident) vertices —
-  the vertex collection now expands coincident groups via the canonical
-  `TransformHelpers.get_affected_vertex_indices`
+### Added
+- **Collision generation** — toggle on `GoBuildMeshInstance` creates a child
+  `StaticBody3D` + `CollisionShape3D` that stays in sync on every bake; concave
+  (trimesh, default) or convex hull; proxy collision properties (layer, mask,
+  disable mode, ray pickable) on the instance; editor-only transparent debug
+  overlay; hidden when the toggle is off
+- **GLB export** — binary glTF 2.0 export via `GLTFDocument`, inspector button on
+  `GoBuildMeshInstance`; exports at the origin via a temporary node, writes to
+  `res://gobuild_export/` by default; rebake through `SurfaceTool` with
+  full-precision normals/tangents so exported meshes match the editor exactly
+- **Knife tool** (K) — Blender-parity interactive cutting: click to plot points on
+  the surface, screen-space edge crossings, occlusion-aware snapping
+  (vertex → edge → face, honouring X-ray mode), closed-loop and open-seam strokes,
+  midpoint/face-centre snaps, Shift axis-constraint (straight strokes stay straight),
+  Ctrl grid-snap (Ctrl+Shift composes), Enter auto-closes visually-closed strokes,
+  Backspace undo, viewport popup with Undo Point / Commit buttons, live crossing-dot
+  preview; UVs preserved across cuts (lerped edge UVs, barycentric interior mapping);
+  transactional apply — a failed cut rolls the whole operation back
+- **Snap-to-Grid command** — Snap popup action deforms the current vertex/edge/face
+  selection onto the nearest world-grid cells (undoable; expands coincident groups
+  so welded verts move as one); snap semantics reworked with a dedicated test suite:
+  **Smart** mode snaps object moves and vertex drags by absolute world position and
+  edge/face drags by world delta; **Delta** mode stays position-agnostic; element
+  edits snap absolute positions; Hybrid translate snap is axis-aware
+- **Toolbar rework** — GoBuild toolbar on its own line under the native editor bar:
+  version label, edit-mode toggles (synced with 1-4 shortcuts), Snap button with
+  settings popup (mode/translate/rotation/scale dropdowns + live summary label),
+  Local/World gizmo space, cog menu (Print Selection, Debug Logging, X-Ray, Normals,
+  Reset Panel Layout), and a docs button; dark slate panel with amber accent
+- **Snap-grid overlay** — drag-following snap grid drawn in the viewport during
+  Ctrl drags (three small axis-aligned panels, centre lines + corner crosses,
+  matching the active snap mode)
+- **Shape draw improvements** — click-based orientation (start, width, length);
+  ProBuilder-style surface snap in all draw modes without a mode toggle; staircase
+  rewritten as an n-gon generator with a Flip param (correct outward winding on
+  bottom strips, top-landing stairs); doorway generator with Open H / arched caps
+  and full-height flanks; committed shapes persist their generator params and are
+  re-editable with the same param popup; inserted shapes pivot at the base centre;
+  shape draw works in empty scenes (creates a `Node3D` root)
+- **Knife 2-point seam strokes** — two-click cuts that span ring edges split and
+  share the seam edge with the neighbour face; open-stroke coplanar-owner remap
+  cuts seams on n-gon caps whose picks were snapped under neighbouring faces
 
 ### Changed
 - Consolidation pass (~600 net lines deleted, no behaviour change):
@@ -37,6 +75,40 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Dead code purge: 14 zero-caller helpers/consts, unused preloads, the
   unreachable KEY_K match arm and the `knife_cut_operation.gd` pass-through
   file (controller calls `GoBuildKnife.apply` directly)
+- Pure draw maths extracted to `ShapeDrawMaths` with dedicated test coverage;
+  modifiers read from input events with per-frame state caching
+- Snap modes collapsed to Smart + Delta (Hybrid's vertex/edge split and the
+  World delta variant folded in); snap popup rows label-then-control with
+  action buttons spanning below
+- Draw param popup made opaque (toolbar-style stylebox) so the viewport can't
+  bleed through; popup self-closes on commit
+
+### Fixed
+- Snap Selection to Grid no longer tears apart welded (coincident) vertices —
+  the vertex collection now expands coincident groups via the canonical
+  `TransformHelpers.get_affected_vertex_indices`
+- Knife: Shift constraint fired without Shift and from the wrong anchor/axis
+  (ternary type error); click handler honoured the Shift constraint only on
+  click, not hover; hover crash with face-centre snap hijacking clicks; K toggle
+  fired twice per press; 2-point seam strokes on snapped picks cut only one
+  face of coplanar bands; interior loose-end seams degenerated to touch no-ops;
+  duplicate gold dots on coplanar previews culled
+- Export: GLB export fixed across Godot 4.3 API changes (`DirAccess.make_dir_recursive`,
+  res:// dialog paths, mesh must be in the scene tree for `GLTFDocument`,
+  full-precision normals/tangents flag, origin export via temp node)
+- Draw: freehand Delta restored after snap rework; draw clicks grid-snapped in
+  both modes; world-snap applies to the height top face, not the height-plane hit
+- Inset param preview clamps 0-1 again; negative inset reverted
+- Material palette discovery skips upstream-submodule and hidden directories
+- Knife stroke popup parents to the canvas root so its position holds
+  (was re-laid by an editor container and never appeared); gated to knife mode
+- Snap popup anchors correctly on multi-screen setups; chevron right; modes listed
+  before actions
+- Toolbar: amber accent drawn full-rect via ColorRect overlay (StyleBoxFlat has
+  no per-side border colour); panel expands to editor width; snap popup layout
+  no longer reflows the grid row
+- Doorway generator: header-band decomposition, weld-ring repair, outer walls
+  as full-height quads, buried coplanar faces dropped, arched caps   wound outward
 
 ---
 
