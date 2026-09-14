@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.11.0] — 2026-09-14
+## [Unreleased]
 
 ### Fixed
 - Snap Selection to Grid no longer tears apart welded (coincident) vertices —
@@ -37,11 +37,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Dead code purge: 14 zero-caller helpers/consts, unused preloads, the
   unreachable KEY_K match arm and the `knife_cut_operation.gd` pass-through
   file (controller calls `GoBuildKnife.apply` directly)
-
----
-
-
-## [Unreleased]
 
 ---
 
