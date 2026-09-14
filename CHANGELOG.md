@@ -8,6 +8,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [0.11.0] — 2026-09-14
+
 ### Added
 - **Collision generation** — toggle on `GoBuildMeshInstance` creates a child
   `StaticBody3D` + `CollisionShape3D` that stays in sync on every bake; concave
