@@ -156,46 +156,12 @@ func _show_param_strip(shape_name: String, draw_ctrl: GoBuildShapeDrawController
 		_param_strip.visible = false
 		_close_draw_param_popup()
 		return
-	var bool_row := HBoxContainer.new()
-	for spec: Dictionary in specs:
-		var t: String = str(spec.get("type", ""))
-		var key: String = str(spec.get("key", ""))
-		var label_text: String = str(spec.get("label", key))
-		if t == "button":
-			var btn := Button.new()
-			btn.text = label_text
-			btn.pressed.connect(_on_param_button_pressed.bind(key, draw_ctrl))
-			bool_row.add_child(btn)
-		elif t == "bool":
-			var chk := CheckBox.new()
-			chk.text = label_text
-			var default_val = draw_ctrl.get_extra_params().get(key, spec.get("default", false))
-			chk.button_pressed = bool(default_val)
-			chk.toggled.connect(_on_param_changed.bind(key, draw_ctrl, true))
-			bool_row.add_child(chk)
-			_param_controls[key] = chk
-		else:
-			var row := HBoxContainer.new()
-			var lbl := Label.new()
-			lbl.text = label_text
-			lbl.add_theme_font_size_override("font_size", 11)
-			row.add_child(lbl)
-			var spin := SpinBox.new()
-			spin.min_value = float(spec.get("min", 0.0))
-			spin.max_value = float(spec.get("max", 100.0))
-			spin.step = float(spec.get("step", 1.0))
-			spin.allow_greater = false
-			spin.allow_lesser = false
-			spin.rounded = t == "int"
-			var default_val = draw_ctrl.get_extra_params().get(key, spec.get("default", 0))
-			spin.value = float(default_val)
-			spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			spin.value_changed.connect(_on_param_spin_changed.bind(key, draw_ctrl, t == "int"))
-			row.add_child(spin)
-			_param_strip.add_child(row)
-			_param_controls[key] = spin
-	if bool_row.get_child_count() > 0:
-		_param_strip.add_child(bool_row)
+	var get_param := func(k: String, def: Variant) -> Variant:
+		return draw_ctrl.get_extra_params().get(k, def)
+	var set_param := func(value: Variant, k: String) -> void:
+		draw_ctrl.set_extra_param(k, value)
+	_param_controls = _build_param_widgets(specs, _param_strip,
+			get_param, set_param, _on_param_button_pressed.bind(draw_ctrl), 11)
 	_param_strip.visible = true
 	_open_draw_param_popup(shape_name, draw_ctrl)
 
@@ -229,30 +195,12 @@ func _clear_param_strip() -> void:
 	_param_strip.visible = false
 
 
-func _on_param_changed(
-		value: Variant,
-		key: String,
-		draw_ctrl: GoBuildShapeDrawController,
-		_is_bool: bool,
-) -> void:
-	draw_ctrl.set_extra_param(key, value)
-
-
 func _on_param_button_pressed(
 		key: String,
 		draw_ctrl: GoBuildShapeDrawController,
 ) -> void:
 	draw_ctrl.set_extra_param(key,
 			not bool(draw_ctrl.get_extra_params().get(key, false)))
-
-
-func _on_param_spin_changed(
-		value: float,
-		key: String,
-		draw_ctrl: GoBuildShapeDrawController,
-		is_int: bool,
-) -> void:
-	draw_ctrl.set_extra_param(key, int(round(value)) if is_int else value)
 
 
 func hide_param_strip() -> void:

@@ -270,14 +270,12 @@ func _on_slot_use_pressed(slot_index: int) -> void:
 			false,
 		)
 	else:
-		var all_face_indices: Array[int] = []
-		all_face_indices.resize(_target.go_build_mesh.faces.size())
-		for i: int in all_face_indices.size():
-			all_face_indices[i] = i
+		var all_faces: Array[int] = GoBuildMesh.all_face_indices(
+				_target.go_build_mesh.faces.size())
 		_run_op(
 			"Assign Material Slot %d (All Faces)" % slot_index,
 			func(): MaterialAssignOperation.apply(
-					_target.go_build_mesh, all_face_indices, slot_index, mat),
+					_target.go_build_mesh, all_faces, slot_index, mat),
 			false,
 		)
 

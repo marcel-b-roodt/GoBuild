@@ -63,43 +63,18 @@ func open(
 	title.text = shape_name
 	title.add_theme_font_size_override("font_size", 11)
 	vbox.add_child(title)
+	# Int-typed keys: spins must round before writing the draw controller.
+	var int_keys: Dictionary = {}
 	for spec: Dictionary in specs:
-		var t: String = str(spec.get("type", ""))
-		var key: String = str(spec.get("key", ""))
-		var label_text: String = str(spec.get("label", key))
-		if t == "button":
-			# Momentary action, not state: press → fire once, then unpress.
-			var btn := Button.new()
-			btn.text = label_text
-			btn.add_theme_font_size_override("font_size", 10)
-			btn.pressed.connect(_on_button_pressed.bind(key))
-			vbox.add_child(btn)
-		elif t == "bool":
-			var chk := CheckBox.new()
-			chk.text = label_text
-			chk.add_theme_font_size_override("font_size", 10)
-			chk.button_pressed = bool(_draw_ctrl.get_extra_params().get(key, false))
-			chk.toggled.connect(_on_bool_changed.bind(key))
-			vbox.add_child(chk)
-		else:
-			var row := HBoxContainer.new()
-			var lbl := Label.new()
-			lbl.text = label_text
-			lbl.add_theme_font_size_override("font_size", 10)
-			row.add_child(lbl)
-			var spin := SpinBox.new()
-			spin.min_value = float(spec.get("min", 0.0))
-			spin.max_value = float(spec.get("max", 100.0))
-			spin.step = float(spec.get("step", 1.0))
-			spin.allow_greater = false
-			spin.allow_lesser = false
-			spin.rounded = t == "int"
-			spin.value = float(_draw_ctrl.get_extra_params().get(key, 0))
-			spin.custom_minimum_size.x = 80.0
-			spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			spin.value_changed.connect(_on_spin_changed.bind(key, t == "int"))
-			row.add_child(spin)
-			vbox.add_child(row)
+		if str(spec.get("type", "")) == "int":
+			int_keys[str(spec.get("key", ""))] = true
+	var get_param := func(k: String, def: Variant) -> Variant:
+		return _draw_ctrl.get_extra_params().get(k, def)
+	var set_param := func(value: Variant, k: String) -> void:
+		_draw_ctrl.set_extra_param(k,
+				int(round(value)) if int_keys.has(k) else value)
+	GoBuildDrawer._build_param_widgets(specs, vbox, get_param, set_param,
+			_on_button_pressed)
 	add_child(vbox)
 	size = Vector2(_POPUP_WIDTH, 0.0)
 	position = Vector2(
@@ -182,42 +157,18 @@ func open_for_edit(node: GoBuildMeshInstance, shape_name: String, vp_rect: Rect2
 	title.text = "%s (editable)" % shape_name
 	title.add_theme_font_size_override("font_size", 11)
 	vbox.add_child(title)
+	# Int-typed keys: spins must round before writing the params dict.
+	var int_keys: Dictionary = {}
 	for spec: Dictionary in specs:
-		var t: String = str(spec.get("type", ""))
-		var key: String = str(spec.get("key", ""))
-		var label_text: String = str(spec.get("label", key))
-		if t == "button":
-			var btn := Button.new()
-			btn.text = label_text
-			btn.add_theme_font_size_override("font_size", 10)
-			btn.pressed.connect(_on_edit_button_pressed.bind(key))
-			vbox.add_child(btn)
-		elif t == "bool":
-			var chk := CheckBox.new()
-			chk.text = label_text
-			chk.add_theme_font_size_override("font_size", 10)
-			chk.button_pressed = bool(_edit_params.get(key, false))
-			chk.toggled.connect(_on_edit_bool_changed.bind(key))
-			vbox.add_child(chk)
-		else:
-			var row := HBoxContainer.new()
-			var lbl := Label.new()
-			lbl.text = label_text
-			lbl.add_theme_font_size_override("font_size", 10)
-			row.add_child(lbl)
-			var spin := SpinBox.new()
-			spin.min_value = float(spec.get("min", 0.0))
-			spin.max_value = float(spec.get("max", 100.0))
-			spin.step = float(spec.get("step", 1.0))
-			spin.allow_greater = false
-			spin.allow_lesser = false
-			spin.rounded = t == "int"
-			spin.value = float(_edit_params.get(key, 0))
-			spin.custom_minimum_size.x = 80.0
-			spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			spin.value_changed.connect(_on_edit_spin_changed.bind(key, t == "int"))
-			row.add_child(spin)
-			vbox.add_child(row)
+		if str(spec.get("type", "")) == "int":
+			int_keys[str(spec.get("key", ""))] = true
+	var get_param := func(k: String, def: Variant) -> Variant:
+		return _edit_params.get(k, def)
+	var set_param := func(value: Variant, k: String) -> void:
+		_edit_params[k] = int(round(value)) if int_keys.has(k) else value
+		_regenerate_edit_mesh()
+	GoBuildDrawer._build_param_widgets(specs, vbox, get_param, set_param,
+			_on_edit_button_pressed)
 	add_child(vbox)
 	size = Vector2(_POPUP_WIDTH, 0.0)
 	position = Vector2(
@@ -315,35 +266,11 @@ func _regenerate_edit_mesh() -> void:
 	edit_applied.emit()
 
 
-func _on_spin_changed(value: float, key: String, is_int: bool) -> void:
-	if _draw_ctrl != null:
-		_draw_ctrl.set_extra_param(key, int(round(value)) if is_int else value)
-
-
-func _on_bool_changed(pressed: bool, key: String) -> void:
-	if _draw_ctrl != null:
-		_draw_ctrl.set_extra_param(key, pressed)
-
-
 func _on_button_pressed(key: String) -> void:
 	# Momentary: invert the current value once, then restore the widget so
 	# the Button never reads as a sticky toggle.
 	if _draw_ctrl != null:
 		_draw_ctrl.set_extra_param(key, not bool(_draw_ctrl.get_extra_params().get(key, false)))
-
-
-func _on_edit_spin_changed(value: float, key: String, is_int: bool) -> void:
-	if _edit_node == null:
-		return
-	_edit_params[key] = int(round(value)) if is_int else value
-	_regenerate_edit_mesh()
-
-
-func _on_edit_bool_changed(pressed: bool, key: String) -> void:
-	if _edit_node == null:
-		return
-	_edit_params[key] = pressed
-	_regenerate_edit_mesh()
 
 
 func _on_edit_button_pressed(key: String) -> void:

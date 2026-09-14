@@ -1184,6 +1184,16 @@ static func unique_valid_indices(pool_size: int, indices: Array[int]) -> Array[i
 	return result
 
 
+## [0, 1, …, faces.size()-1] — the "every face" index array for
+## mesh-wide operations (Assign All, UV projections in Object mode).
+static func all_face_indices(face_count: int) -> Array[int]:
+	var result: Array[int] = []
+	result.resize(face_count)
+	for i: int in result.size():
+		result[i] = i
+	return result
+
+
 ## Return all distinct ring-neighbours of [param vi] across all faces that
 ## contain it, optionally restricted to [param face_indices] when non-empty.
 func vertex_neighbours(vi: int, face_indices: Array[int] = []) -> Array[int]:

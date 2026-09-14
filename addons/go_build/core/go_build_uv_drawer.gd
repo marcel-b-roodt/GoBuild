@@ -207,9 +207,8 @@ func _uv_start_preview(
 	var sel_faces: Array[int] = []
 	if _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
 		# Object mode: apply to all faces.
-		sel_faces.resize(_target.go_build_mesh.faces.size())
-		for i: int in sel_faces.size():
-			sel_faces[i] = i
+		sel_faces = GoBuildMesh.all_face_indices(
+				_target.go_build_mesh.faces.size())
 	elif _target.selection.get_mode() == SelectionManager.Mode.FACE:
 		var raw: Array[int] = _target.selection.get_selected_faces()
 		sel_faces.assign(raw)
@@ -337,10 +336,8 @@ func _uv_apply_immediate(
 		return
 	if _target.go_build_mesh == null:
 		return
-	var all_faces: Array[int] = []
-	all_faces.resize(_target.go_build_mesh.faces.size())
-	for i: int in all_faces.size():
-		all_faces[i] = i
+	var all_faces: Array[int] = GoBuildMesh.all_face_indices(
+			_target.go_build_mesh.faces.size())
 	var xform: Transform3D = _target.global_transform
 	var scale: float = _target.auto_uv_scale
 	var offset: Vector2 = _target.auto_uv_offset

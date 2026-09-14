@@ -227,3 +227,69 @@ static func _make_select_vertices_fn(
 		node.selection.set_mode(SelectionManager.Mode.VERTEX)
 		node.selection.set_selected_vertices(vertex_indices)
 		node.update_gizmos()
+
+
+## Build one widget per non-drawable param spec into [param parent]
+## (Button / CheckBox / SpinBox rows).  [param get_param] reads the current
+## value for a key, [param set_param] writes it (bool for toggles/buttons,
+## float for spins — the callable does its own int rounding), [param
+## on_button] fires for "button"-type specs.  Returns the key → widget map
+## for later value sync.  Shared by the create drawer's param strip and the
+## draw param popup (both modes).
+static func _build_param_widgets(
+		specs: Array[Dictionary],
+		parent: Container,
+		get_param: Callable,
+		set_param: Callable,
+		on_button: Callable,
+		font_size: int = 10,
+) -> Dictionary:
+	var controls: Dictionary = {}
+	var bool_row: HBoxContainer = null
+	for spec: Dictionary in specs:
+		var t: String = str(spec.get("type", ""))
+		var key: String = str(spec.get("key", ""))
+		var label_text: String = str(spec.get("label", key))
+		if t == "button":
+			var btn := Button.new()
+			btn.text = label_text
+			btn.add_theme_font_size_override("font_size", font_size)
+			btn.pressed.connect(on_button.bind(key))
+			if parent is HBoxContainer:
+				if bool_row == null:
+					bool_row = HBoxContainer.new()
+				bool_row.add_child(btn)
+			else:
+				parent.add_child(btn)
+		elif t == "bool":
+			var chk := CheckBox.new()
+			chk.text = label_text
+			chk.add_theme_font_size_override("font_size", font_size)
+			chk.button_pressed = bool(get_param.call(key, false))
+			chk.toggled.connect(set_param.bind(key))
+			if bool_row == null:
+				bool_row = HBoxContainer.new()
+			bool_row.add_child(chk)
+			controls[key] = chk
+		else:
+			var row := HBoxContainer.new()
+			var lbl := Label.new()
+			lbl.text = label_text
+			lbl.add_theme_font_size_override("font_size", font_size)
+			row.add_child(lbl)
+			var spin := SpinBox.new()
+			spin.min_value = float(spec.get("min", 0.0))
+			spin.max_value = float(spec.get("max", 100.0))
+			spin.step = float(spec.get("step", 1.0))
+			spin.allow_greater = false
+			spin.allow_lesser = false
+			spin.rounded = t == "int"
+			spin.value = float(get_param.call(key, 0))
+			spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			spin.value_changed.connect(set_param.bind(key))
+			row.add_child(spin)
+			parent.add_child(row)
+			controls[key] = spin
+	if bool_row != null and bool_row.get_child_count() > 0:
+		parent.add_child(bool_row)
+	return controls

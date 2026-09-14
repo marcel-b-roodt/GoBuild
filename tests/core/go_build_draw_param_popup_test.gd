@@ -75,7 +75,7 @@ func test_close_hides_and_clears_controller_ref() -> void:
 	p.open("Staircase", _draw_ctrl, Rect2(0, 0, 800, 600))
 	p.close()
 	assert_bool(p.visible).is_false()
-	p._on_spin_changed(3.0, "steps", true)
+	assert_bool(p._draw_ctrl == null).is_true()
 	assert_bool(_draw_ctrl.get_extra_params().has("steps")).is_false()
 
 

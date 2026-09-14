@@ -159,9 +159,8 @@ func _on_assign_smooth_group_pressed() -> void:
 		return
 	var faces: Array[int] = []
 	if _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
-		faces.resize(_target.go_build_mesh.faces.size())
-		for i: int in faces.size():
-			faces[i] = i
+		faces = GoBuildMesh.all_face_indices(
+				_target.go_build_mesh.faces.size())
 	elif _target.selection.get_mode() == SelectionManager.Mode.FACE:
 		var sel: Array[int] = _target.selection.get_selected_faces()
 		if sel.is_empty():
@@ -182,9 +181,8 @@ func _on_flat_shading_pressed() -> void:
 		return
 	var faces: Array[int] = []
 	if _target.selection.get_mode() == SelectionManager.Mode.OBJECT:
-		faces.resize(_target.go_build_mesh.faces.size())
-		for i: int in faces.size():
-			faces[i] = i
+		faces = GoBuildMesh.all_face_indices(
+				_target.go_build_mesh.faces.size())
 	elif _target.selection.get_mode() == SelectionManager.Mode.FACE:
 		var sel: Array[int] = _target.selection.get_selected_faces()
 		if sel.is_empty():
