@@ -56,13 +56,3 @@ enum UvMode {
 ## Only meaningful for [constant UvMode.CYLINDRICAL] and [constant UvMode.SPHERICAL].
 @export var uv_seam_rotation: float = 0.0
 
-
-## Returns [code]true[/code] if the face has the minimum required data to be valid.
-func is_valid() -> bool:
-	return vertex_indices.size() >= 3 and uvs.size() == vertex_indices.size()
-
-
-## Returns the number of triangles produced by fan-triangulation from vertex 0.
-func triangle_count() -> int:
-	return vertex_indices.size() - 2
-

@@ -541,17 +541,6 @@ func split_edge(va: int, vb: int, cut_vi: int, t_hint: float = 0.5) -> void:
 		hard_edge_pairs.append(Vector2i(mini(cut_vi, vb), maxi(cut_vi, vb)))
 
 
-## Replace every occurrence of [param old_vi] in all face rings with
-## [param new_vi] (weld helper), then drop the now-unused vertex.
-## Full edge rebuild is performed (welds are rare and structural).
-func replace_vertex_in_rings(old_vi: int, new_vi: int) -> void:
-	for face: GoBuildFace in faces:
-		for k: int in face.vertex_indices.size():
-			if face.vertex_indices[k] == old_vi:
-				face.vertex_indices[k] = new_vi
-	compact_edges()
-
-
 ## Remove faces by index set, drop their edge references, and compact
 ## vertices (orphans removed).  Replaces the delete-op pattern of direct
 ## face array rewrites + compact_vertices.
@@ -635,21 +624,6 @@ func refresh_edge_face_indices() -> void:
 				(_vertex_to_faces[vi] as Array).append(fi)
 
 
-## Sync [member GoBuildEdge.is_hard] on every edge object from
-## [member hard_edge_pairs] (the serialization authority).  Called after
-## any operation that edits hard_edge_pairs directly.
-func sync_edge_hard_state() -> void:
-	var hard_set: Dictionary = {}
-	for pair: Vector2i in hard_edge_pairs:
-		hard_set[pair] = true
-	for edge: GoBuildEdge in edges:
-		edge.is_hard = hard_set.has(
-				Vector2i(mini(edge.vertex_a, edge.vertex_b), maxi(edge.vertex_a, edge.vertex_b)))
-
-
-## Recompute face_indices on every edge from the current face rings, and
-## drop edges with no faces.  Needed after ring edits that bypass
-## [method register_face] (e.g. direct ring rewrites in bulk ops).
 ## Drop faceless edges (ring edits that bypass helpers can orphan them) and
 ## remap the edge lookup.  Face-index reconciliation lives in
 ## [method refresh_edge_face_indices] — call that first when indices shifted.
@@ -669,15 +643,6 @@ func compact_edges() -> void:
 		if remap.has(_edge_lookup[key]):
 			new_lookup[key] = remap[_edge_lookup[key]]
 	_edge_lookup = new_lookup
-
-
-func _ring_contains_edge(ring: Array[int], a: int, b: int) -> bool:
-	for k: int in ring.size():
-		if ring[k] == a and ring[(k + 1) % ring.size()] == b:
-			return true
-		if ring[k] == b and ring[(k + 1) % ring.size()] == a:
-			return true
-	return false
 
 
 ## Debug-only consistency check: the persistent edge set must exactly match
@@ -1070,8 +1035,8 @@ func vertex_valence(vi: int) -> int:
 ## a quad or the edge is not in the face.
 ##
 ## For a quad face with vertices [A, B, C, D] wound CCW and edge AB,
-## the opposite edge is CD.  This is the key primitive for both
-## loop walks and ring walks.
+## the opposite edge is CD.  Test-pinned model API; loop walks use their
+## own position-based variant (they need ring positions, not just the edge).
 func opposite_edge_in_quad(fi: int, edge_idx: int) -> int:
 	if fi < 0 or fi >= faces.size():
 		return -1
@@ -1097,17 +1062,6 @@ func opposite_edge_in_quad(fi: int, edge_idx: int) -> int:
 
 
 ## Return the two ring-neighbours of [param vi] in [param face_idx],
-## as [code][prev_vi, next_vi][/code] in the face's winding order.
-## Returns [code][-1, -1][/code] if [param vi] is not in the face.
-func face_neighbours_of(face_idx: int, vi: int) -> Array[int]:
-	var vis: Array[int] = faces[face_idx].vertex_indices
-	var k: int = vis.find(vi)
-	if k == -1:
-		return [-1, -1]
-	var vc: int = vis.size()
-	return [vis[(k - 1 + vc) % vc], vis[(k + 1) % vc]]
-
-
 ## Remove unreferenced vertices and remap [member GoBuildFace.vertex_indices]
 ## accordingly. After faces are deleted, some vertices may no longer be
 ## referenced by any face. This method:

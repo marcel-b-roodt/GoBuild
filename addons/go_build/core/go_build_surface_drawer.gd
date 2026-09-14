@@ -137,12 +137,6 @@ func trigger_auto_smooth() -> void:
 # Conditions
 # ---------------------------------------------------------------------------
 
-func _cond_face_any() -> bool:
-	return _target != null \
-			and _target.selection.get_mode() == SelectionManager.Mode.FACE \
-			and not _target.selection.get_selected_faces().is_empty()
-
-
 func _cond_face_any_or_object() -> bool:
 	if _target == null or _target.go_build_mesh == null:
 		return false

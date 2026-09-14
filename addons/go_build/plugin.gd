@@ -16,21 +16,12 @@ extends EditorPlugin
 const _INIT := preload("res://addons/go_build/go_build_init.gd")
 
 # ---------------------------------------------------------------------------
-# Preloads — kept for backward compatibility with existing const references
-# in this script.  Order no longer matters because GoBuildInit has already
-# registered all class names.
+# Preloads.  Order no longer matters because GoBuildInit has already
+# registered all class names; these are the compile-time typed references.
 # ---------------------------------------------------------------------------
-const _DEBUG_SCRIPT         := preload("res://addons/go_build/core/go_build_debug.gd")
-const _FACE_SCRIPT          := preload("res://addons/go_build/mesh/go_build_face.gd")
-const _PALETTE_SCRIPT       := preload("res://addons/go_build/core/go_build_material_palette.gd")
-const _SETTINGS_SCRIPT      := preload("res://addons/go_build/core/go_build_project_settings.gd")
-const _SEL_MGR_SCRIPT       := preload("res://addons/go_build/core/selection_manager.gd")
-const _OVERLAY_HINT_SCRIPT  := preload("res://addons/go_build/core/overlay_hint_helper.gd")
-const _SEL_DIMS_SCRIPT      := preload("res://addons/go_build/core/selection_dims_helper.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _GIZMO_PLUGIN_SCRIPT  := preload("res://addons/go_build/core/go_build_gizmo_plugin.gd")
 
-const _PICKING_HELPER_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
 const _PANEL_SCRIPT         := preload("res://addons/go_build/core/go_build_panel.gd")
 const _UV_PANEL_SCRIPT      := preload("res://addons/go_build/uv/go_build_uv_panel.gd")
 const _VC_PAINTER_SCRIPT   := preload(
@@ -45,23 +36,16 @@ const _TOOL_PINNER_SCRIPT   := preload(
 		"res://addons/go_build/core/node3d_editor_tool_pinner.gd")
 const _SNAP_TO_GRID_OP := preload(
 		"res://addons/go_build/mesh/operations/snap_to_grid_operation.gd")
-const _EDGE_CLASS := preload("res://addons/go_build/mesh/go_build_edge.gd")
 const _TRANSFORM_HELPERS := preload(
 		"res://addons/go_build/core/go_build_transform_helpers.gd")
 const _DRAG_CTRL_SCRIPT    := preload(
 		"res://addons/go_build/core/go_build_drag_controller.gd")
-const _DRAG_OP_SCRIPT       := preload(
-		"res://addons/go_build/core/go_build_drag_operation.gd")
 const _SHAPE_DRAW_CTRL_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_shape_draw_controller.gd")
 const _KNIFE_CTRL_SCRIPT := preload(
 		"res://addons/go_build/core/go_build_knife_controller.gd")
-const _SHAPE_DRAW_OVERLAY_SCRIPT := preload(
-		"res://addons/go_build/core/go_build_shape_draw_overlay.gd")
 const _CURSOR_OVERLAY := preload(
 		"res://addons/go_build/core/go_build_cursor_overlay.gd")
-const _DROP_CONVERTER_SCRIPT := preload(
-		"res://addons/go_build/core/go_build_material_drop_converter.gd")
 const _EXPORT_INSPECTOR_SCRIPT := preload(
 		"res://addons/go_build/export/go_build_export_inspector_plugin.gd")
 const _ICON                 := preload("res://addons/go_build/go_build.svg")
@@ -84,12 +68,10 @@ const _SNAP_LABELS:  Array[String] = [
 ## Rotation snap presets (degrees).
 const _ROT_SNAP_PRESETS: Array[float] = [5.0, 15.0, 30.0, 45.0, 60.0, 90.0]
 const _ROT_SNAP_LABELS:  Array[String] = ["5", "15", "30", "45", "60", "90"]
-const _ROT_SNAP_DEFAULT_IDX: int = 1   # 15
 
 ## Scale snap presets (ratio step).
 const _SCALE_SNAP_PRESETS: Array[float] = [0.1, 0.2, 0.5, 1.0]
 const _SCALE_SNAP_LABELS:  Array[String] = ["0.1", "0.2", "0.5", "1.0"]
-const _SCALE_SNAP_DEFAULT_IDX: int = 0   # 0.1
 
 ## Snap mode labels shown in the toolbar dropdown.
 const _SNAP_MODE_LABELS: Array[String] = ["Smart", "Delta"]
@@ -1171,10 +1153,6 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 		if knife_result != 0:
 			update_overlays()
 			return knife_result
-	if event is InputEventKey and (event as InputEventKey).keycode == KEY_K \
-			and (event as InputEventKey).pressed:
-		GoBuildDebug.log("[Knife] K seen in _forward_3d_gui_input (echo=%s editing=%s)" % [
-				str((event as InputEventKey).echo), str(_edited_node != null)])
 	if _shape_draw_controller != null and _shape_draw_controller.is_active():
 		# Clicks on the floating draw param popup belong to its controls —
 		# don't let them commit/cancel the draw state machine.
@@ -1478,15 +1456,12 @@ func _handle_action_key(keycode: Key) -> int:
 	# (_handle_global_input_tail) already toggles the knife — handling it
 	# here too toggled ON→OFF within one keypress when the cursor was
 	# over the viewport (the "first click never primed" bug).
-	if keycode == KEY_K:
-		return 0
 	match keycode:
 		KEY_W:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.TRANSLATE)
 		KEY_E:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.ROTATE)
 		KEY_R:             return _set_transform_mode(GoBuildGizmoPlugin.TransformMode.SCALE)
 		KEY_V:             return _handle_rip_key()
 		KEY_N:             return _handle_normal_vis_key()
-		KEY_K:             return _handle_knife_key()
 	# Element-mode action keys — handled by helpers to keep return count low.
 	var result: int = _handle_element_action_key(keycode)
 	return result
@@ -2084,24 +2059,10 @@ func _on_snap_settings_pressed() -> void:
 func _on_snap_selection_to_grid() -> void:
 	if _edited_node == null or _edited_node.go_build_mesh == null:
 		return
-	var mesh: GoBuildMesh = _edited_node.go_build_mesh
-	# Verts of the selection: direct vertex picks plus every vertex of
-	# every picked edge / face (deforming repair on element selections).
-	var verts: Array[int] = _edited_node.selection.get_selected_vertices()
-	var seen: Dictionary = {}
-	for v: int in verts:
-		seen[v] = true
-	for ei: int in _edited_node.selection.get_selected_edges():
-		var edge: GoBuildEdge = mesh.edges[ei]
-		for v: int in [edge.vertex_a, edge.vertex_b]:
-			if not seen.has(v):
-				seen[v] = true
-				verts.append(v)
-	for fi: int in _edited_node.selection.get_selected_faces():
-		for v: int in mesh.faces[fi].vertex_indices:
-			if not seen.has(v):
-				seen[v] = true
-				verts.append(v)
+	# Canonical collection (expands coincident groups — snapping must move
+	# welded partners together or the snap tears them apart).
+	var verts: Array[int] = _TRANSFORM_HELPERS.get_affected_vertex_indices(
+			_edited_node)
 	if verts.is_empty():
 		return
 	var step: float = _TRANSFORM_HELPERS.get_snap_step(

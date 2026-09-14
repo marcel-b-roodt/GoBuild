@@ -26,7 +26,6 @@ extends RefCounted
 
 # Self-preloads — dependency order.
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
-const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 
 

@@ -24,7 +24,6 @@ extends RefCounted
 # before operations/ alphabetically, but explicit preloads are required per
 # the self-preload rule whenever a class name is used as a compile-time type.
 const _FACE_SCRIPT := preload("res://addons/go_build/mesh/go_build_face.gd")
-const _EDGE_SCRIPT := preload("res://addons/go_build/mesh/go_build_edge.gd")
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 
 

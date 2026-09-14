@@ -23,7 +23,7 @@ var face_indices: Array[int] = []
 ## Adjacent faces sharing this edge will not average their normals at shared
 ## vertices even when they belong to the same smooth group.
 ## Runtime view of [member GoBuildMesh.hard_edge_pairs] (the serialization
-## authority), synced by [method GoBuildMesh.sync_edge_hard_state].
+## authority); rebuilt from the pairs on every edge derivation.
 var is_hard: bool = false
 
 

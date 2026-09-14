@@ -278,21 +278,6 @@ func get_bg_mode() -> UvBgMode:
 	return _bg_mode
 
 
-## Cycle [enum UvBgMode]: Checker -> Off -> TEXTURE (slot 0) -> Checker.
-## Note: the UV panel uses a dropdown instead of this cycle method.
-func cycle_bg_mode() -> void:
-	match _bg_mode:
-		UvBgMode.CHECKER:
-			_bg_mode = UvBgMode.OFF
-		UvBgMode.OFF:
-			_bg_mode = UvBgMode.TEXTURE
-			_bg_material_index = 0
-		UvBgMode.TEXTURE:
-			_bg_mode = UvBgMode.CHECKER
-	bg_mode_changed.emit()
-	queue_redraw()
-
-
 ## Set [enum UvBgMode] directly.
 func set_bg_mode(mode: UvBgMode) -> void:
 	_bg_mode = mode

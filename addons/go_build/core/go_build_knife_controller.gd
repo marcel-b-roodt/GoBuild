@@ -2,8 +2,8 @@
 ##
 ## Collects a closed polyline of clicks ON the mesh surface (like the
 ## polygon draw tool's POLYGON state), with hover snapping to vertices and
-## edges.  On confirm the picked points are handed to [KnifeCutOperation] as
-## one undoable op through [method GoBuildMeshInstance.apply_operation].
+## edges.  On confirm the picked points are handed to [GoBuildKnife.apply]
+## as one undoable op.
 ##
 ## State machine: IDLE → CUTTING (LMB adds points; click near the first
 ## point or Enter closes; right-click/Esc cancels).
@@ -16,8 +16,6 @@ enum State { IDLE, CUTTING }
 # Self-preloads — dependency order.
 const _MESH_SCRIPT := preload("res://addons/go_build/mesh/go_build_mesh.gd")
 const _MESH_INSTANCE_SCRIPT := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
-const _KNIFE_OP_SCRIPT := preload(
-		"res://addons/go_build/mesh/operations/knife_cut_operation.gd")
 const _KNIFE_SCRIPT := preload("res://addons/go_build/mesh/knife.gd")
 const _SELECTION_MGR_SCRIPT := preload("res://addons/go_build/core/selection_manager.gd")
 const _PICKING_SCRIPT := preload("res://addons/go_build/core/picking_helper.gd")
@@ -59,10 +57,6 @@ var _popup: PanelContainer = null
 
 func is_active() -> bool:
 	return _state != State.IDLE
-
-
-func get_hit_points() -> Array:
-	return _hit_points
 
 
 ## Drop the last recorded point (Backspace / popup "Undo Point") and
@@ -677,7 +671,7 @@ func _confirm(closed: bool = false) -> int:
 	if cam != null:
 		edge_hits = _KNIFE_SCRIPT.screen_edge_hits(gbm, points, closed, cam,
 				node.global_transform)
-	var did := KnifeCutOperation.apply(gbm, points, closed, edge_hits)
+	var did := GoBuildKnife.apply(gbm, points, closed, edge_hits)
 	print("[Knife] apply result: %s" % did)
 	if not did:
 		cancel()

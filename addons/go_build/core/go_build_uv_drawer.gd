@@ -152,13 +152,6 @@ func _ready() -> void:
 # Condition
 # ---------------------------------------------------------------------------
 
-## [code]true[/code] when Face mode is active and \u22651 face is selected.
-func _cond_face_any() -> bool:
-	return _target != null \
-			and _target.selection.get_mode() == SelectionManager.Mode.FACE \
-			and not _target.selection.get_selected_faces().is_empty()
-
-
 ## [code]true[/code] when Face mode with \u22651 face selected, or Object mode with a mesh.
 func _cond_face_any_or_object() -> bool:
 	if _target == null or _target.go_build_mesh == null:

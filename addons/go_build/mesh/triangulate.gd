@@ -80,16 +80,6 @@ static func _is_convex(points: Array[Vector3]) -> bool:
 	return true
 
 
-## Geometric normal of one triangle via the cross product (unit length).
-## NOT a replacement for [method GoBuildMesh.compute_face_normal] on n-gons —
-## only valid for exactly three points.
-static func triangle_normal(tri: Array[Vector3]) -> Vector3:
-	var e1: Vector3 = tri[1] - tri[0]
-	var e2: Vector3 = tri[2] - tri[0]
-	var n: Vector3 = e1.cross(e2)
-	return n.normalized() if n.length_squared() > 1e-12 else Vector3.ZERO
-
-
 ## Newell normal for an arbitrary simple polygon (unit length, ZERO when
 ## degenerate).  Same algorithm as [method GoBuildMesh.compute_face_normal]
 ## but usable without a mesh instance.

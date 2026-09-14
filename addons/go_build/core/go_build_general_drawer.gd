@@ -501,18 +501,3 @@ func _auto_uv_undo_apply(
 	if target_ref == _target:
 		_sync_auto_uv_params(target_ref)
 
-
-## Cancel the Auto UV parameter preview and restore the pre-edit state.
-func cancel_auto_uv_params() -> void:
-	if not _auto_uv_editing or _target == null:
-		return
-	_auto_uv_editing = false
-	_target.end_preview()
-	_target.go_build_mesh.restore_snapshot(_auto_uv_snapshot)
-	_target.auto_uv_scale = _auto_uv_old_scale
-	_target.auto_uv_offset = _auto_uv_old_offset
-	_target.auto_uv_seam_rotation = _auto_uv_old_seam_rot
-	_target._apply_auto_uv()
-	_target.bake()
-	_auto_uv_snapshot = {}
-	_sync_auto_uv_params(_target)

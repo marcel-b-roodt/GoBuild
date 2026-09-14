@@ -148,10 +148,6 @@ func _exit_tree() -> void:
 # Conditions
 # ---------------------------------------------------------------------------
 
-func _cond_target_exists() -> bool:
-	return _target != null
-
-
 func _cond_face_any() -> bool:
 	return _target != null \
 			and _target.selection.get_mode() == SelectionManager.Mode.FACE \
