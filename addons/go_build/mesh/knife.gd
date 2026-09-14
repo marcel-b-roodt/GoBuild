@@ -359,9 +359,15 @@ static func screen_edge_hits(
 			# gains points on far faces, the resolver's single-face owner
 			# fails and the drawn polygon scatters into touch-point runs
 			# (the closed quad never resolved as a loop).
+			# face_t == INF (ray grazes the silhouette) is NOT free passage:
+			# far-side edges project inside the outline too, and preview
+			# dots for them drew far behind the mesh.  A crossing outside
+			# the silhouette has no front-face hit at all — skip it.
 			var edge_s: float = hit["s"]
 			var face_t := _nearest_face_ray_t(mesh, to_world, ray_origin,
 					ray_dir)
+			if face_t == INF:
+				continue   # Crossing outside the mesh's screen silhouette.
 			if edge_s > face_t + scale_ref * 0.01:
 				continue   # The edge point is behind the visible surface.
 			out.append({

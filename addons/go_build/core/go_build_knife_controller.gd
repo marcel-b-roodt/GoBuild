@@ -274,7 +274,7 @@ func handle_input(camera: Camera3D, event: InputEvent, edited_node: GoBuildMeshI
 			return 1
 		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
 			return _handle_click(camera, mb.position, edited_node,
-					mb.ctrl_pressed and mb.shift_pressed)
+					mb.ctrl_pressed, mb.shift_pressed)
 	return 0
 
 
@@ -282,7 +282,8 @@ func handle_input(camera: Camera3D, event: InputEvent, edited_node: GoBuildMeshI
 ## Blender semantics: vertices and edges SNAP the point (stroke continues);
 ## completion is only a close-click near the first point or Enter.
 func _handle_click(camera: Camera3D, screen_pos: Vector2,
-		edited_node: GoBuildMeshInstance, ctrl_held: bool) -> int:
+		edited_node: GoBuildMeshInstance, ctrl_held: bool,
+		shift_held: bool = false) -> int:
 	var node := edited_node if edited_node != null else _edited_node
 	if node == null or node.go_build_mesh == null:
 		return 0
@@ -299,8 +300,9 @@ func _handle_click(camera: Camera3D, screen_pos: Vector2,
 				print("[Knife] close-click completion at first point")
 				return _confirm(true)
 
-	# Reuse the hover snap resolution (same pick → snap chain as this click).
-	_handle_hover(camera, screen_pos, ctrl_held)
+	# Reuse the hover snap resolution (same pick → snap chain as this click,
+	# Shift-constraint included — the click must land where the preview is).
+	_handle_hover(camera, screen_pos, ctrl_held, shift_held)
 	if _hover.is_empty():
 		return 0   # Missed the mesh — ignore click.
 	var gbm := node.go_build_mesh
