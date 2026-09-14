@@ -777,8 +777,9 @@ static func _resolve_runs(mesh: GoBuildMesh, points: Array, closed: bool) -> Arr
 		if entry.is_empty():
 			entry = _endpoint_crossing(mesh, face, pts[0], -1)
 		if entry.is_empty() and pts.size() >= 2:
-			entry = _crossing_nearest_to_start(mesh, face,
-					picked[first_i]["position"], picked[indices[1]]["position"])
+			entry = _crossing_nearest(mesh, face,
+					picked[first_i]["position"], picked[indices[1]]["position"],
+					false)
 		if entry.is_empty() and (closed or first_i > 0):
 			# The incoming PICK may itself sit on this face's ring (a snap
 			# grabbed a shared-edge vertex under the NEIGHBOUR's face index
@@ -793,8 +794,9 @@ static func _resolve_runs(mesh: GoBuildMesh, points: Array, closed: bool) -> Arr
 		var exit: Dictionary = {}
 		var next_i: int = (last_i + 1) % n
 		if closed or last_i < n - 1:
-			exit = _crossing_nearest_to_start(mesh, face,
-					picked[last_i]["position"], picked[next_i]["position"])
+			exit = _crossing_nearest(mesh, face,
+					picked[last_i]["position"], picked[next_i]["position"],
+					false)
 		if exit.is_empty():
 			exit = _endpoint_crossing(mesh, face, pts[pts.size() - 1], -1)
 		if exit.is_empty() and pts.size() >= 2:
@@ -930,57 +932,48 @@ static func _crossing_nearest_to_end(
 		from: Vector3,
 		to: Vector3,
 ) -> Dictionary:
-	var crossings := face_crossings(from, to, mesh, face)
-	if crossings.is_empty():
-		return {}
-	var ring := face.vertex_indices
-	# Endpoint ON the ring (within tolerance)?  That corner IS the crossing.
-	for c: Dictionary in crossings:
-		if c["t"] >= 1.0 - _EPSILON \
-				and (c["point"] as Vector3).distance_to(to) < 1e-4:
-			c["va"] = ring[c["pos"]]
-			c["vb"] = ring[(int(c["pos"]) + 1) % ring.size()]
-			return c
-	# Otherwise the largest-t crossing strictly inside the segment; endpoint
-	# degenerates (t≈1 but the point is NOT to) are shadow crossings from
-	# adjacent ring edges at the same corner — skip them.
-	for i: int in crossings.size():
-		var c: Dictionary = crossings[crossings.size() - 1 - i]
-		if c["t"] >= 1.0 - _EPSILON:
-			continue
-		c["va"] = ring[c["pos"]]
-		c["vb"] = ring[(int(c["pos"]) + 1) % ring.size()]
-		return c
-	return {}
+	return _crossing_nearest(mesh, face, from, to, true)
 
 
 ## Crossings of segment [param from]→[param to] with [param face]'s ring,
-## returning the one nearest to [param from] (smallest t — the path LEAVES
-## the face there), with "va"/"vb" ring-edge vertex indices added.  Crossings
-## AT the endpoints (t≈0/1) are excluded (see _crossing_nearest_to_end).
-## {} when the segment stays inside or misses.
-static func _crossing_nearest_to_start(
+## returning the one nearest to the [param prefer_end] endpoint, with
+## "va"/"vb" ring-edge vertex indices added.  Crossings AT the chosen
+## endpoint (t≈1 when preferring the end / t≈0 the start) are accepted
+## only when the crossing point IS that endpoint (corner crossing);
+## other endpoint degenerates are shadow crossings from adjacent ring
+## edges at the same corner — skipped.  {} when the segment stays inside
+## or misses.
+static func _crossing_nearest(
 		mesh: GoBuildMesh,
 		face: GoBuildFace,
 		from: Vector3,
 		to: Vector3,
+		prefer_end: bool,
 ) -> Dictionary:
 	var crossings := face_crossings(from, to, mesh, face)
 	if crossings.is_empty():
 		return {}
 	var ring := face.vertex_indices
+	var end_point: Vector3 = to if prefer_end else from
 	# Endpoint ON the ring (within tolerance)?  That corner IS the crossing.
 	for c: Dictionary in crossings:
-		if c["t"] <= _EPSILON \
-				and (c["point"] as Vector3).distance_to(from) < 1e-4:
+		var near_end: bool = (c["t"] >= 1.0 - _EPSILON) if prefer_end \
+				else (c["t"] <= _EPSILON)
+		if near_end \
+				and (c["point"] as Vector3).distance_to(end_point) < 1e-4:
 			c["va"] = ring[c["pos"]]
 			c["vb"] = ring[(int(c["pos"]) + 1) % ring.size()]
 			return c
-	# Otherwise the smallest-t crossing strictly inside the segment; endpoint
+	# Otherwise the nearest crossing strictly inside the segment; endpoint
 	# degenerates are shadow crossings from adjacent ring edges — skip them.
-	for i: int in crossings.size():
+	var order := range(crossings.size())
+	if prefer_end:
+		order.reverse()
+	for i: int in order:
 		var c: Dictionary = crossings[i]
-		if c["t"] <= _EPSILON:
+		var at_end: bool = (c["t"] >= 1.0 - _EPSILON) if prefer_end \
+				else (c["t"] <= _EPSILON)
+		if at_end:
 			continue
 		c["va"] = ring[c["pos"]]
 		c["vb"] = ring[(int(c["pos"]) + 1) % ring.size()]
@@ -1106,6 +1099,43 @@ static func _split_single_edge(
 	return cut_vi
 
 
+## Split every [param pts] entry lying on a ring edge of [param face]
+## (interior of the edge — corners are reused via vertex reuse).  Each hit
+## becomes a ring member shared with the neighbour face; the ring is
+## re-read after every split and returned.
+static func _split_on_edge_points(
+		mesh: GoBuildMesh,
+		face: GoBuildFace,
+		pts: Array,
+		ring: Array[int],
+		cut_verts: Dictionary,
+) -> Array[int]:
+	for pi: int in pts.size():
+		var p: Vector3 = pts[pi]
+		for i: int in ring.size():
+			var va: int = ring[i]
+			var vb: int = ring[(i + 1) % ring.size()]
+			if va == vb:
+				continue
+			var t: float = (p - mesh.vertices[va]).dot(
+					mesh.vertices[vb] - mesh.vertices[va]) \
+					/ maxf(mesh.vertices[vb].distance_squared_to(
+							mesh.vertices[va]), _EPSILON)
+			if t <= _EPSILON or t >= 1.0 - _EPSILON:
+				continue   # At a corner — reuse handles it.
+			var q: Vector3 = mesh.vertices[va].lerp(mesh.vertices[vb],
+					clampf(t, 0.0, 1.0))
+			if q.distance_to(p) > 1e-3:
+				continue
+			var cut_vi := _split_edge_at(mesh, va, vb, clampf(t, 0.0, 1.0),
+					cut_verts)
+			if cut_vi >= 0:
+				# Ring changed — re-read it and restart the scan.
+				ring = face.vertex_indices
+				break
+	return ring
+
+
 ## Phase 3 — re-partition the run's face around the path.
 ##
 ## BLENDER-ALIGNED: emits NGON faces (bake triangulates) — minimal geometry:
@@ -1128,28 +1158,7 @@ static func _tessellate_run(mesh: GoBuildMesh, run: Dictionary, cut_verts: Dicti
 	# that edge first — the point becomes a ring member shared with the
 	# neighbour, no T-junctions.  Same treatment the closed loop applies to
 	# its on-edge points.  Re-read the ring after each split.
-	for pi: int in run["points"].size():
-		var p: Vector3 = run["points"][pi]
-		for i: int in ring.size():
-			var va: int = ring[i]
-			var vb: int = ring[(i + 1) % ring.size()]
-			if va == vb:
-				continue
-			var t: float = (p - mesh.vertices[va]).dot(
-					mesh.vertices[vb] - mesh.vertices[va]) \
-					/ maxf(mesh.vertices[vb].distance_squared_to(
-							mesh.vertices[va]), _EPSILON)
-			if t <= _EPSILON or t >= 1.0 - _EPSILON:
-				continue   # At a corner — reuse handles it.
-			var q: Vector3 = mesh.vertices[va].lerp(mesh.vertices[vb],
-					clampf(t, 0.0, 1.0))
-			if q.distance_to(p) > 1e-3:
-				continue
-			var cut_vi := _split_edge_at(mesh, va, vb, clampf(t, 0.0, 1.0),
-					cut_verts)
-			if cut_vi >= 0:
-				ring = face.vertex_indices
-				break
+	ring = _split_on_edge_points(mesh, face, run["points"], ring, cut_verts)
 
 	var entry_vi := _anchor_vertex(mesh, ring, run, entry, true, cut_verts)
 	var exit_vi := _anchor_vertex(mesh, ring, run, exit, false, cut_verts)
@@ -1363,29 +1372,7 @@ static func _tessellate_closed_loop(
 	# T-junctions — exactly like phase 2 does for crossings.  A boundary-
 	# hugging loop (D-shape) then chains member→member in the band assembly
 	# instead of guessing bridges across boundary corners.
-	for pi: int in loop_pts.size():
-		var p: Vector3 = loop_pts[pi]
-		for i: int in ring.size():
-			var va: int = ring[i]
-			var vb: int = ring[(i + 1) % ring.size()]
-			if va == vb:
-				continue
-			var t: float = (p - mesh.vertices[va]).dot(
-					mesh.vertices[vb] - mesh.vertices[va]) \
-					/ maxf(mesh.vertices[vb].distance_squared_to(
-							mesh.vertices[va]), _EPSILON)
-			if t <= _EPSILON or t >= 1.0 - _EPSILON:
-				continue   # At a corner — already a member via vertex reuse.
-			var q: Vector3 = mesh.vertices[va].lerp(mesh.vertices[vb],
-					clampf(t, 0.0, 1.0))
-			if q.distance_to(p) > 1e-3:
-				continue
-			var cut_vi := _split_edge_at(mesh, va, vb, clampf(t, 0.0, 1.0),
-					cut_verts)
-			if cut_vi >= 0:
-				# Ring changed — re-read it and restart the scan.
-				ring = face.vertex_indices
-				break
+	ring = _split_on_edge_points(mesh, face, loop_pts, ring, cut_verts)
 	# Loop vertices: reuse an EXISTING mesh vertex when the drawn point sits on
 	# one (snapped corner, phase-2 cut vertex) — Blender adds no geometry for
 	# loop points already connected to the mesh.  Ring vertices are matched
