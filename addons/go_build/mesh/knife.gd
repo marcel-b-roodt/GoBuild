@@ -37,6 +37,22 @@ const _TRIANGULATE_SCRIPT := preload("res://addons/go_build/mesh/triangulate.gd"
 
 const _EPSILON: float = 1e-5
 
+## Same-point tolerance: two positions within this are THE point (snapped
+## picks, on-ring tests, cut-vertex reuse).
+const _ON_POINT_TOL: float = 1e-3
+## Endpoint/corner tolerance: a crossing within this of a segment endpoint
+## is treated as AT the endpoint (corner crossings, shadow skips).
+const _ENDPOINT_TOL: float = 1e-4
+## Scale-relative occlusion slack: a preview/confirm hit may sit this
+## fraction off the visible surface without being culled.
+const _OCCLUSION_SLACK: float = 0.01
+
+
+## Quantised position key for the shared cut-vertex table (1e-4 grid).
+static func _pos_key(p: Vector3) -> String:
+	return "P_%d_%d_%d" % [
+			roundi(p.x * 10000.0), roundi(p.y * 10000.0), roundi(p.z * 10000.0)]
+
 
 ## Segment-segment intersection of cut segment [param a]-[param b] with edge
 ## [param e0]-[param e1]; all four points assumed coplanar.
@@ -125,8 +141,7 @@ static func get_or_create_cut_vertex(
 		cut_verts: Dictionary,
 ) -> int:
 	var pos: Vector3 = mesh.vertices[va].lerp(mesh.vertices[vb], t_for_va)
-	var pos_key := "P_%d_%d_%d" % [
-			roundi(pos.x * 10000.0), roundi(pos.y * 10000.0), roundi(pos.z * 10000.0)]
+	var pos_key := _pos_key(pos)
 	var edge_key := "%d_%d@%.4f" % [
 			mini(va, vb), maxi(va, vb), t_for_va if va <= vb else 1.0 - t_for_va]
 	if cut_verts.has(pos_key):
@@ -161,7 +176,7 @@ static func _endpoint_crossing(
 		var edge := vb - va
 		var t: float = (p - va).dot(edge) / maxf(edge.length_squared(), _EPSILON)
 		if t >= -_EPSILON and t <= 1.0 + _EPSILON \
-				and va.lerp(vb, clampf(t, 0.0, 1.0)).distance_to(p) < 1e-3:
+				and va.lerp(vb, clampf(t, 0.0, 1.0)).distance_to(p) < _ON_POINT_TOL:
 			return {"pos": i, "u": clampf(t, 0.0, 1.0), "point": p,
 					"va": ring[i], "vb": ring[(i + 1) % ring.size()]}
 	return {}
@@ -315,7 +330,9 @@ static func screen_edge_hits(
 			var diff := sea - sa
 			var t := (diff.x * eseg.y - diff.y * eseg.x) / denom_v
 			var u := (diff.x * seg.y - diff.y * seg.x) / denom_v
-			if t <= 1e-4 or t >= 1.0 - 1e-4 or u <= 1e-4 or u >= 1.0 - 1e-4:
+			var near := t <= _ENDPOINT_TOL or t >= 1.0 - _ENDPOINT_TOL
+			var near_u := u <= _ENDPOINT_TOL or u >= 1.0 - _ENDPOINT_TOL
+			if near or near_u:
 				continue
 			# 3D point: ray through the screen crossing vs the edge line.
 			var screen_p := sa + seg * t
@@ -325,7 +342,7 @@ static func screen_edge_hits(
 			if hit.is_empty():
 				continue
 			var k: float = hit["u"]
-			if k <= 1e-4 or k >= 1.0 - 1e-4:
+			if k <= _ENDPOINT_TOL or k >= 1.0 - _ENDPOINT_TOL:
 				continue   # Crossing at the edge's endpoint — a vertex.
 			# TUNNELING GATE: inject only when the straight 3D segment
 			# actually misses the edge (tunnels past it) — the screen path
@@ -499,7 +516,7 @@ static func _clamp_to_face(mesh: GoBuildMesh, face: GoBuildFace, p: Vector3) -> 
 
 
 ## Point-in-polygon test (face plane, 2D crossing count).  Points within
-## [code]1e-4[/code] of the ring count as inside (on-boundary is valid).
+## [code]_ENDPOINT_TOL[/code] of the ring count as inside (on-boundary is valid).
 static func _point_in_poly(mesh: GoBuildMesh, p: Vector3, ring: Array[int]) -> bool:
 	var poly: Array[Vector3] = []
 	for vi: int in ring:
@@ -573,12 +590,12 @@ static func _single_face_owner(mesh: GoBuildMesh, picked: Array) -> int:
 		if n.length_squared() < _EPSILON * _EPSILON:
 			continue
 		if _point_to_plane_dist(mesh.vertices[ring[0]], n,
-				(picked[0]["position"] as Vector3)) > 1e-3:
+				(picked[0]["position"] as Vector3)) > _ON_POINT_TOL:
 			continue
 		var all_in := true
 		for p: Dictionary in picked:
 			if _point_to_plane_dist(mesh.vertices[ring[0]], n,
-					p["position"] as Vector3) > 1e-3 \
+					p["position"] as Vector3) > _ON_POINT_TOL \
 					or not _point_in_poly(mesh, p["position"], ring):
 				all_in = false
 				break
@@ -622,7 +639,7 @@ static func _face_holds(mesh: GoBuildMesh, fi: int, p: Vector3) -> bool:
 	var n := _TRIANGULATE_SCRIPT.polygon_normal(poly)
 	if n.length_squared() < _EPSILON * _EPSILON:
 		return false
-	if _point_to_plane_dist(mesh.vertices[ring[0]], n.normalized(), p) > 1e-3:
+	if _point_to_plane_dist(mesh.vertices[ring[0]], n.normalized(), p) > _ON_POINT_TOL:
 		return false
 	return _point_in_poly(mesh, p, ring)
 
@@ -644,7 +661,7 @@ static func _faces_adjacent_to_point(
 		var ab := b - a
 		var t: float = clampf((p - a).dot(ab) / maxf(ab.length_squared(), _EPSILON),
 				0.0, 1.0)
-		if a.lerp(b, t).distance_to(p) > 1e-3:
+		if a.lerp(b, t).distance_to(p) > _ON_POINT_TOL:
 			continue
 		var ei: int = mesh.find_edge(va, vb)
 		if ei < 0:
@@ -663,7 +680,7 @@ static func _resolve_runs(mesh: GoBuildMesh, points: Array, closed: bool) -> Arr
 	# p0..p(n-1) with the wrap segment p(n-1)→p0 doing the closing.
 	if closed and picked.size() >= 2 \
 			and (picked[0]["position"] as Vector3) \
-					.distance_to(picked[picked.size() - 1]["position"] as Vector3) < 1e-3:
+					.distance_to(picked[picked.size() - 1]["position"] as Vector3) < _ON_POINT_TOL:
 		picked.pop_back()
 	if picked.size() < 2:
 		return []
@@ -757,7 +774,7 @@ static func _resolve_runs(mesh: GoBuildMesh, points: Array, closed: bool) -> Arr
 		var deduped: Array = []
 		for p: Variant in pts:
 			if deduped.is_empty() \
-					or (deduped[deduped.size() - 1] as Vector3).distance_to(p as Vector3) > 1e-3:
+					or (deduped[deduped.size() - 1] as Vector3).distance_to(p as Vector3) > _ON_POINT_TOL:
 				deduped.append(p)
 		pts = deduped
 		# Entry: where the INCOMING segment pierces this face's ring, closest
@@ -862,7 +879,7 @@ static func _split_groups_at_exits(
 			# point (the first ring pierce after leaving seg_a).
 			var exit_c: Dictionary = {}
 			for c: Dictionary in crossings:
-				if c["t"] > 1e-4 and c["t"] < 1.0 - 1e-4:
+				if c["t"] > _ENDPOINT_TOL and c["t"] < 1.0 - _ENDPOINT_TOL:
 					exit_c = c
 					break
 			if exit_c.is_empty():
@@ -960,7 +977,7 @@ static func _crossing_nearest(
 		var near_end: bool = (c["t"] >= 1.0 - _EPSILON) if prefer_end \
 				else (c["t"] <= _EPSILON)
 		if near_end \
-				and (c["point"] as Vector3).distance_to(end_point) < 1e-4:
+				and (c["point"] as Vector3).distance_to(end_point) < _ENDPOINT_TOL:
 			c["va"] = ring[c["pos"]]
 			c["vb"] = ring[(int(c["pos"]) + 1) % ring.size()]
 			return c
@@ -1061,7 +1078,7 @@ static func _point_on_ring_edge(mesh: GoBuildMesh, p: Vector3, va: int, vb: int)
 	var t: float = (p - a).dot(ab) / len_sq
 	if t < -_EPSILON or t > 1.0 + _EPSILON:
 		return false
-	return a.lerp(b, clampf(t, 0.0, 1.0)).distance_to(p) < 1e-4
+	return a.lerp(b, clampf(t, 0.0, 1.0)).distance_to(p) < _ENDPOINT_TOL
 
 
 ## Insert the cut vertex on the DIRECT sub-edge va—vb at [param u] into every
@@ -1125,7 +1142,7 @@ static func _split_on_edge_points(
 				continue   # At a corner — reuse handles it.
 			var q: Vector3 = mesh.vertices[va].lerp(mesh.vertices[vb],
 					clampf(t, 0.0, 1.0))
-			if q.distance_to(p) > 1e-3:
+			if q.distance_to(p) > _ON_POINT_TOL:
 				continue
 			var cut_vi := _split_edge_at(mesh, va, vb, clampf(t, 0.0, 1.0),
 					cut_verts)
@@ -1184,7 +1201,7 @@ static func _tessellate_run(mesh: GoBuildMesh, run: Dictionary, cut_verts: Dicti
 		for pt: Variant in run["points"]:
 			var on_ring := false
 			for vi: int in ring:
-				if mesh.vertices[vi].distance_to(pt as Vector3) < 1e-3:
+				if mesh.vertices[vi].distance_to(pt as Vector3) < _ON_POINT_TOL:
 					on_ring = true
 					break
 			if not on_ring:
@@ -1235,7 +1252,7 @@ static func _tessellate_run(mesh: GoBuildMesh, run: Dictionary, cut_verts: Dicti
 	# Bail BEFORE creating vertices — no orphaned geometry.
 	for i: int in pts.size():
 		for j: int in range(i + 1, pts.size()):
-			if (pts[i] as Vector3).distance_to(pts[j] as Vector3) < 1e-3:
+			if (pts[i] as Vector3).distance_to(pts[j] as Vector3) < _ON_POINT_TOL:
 				print("[KnifeGeom] face %d: path revisits a point — no partition" % face_index)
 				return false
 	# Path vertices in path order, anchors first/last (the resolved
@@ -1355,7 +1372,7 @@ static func _tessellate_closed_loop(
 ) -> bool:
 	var pts: Array = run["points"]
 	var loop_pts: Array = []
-	if pts.size() >= 2 and pts[0].distance_to(pts[pts.size() - 1]) < 1e-3:
+	if pts.size() >= 2 and pts[0].distance_to(pts[pts.size() - 1]) < _ON_POINT_TOL:
 		for i: int in pts.size() - 1:
 			loop_pts.append(pts[i])
 	else:
@@ -1813,10 +1830,9 @@ static func _add_path_vertex(
 		ring: Array[int] = [],
 ) -> int:
 	for vi: int in ring:
-		if mesh.vertices[vi].distance_to(p) < 1e-4:
+		if mesh.vertices[vi].distance_to(p) < _ENDPOINT_TOL:
 			return vi
-	var key := "P_%d_%d_%d" % [
-			roundi(p.x * 10000.0), roundi(p.y * 10000.0), roundi(p.z * 10000.0)]
+	var key := _pos_key(p)
 	if cut_verts.has(key):
 		return cut_verts[key]
 	var vi := mesh.append_vertex_default(p)
