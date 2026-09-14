@@ -214,22 +214,10 @@ static func _merge_face_pair(
 
 	# Verify winding: the merged face normal should point in roughly the same
 	# direction as the original faces' normals. If reversed, flip the ring.
-	var merged_normal := Vector3.ZERO
-	for k: int in merged_ring.size():
-		var cur: int = merged_ring[k]
-		var nxt: int = merged_ring[(k + 1) % merged_ring.size()]
-		var cur_v: Vector3 = mesh.vertices[cur]
-		var nxt_v: Vector3 = mesh.vertices[nxt]
-		merged_normal.x += (cur_v.y - nxt_v.y) * (cur_v.z + nxt_v.z)
-		merged_normal.y += (cur_v.z - nxt_v.z) * (cur_v.x + nxt_v.x)
-		merged_normal.z += (cur_v.x - nxt_v.x) * (cur_v.y + nxt_v.y)
 	var ref_normal := mesh.compute_face_normal(face_a) + mesh.compute_face_normal(face_b)
 	if ref_normal.length_squared() > 1e-8:
-		ref_normal = ref_normal.normalized()
-	if merged_normal.length_squared() > 1e-8 and ref_normal.length_squared() > 1e-8:
-		if merged_normal.normalized().dot(ref_normal) < 0.0:
-			merged_ring.reverse()
-			merged_uvs.reverse()
+		if mesh.align_ring_winding(merged_ring, ref_normal.normalized()):
+			merged_uvs.reverse()   # UVs stay paired with their ring vertices.
 
 	GoBuildDebug.log(
 			"[MergeFacePair] fi_a=%d fi_b=%d va=%d vb=%d merged=%s"
@@ -344,25 +332,12 @@ static func _dissolve_single_vertex(
 	# Verify winding: the merged face normal should point in roughly the same
 	# direction as the original faces' normals. If the ring is CW from outside,
 	# the Newell normal will point inward. Flip the ring if needed.
-	var merged_normal := Vector3.ZERO
-	for k: int in ring.size():
-		var cur: int = ring[k]
-		var nxt: int = ring[(k + 1) % ring.size()]
-		var cur_v: Vector3 = mesh.vertices[cur]
-		var nxt_v: Vector3 = mesh.vertices[nxt]
-		merged_normal.x += (cur_v.y - nxt_v.y) * (cur_v.z + nxt_v.z)
-		merged_normal.y += (cur_v.z - nxt_v.z) * (cur_v.x + nxt_v.x)
-		merged_normal.z += (cur_v.x - nxt_v.x) * (cur_v.y + nxt_v.y)
 	var ref_normal := Vector3.ZERO
 	for fi: int in face_indices:
 		if fi < mesh.faces.size():
 			ref_normal += mesh.compute_face_normal(mesh.faces[fi])
 	if ref_normal.length_squared() > 1e-8:
-		ref_normal = ref_normal.normalized()
-	if merged_normal.length_squared() > 1e-8 and ref_normal.length_squared() > 1e-8:
-		if merged_normal.normalized().dot(ref_normal) < 0.0:
-			# Winding is flipped — reverse the ring.
-			ring.reverse()
+		mesh.align_ring_winding(ring, ref_normal.normalized())
 
 	GoBuildDebug.log("[DissolveVertex] vi=%d ring=%s" % [vi, str(ring)])
 

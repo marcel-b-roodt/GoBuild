@@ -408,17 +408,7 @@ static func _color_to_rgba8(c: Color, buf: PackedByteArray) -> void:
 ## Compute the face normal using Newell's method.
 ## Robust for quads and convex n-gons; handles coplanar vertex sets.
 func compute_face_normal(face: GoBuildFace) -> Vector3:
-	var n := Vector3.ZERO
-	var vc: int = face.vertex_indices.size()
-	for i in vc:
-		var cur: Vector3 = vertices[face.vertex_indices[i]]
-		var nxt: Vector3 = vertices[face.vertex_indices[(i + 1) % vc]]
-		n.x += (cur.y - nxt.y) * (cur.z + nxt.z)
-		n.y += (cur.z - nxt.z) * (cur.x + nxt.x)
-		n.z += (cur.x - nxt.x) * (cur.y + nxt.y)
-	if n.length_squared() < 1e-8:
-		return Vector3.UP
-	return n.normalized()
+	return compute_ring_normal(face.vertex_indices)
 
 
 ## Compute the area of a face using the cross-product fan method.
@@ -1165,6 +1155,19 @@ func compute_ring_normal(ring: Array[int]) -> Vector3:
 	if n.length_squared() < 1e-8:
 		return Vector3.UP
 	return n.normalized()
+
+
+## Align a vertex-index ring's winding to [param ref_normal]: if the ring's
+## Newell normal points against the reference, the ring (CCW from outside =
+## outward) is reversed IN PLACE.  Returns true when it was flipped.
+## The canonical winding fix for merged/new faces — do not hand-roll.
+func align_ring_winding(ring: Array[int], ref_normal: Vector3) -> bool:
+	if ref_normal.length_squared() < 1e-8:
+		return false
+	if compute_ring_normal(ring).dot(ref_normal) < 0.0:
+		ring.reverse()
+		return true
+	return false
 
 
 ## Return all distinct ring-neighbours of [param vi] across all faces that

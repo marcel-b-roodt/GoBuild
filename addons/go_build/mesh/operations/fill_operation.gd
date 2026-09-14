@@ -175,11 +175,10 @@ static func _fill_hole(mesh: GoBuildMesh, chain: Array[int],
 				break
 		if shared:
 			neighbour_normal += mesh.compute_face_normal(face)
-	var fill_normal: Vector3 = mesh.compute_face_normal(fill)
 	if neighbour_normal.length_squared() > 1e-8 \
-			and fill_normal.dot(neighbour_normal) < 0.0:
-		fill.vertex_indices.reverse()
-		fill.uvs.reverse()
+			and mesh.align_ring_winding(fill.vertex_indices,
+					neighbour_normal.normalized()):
+		fill.uvs.reverse()   # UVs stay paired with their ring vertices.
 
 	mesh.faces.append(fill)
 

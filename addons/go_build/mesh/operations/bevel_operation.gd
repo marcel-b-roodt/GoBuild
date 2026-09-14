@@ -526,8 +526,8 @@ static func _add_bevel_strips(
 
 		var hint: Vector3 = edge_hint_normals.get(ei, Vector3.ZERO)
 		if hint.length_squared() > 1e-8 \
-				and mesh.compute_face_normal(strip).dot(hint) < 0.0:
-			strip.vertex_indices = [na0, na1, nb1, nb0]
+				and mesh.align_ring_winding(strip.vertex_indices, hint):
+			strip.uvs.reverse()
 		mesh.faces.append(strip)
 
 
@@ -555,10 +555,9 @@ static func _add_endpoint_caps(
 					outward += mesh.compute_face_normal(existing)
 		var cap_face := _FACE_SCRIPT.new()
 		cap_face.vertex_indices.assign(vis)
-		var cap_normal: Vector3 = mesh.compute_face_normal(cap_face)
-		if outward.length_squared() > 1e-8 and cap_normal.dot(outward) < 0.0:
-			vis.reverse()
-			cap_face.vertex_indices.assign(vis)
+		if outward.length_squared() > 1e-8 \
+				and mesh.align_ring_winding(cap_face.vertex_indices, outward):
+			pass   # Cap carries no UVs — ring flip alone is enough.
 		cap_face.material_index = cap["mat"]
 		cap_face.smooth_group   = cap["smooth"]
 		mesh.faces.append(cap_face)

@@ -296,19 +296,17 @@ static func _align_loop(
 	# Reverse loop_b so the faces point outward.
 	# We use a heuristic: the first quad's normal should have a component away
 	# from the centroid of loop_a.
+	# Heuristic: the first quad's normal should have a component away from
+	# the centroid of loop_a — build the candidate quad's ring, align it to
+	# the INWARD direction (reversal when dot(candidate, outward) > 0),
+	# and reverse loop_b when the alignment flipped.
 	if n >= 2:
-		# Normal of a candidate first quad [a0, b0, b1, a1].
-		var a1: Vector3 = mesh.vertices[loop_a[mini(1, loop_a.size() - 1)]]
-		var b0: Vector3 = mesh.vertices[rotated[0]]
-		var b1: Vector3 = mesh.vertices[rotated[1]]
-		var v0: Vector3 = a0
-		# Newell normal for the quad.
-		var e0: Vector3 = b0 - v0
-		var e1: Vector3 = b1 - b0
-		var candidate_normal: Vector3 = e0.cross(e1)
-		# If the candidate normal points toward loop_a's centroid rather than
-		# away from it, reverse loop_b.
-		if candidate_normal.dot(centroid_a - b0) > 0.0:
+		var a1: int = loop_a[mini(1, loop_a.size() - 1)]
+		var b0: int = rotated[0]
+		var b1: int = rotated[1]
+		var candidate: Array[int] = [loop_a[0], b0, b1, a1]
+		var outward: Vector3 = centroid_a - mesh.vertices[b0]
+		if mesh.align_ring_winding(candidate, -outward):
 			rotated.reverse()
 
 	var result: Array[int] = []

@@ -52,11 +52,10 @@ static func generate(
 	if override_normal != Vector3.ZERO:
 		normal = override_normal.normalized()
 	else:
-		normal = _compute_newell_normal(points)
+		# Triangulate.polygon_normal: Newell, normalized, ZERO when degenerate.
+		normal = Triangulate.polygon_normal(points)
 		if normal == Vector3.ZERO:
 			normal = Vector3.UP
-		else:
-			normal = normal.normalized()
 
 	# Ensure the polygon is wound CCW when viewed from the normal direction.
 	# If the winding disagrees with the normal, reverse the point order so
@@ -141,19 +140,6 @@ static func generate(
 
 	mesh.finalize()
 	return mesh
-
-
-## Compute the Newell normal for an ordered list of 3D points.
-static func _compute_newell_normal(points: Array[Vector3]) -> Vector3:
-	var n := Vector3.ZERO
-	var vc: int = points.size()
-	for i in vc:
-		var cur: Vector3 = points[i]
-		var nxt: Vector3 = points[(i + 1) % vc]
-		n.x += (cur.y - nxt.y) * (cur.z + nxt.z)
-		n.y += (cur.z - nxt.z) * (cur.x + nxt.x)
-		n.z += (cur.x - nxt.x) * (cur.y + nxt.y)
-	return n
 
 
 ## Generate planar UVs for a polygon face projected onto its plane.

@@ -160,13 +160,10 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 		if ring.size() < 3:
 			continue
 
-		# Fix winding: compute the Newell normal of the ring and compare it
-		# against the average outward normal of the original faces.  If the ring
-		# normal points inward (dot product < 0), reverse the ring so the merged
-		# face has CCW winding when viewed from outside.
-		var ring_normal := mesh.compute_ring_normal(ring)
-		if ring_normal.dot(avg_normal) < 0.0:
-			ring.reverse()
+		# Fix winding: if the ring's Newell normal points against the average
+		# outward normal of the original faces, reverse it so the merged face
+		# has CCW winding when viewed from outside.
+		mesh.align_ring_winding(ring, avg_normal)
 
 		var merged_face: GoBuildFace = GoBuildFace.new()
 		merged_face.vertex_indices = []
