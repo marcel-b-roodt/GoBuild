@@ -473,7 +473,7 @@ func _on_print_selection() -> void:
 
 
 func _build_draw_overlay() -> void:
-	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var vp: SubViewport = _editor_vp()
 	if vp == null:
 		return
 	var container: Control = vp.get_parent() as Control
@@ -637,12 +637,10 @@ func _process(_delta: float) -> void:
 	if dragging:
 		_drag_ctrl_held = _mod_ctrl
 		_drag_awaiting_drop = false
-		if _edited_node != null and is_instance_valid(_edited_node) \
-				and _edited_node.go_build_mesh != null:
+		if _edited_mesh() != null:
 			var result := GoBuildMaterialDropConverter.update_preview(
 					_edited_node, _drag_cached_material, _drag_snapshot,
-					EditorInterface.get_editor_viewport_3d(0).get_camera_3d() \
-							if EditorInterface.get_editor_viewport_3d(0) != null else null,
+					_editor_camera(),
 					_drag_mouse_pos, _drag_ctrl_held)
 			_drag_cached_material = result["material"]
 			_drag_snapshot = result["snapshot"]
@@ -652,15 +650,14 @@ func _process(_delta: float) -> void:
 		_drag_awaiting_drop = true
 	if _drag_awaiting_drop:
 		_drag_awaiting_drop = false
-		if _edited_node != null and is_instance_valid(_edited_node) \
-				and _edited_node.go_build_mesh != null:
+		if _edited_mesh() != null:
 			# Check if Godot re-set an override (successful drop).
 			if GoBuildMaterialDropConverter.extract_override_material(_edited_node) != null:
 				# Successful drop — extract the material and apply.
 				var mat: Material = GoBuildMaterialDropConverter.extract_override_material(
 						_edited_node)
 				GoBuildMaterialDropConverter.clear_overrides_no_bake(_edited_node)
-				var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+				var vp: SubViewport = _editor_vp()
 				var camera: Camera3D = vp.get_camera_3d() if vp != null else null
 				var applied := GoBuildMaterialDropConverter.apply_drop(
 						_edited_node, get_undo_redo(),
@@ -733,7 +730,7 @@ func _route_knife_input(event: InputEvent) -> bool:
 		GoBuildDebug.log("[Knife] K seen in global _input while cutting — toggling off")
 	if not (event is InputEventMouseButton or event is InputEventKey):
 		return false
-	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var vp: SubViewport = _editor_vp()
 	var cam: Camera3D = vp.get_camera_3d() if vp != null else null
 	if cam == null:
 		return false
@@ -760,9 +757,8 @@ func _route_knife_input(event: InputEvent) -> bool:
 func _track_drag_mouse_pos(mm: InputEventMouseMotion) -> void:
 	if not get_viewport().gui_is_dragging():
 		return
-	var vp_parent := (EditorInterface.get_editor_viewport_3d(0) \
-			as SubViewport).get_parent() as Control if \
-			EditorInterface.get_editor_viewport_3d(0) != null else null
+	var vp := _editor_vp()
+	var vp_parent := (vp.get_parent() as Control) if vp != null else null
 	if vp_parent != null:
 		_drag_mouse_pos = mm.position - vp_parent.get_global_rect().position
 
@@ -803,7 +799,7 @@ func _input(event: InputEvent) -> void:
 				return
 		if _shape_draw_controller.is_mouse_captured() \
 				and (event is InputEventMouseMotion or event is InputEventMouseButton):
-			var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+			var vp: SubViewport = _editor_vp()
 			var camera: Camera3D = vp.get_camera_3d() if vp != null else null
 			if camera != null:
 				var result: int = _shape_draw_controller.handle_input(camera, event)
@@ -815,7 +811,7 @@ func _input(event: InputEvent) -> void:
 					return
 		if _edited_node == null and not _shape_draw_controller.is_mouse_captured():
 			if event is InputEventMouseButton or event is InputEventMouseMotion:
-				var editor_vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+				var editor_vp: SubViewport = _editor_vp()
 				if editor_vp != null:
 					var cam: Camera3D = editor_vp.get_camera_3d()
 					if cam != null and _is_event_in_viewport(event, editor_vp):
@@ -898,7 +894,7 @@ func _route_paint_input(event: InputEvent) -> bool:
 				KEY_5: _vc_painter.select_target_channel(4)
 				_: handled = false
 			if not handled and (key.keycode == KEY_S or key.keycode == KEY_D):
-				var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+				var vp: SubViewport = _editor_vp()
 				var camera: Camera3D = vp.get_camera_3d() if vp != null else null
 				if camera != null and _edited_node != null:
 					if _paint_brush.handle_input(camera, event, _edited_node) != 0:
@@ -912,7 +908,7 @@ func _route_paint_input(event: InputEvent) -> bool:
 	if _paint_brush.is_resizing():
 		if event is InputEventMouseMotion or event is InputEventMouseButton or event is InputEventKey:
 			if _edited_node != null and _vc_painter != null:
-				var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+				var vp: SubViewport = _editor_vp()
 				var camera: Camera3D = vp.get_camera_3d() if vp != null else null
 				if camera != null and _paint_brush.handle_input(camera, event, _edited_node) != 0:
 					update_overlays()
@@ -948,7 +944,7 @@ func _draw_param_popup_hovered(event: InputEvent) -> bool:
 	if popup == null:
 		return false
 	var mouse: InputEventMouse = event as InputEventMouse
-	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var vp: SubViewport = _editor_vp()
 	var vp_parent := vp.get_parent() as Control if vp != null else null
 	var window_pos: Vector2 = mouse.global_position
 	if vp_parent != null and not vp_parent.get_global_rect().has_point(window_pos):
@@ -1092,12 +1088,9 @@ func _edit(object: Object) -> void:
 		if _edited_node.selection.mode != SelectionManager.Mode.OBJECT:
 			call_deferred("_suppress_native_gizmo")
 
-	if _panel:
-		_panel.set_target(_edited_node)
-	if _uv_panel:
-		_uv_panel.set_target(_edited_node)
-	if _vc_painter:
-		_vc_painter.set_target(_edited_node)
+	for panel in [_panel, _uv_panel, _vc_painter]:
+		if panel:
+			panel.set_target(_edited_node)
 	if _panel != null and _panel.get_create_drawer() != null:
 		_panel.get_create_drawer().maybe_open_param_popup(_edited_node)
 	_refresh_panel_context()
@@ -1132,13 +1125,11 @@ func _make_visible(visible: bool) -> void:
 		_disconnect_node_signals()
 		_cleanup_drag_state()
 		_edited_node = null
+		for panel in [_panel, _uv_panel, _vc_painter]:
+			if panel:
+				panel.set_target(null)
 		if _panel:
-			_panel.set_target(null)
 			_panel.update_context("")
-		if _uv_panel:
-			_uv_panel.set_target(null)
-		if _vc_painter:
-			_vc_painter.set_target(null)
 
 
 # ---------------------------------------------------------------------------
@@ -1182,6 +1173,25 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 	return _input_controller.process_input(_edited_node, camera, event)
 
 
+## The 3D editor viewport (null when the editor has none — headless tests).
+func _editor_vp() -> SubViewport:
+	return EditorInterface.get_editor_viewport_3d(0)
+
+
+func _editor_camera() -> Camera3D:
+	var vp := _editor_vp()
+	return vp.get_camera_3d() if vp != null else null
+
+
+## The edited mesh (null when no valid target).  The one guard for the
+## `_edited_node != null and is_instance_valid and mesh != null` chain.
+func _edited_mesh() -> GoBuildMesh:
+	if _edited_node == null or not is_instance_valid(_edited_node) \
+			or _edited_node.go_build_mesh == null:
+		return null
+	return _edited_node.go_build_mesh
+
+
 ## Draw the box-select rect, param-preview indicator, and mode / modifier hint label.
 ## When the DragController is active (param or gizmo mode), its overlay data
 ## drives the indicator.  Otherwise falls back to the legacy paths.
@@ -1206,9 +1216,19 @@ func _forward_3d_draw_over_viewport(overlay: Control) -> void:
 	_draw_shape_draw_overlay(overlay)
 	_draw_brush_cursor_overlay(overlay)
 	if _knife_controller != null and _knife_controller.is_active():
-		var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+		var vp: SubViewport = _editor_vp()
 		var cam: Camera3D = vp.get_camera_3d() if vp != null else null
 		_knife_controller.draw_overlay(overlay, cam)
+
+
+## Shadowed label: dark halo at +1,+1 then [param color] fill.  The one
+## text-draw idiom for every viewport overlay.
+static func _draw_shadowed_text(overlay: Control, font: Font, pos: Vector2,
+		text: String, fsize: int, color: Color) -> void:
+	overlay.draw_string(font, pos + Vector2(1.0, 1.0), text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
+	overlay.draw_string(font, pos, text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, color)
 
 
 func _draw_shape_draw_overlay(overlay: Control) -> void:
@@ -1221,20 +1241,16 @@ func _draw_shape_draw_overlay(overlay: Control) -> void:
 		var fsize: int = 12
 		var m: float = 8.0
 		var pos := Vector2(m, overlay.size.y - m - 18.0 - 18.0)
-		overlay.draw_string(font, pos + Vector2(1.0, 1.0), state_text,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
-		overlay.draw_string(font, pos, state_text,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 1.0, 0.65, 0.90))
+		_draw_shadowed_text(overlay, font, pos, state_text, fsize,
+				Color(0.65, 1.0, 0.65, 0.90))
 	if not dims_text.is_empty():
 		var font2: Font = ThemeDB.fallback_font
 		var fsize2: int = 12
 		var m2: float = 8.0
 		var w: float = font2.get_string_size(dims_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2).x
 		var pos2 := Vector2(overlay.size.x - w - m2, overlay.size.y - m2 - 18.0)
-		overlay.draw_string(font2, pos2 + Vector2(1.0, 1.0), dims_text,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2, Color(0.0, 0.0, 0.0, 0.55))
-		overlay.draw_string(font2, pos2, dims_text,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize2, Color(0.65, 1.0, 0.65, 0.90))
+		_draw_shadowed_text(overlay, font2, pos2, dims_text, fsize2,
+				Color(0.65, 1.0, 0.65, 0.90))
 	# Polygon step: crosshair + rubber band at the cursor (same language as
 	# the knife tool).
 	if _shape_draw_controller.is_polygon_state():
@@ -1290,7 +1306,7 @@ func _draw_brush_cursor_overlay(overlay: Control) -> void:
 	if draw_pos == Vector2.INF:
 		return
 	var world_pos: Vector3 = _paint_brush.get_cursor_world_pos()
-	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var vp: SubViewport = _editor_vp()
 	if vp == null:
 		return
 	var camera: Camera3D = vp.get_camera_3d()
@@ -1349,18 +1365,12 @@ func _draw_paint_mode_info(overlay: Control) -> void:
 	var line2: String = "Alt+Click=Eyedropper  Alt+S=Size  Alt+D=Strength  Shift+A=Cycle Blend"
 	var line3: String = "Alt+Q/W/E/R=Channels  Alt+T=Isolate  Alt+1-5=Target"
 	var y: float = overlay.size.y - m - 18.0 - 18.0 - 18.0
-	overlay.draw_string(font, Vector2(m + 1.0, y + 1.0), line1,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
-	overlay.draw_string(font, Vector2(m, y), line1,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 1.0, 0.65, 0.90))
-	overlay.draw_string(font, Vector2(m + 1.0, y + 18.0 + 1.0), line2,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
-	overlay.draw_string(font, Vector2(m, y + 18.0), line2,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 0.85, 1.0, 0.75))
-	overlay.draw_string(font, Vector2(m + 1.0, y + 36.0 + 1.0), line3,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
-	overlay.draw_string(font, Vector2(m, y + 36.0), line3,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 0.85, 1.0, 0.75))
+	_draw_shadowed_text(overlay, font, Vector2(m, y), line1, fsize,
+			Color(0.65, 1.0, 0.65, 0.90))
+	_draw_shadowed_text(overlay, font, Vector2(m, y + 18.0), line2, fsize,
+			Color(0.65, 0.85, 1.0, 0.75))
+	_draw_shadowed_text(overlay, font, Vector2(m, y + 36.0), line3, fsize,
+			Color(0.65, 0.85, 1.0, 0.75))
 
 
 # ---------------------------------------------------------------------------
@@ -1386,7 +1396,7 @@ func _handle_paint_brush(camera: Camera3D, event: InputEvent) -> int:
 
 
 func _draw_material_drag_hint(overlay: Control) -> void:
-	var vp: SubViewport = EditorInterface.get_editor_viewport_3d(0)
+	var vp: SubViewport = _editor_vp()
 	var camera: Camera3D = vp.get_camera_3d() if vp != null else null
 	var hint: String = GoBuildMaterialDropConverter.build_drag_hint(
 			_edited_node, camera, _drag_mouse_pos,
@@ -1398,10 +1408,8 @@ func _draw_material_drag_hint(overlay: Control) -> void:
 	var m: float = 8.0
 	var w: float = font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
 	var pos := Vector2(overlay.size.x - w - m, overlay.size.y - m - 18.0)
-	overlay.draw_string(font, pos + Vector2(1.0, 1.0), hint,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
-	overlay.draw_string(font, pos, hint,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.75, 0.92, 1.0, 0.92))
+	_draw_shadowed_text(overlay, font, pos, hint, fsize,
+			Color(0.75, 0.92, 1.0, 0.92))
 
 
 func _hide_draw_param_strip() -> void:
@@ -1647,10 +1655,8 @@ func _draw_mode_hint(overlay: Control) -> void:
 	var fsize: int = 12
 	var m: float   = 8.0
 	var pos := Vector2(m, overlay.size.y - m)
-	overlay.draw_string(font, pos + Vector2(1.0, 1.0), hint,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
-	overlay.draw_string(font, pos, hint,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.9, 0.9, 0.9, 0.85))
+	_draw_shadowed_text(overlay, font, pos, hint, fsize,
+			Color(0.9, 0.9, 0.9, 0.85))
 
 
 ## Draw the active parameter-preview label in the viewport overlay.
@@ -1786,10 +1792,8 @@ func _draw_controller_param_overlay(overlay: Control, data: Dictionary) -> void:
 		var font: Font = ThemeDB.fallback_font
 		var fsize: int = 13
 		var pos := Vector2(m, overlay.size.y - m)
-		overlay.draw_string(font, pos + Vector2(1.0, 1.0), hint,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.60))
-		overlay.draw_string(font, pos, hint,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(1.0, 0.85, 0.3, 0.95))
+		_draw_shadowed_text(overlay, font, pos, hint, fsize,
+				Color(1.0, 0.85, 0.3, 0.95))
 
 
 func _draw_controller_gizmo_overlay(overlay: Control) -> void:
@@ -1805,16 +1809,11 @@ func _draw_controller_gizmo_overlay(overlay: Control) -> void:
 	var fsize: int = 12
 	var m: float   = 8.0
 	var pos := Vector2(m, overlay.size.y - m - 18.0)
-	overlay.draw_string(font, pos + Vector2(1.0, 1.0), text,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
-	overlay.draw_string(font, pos, text,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, text_color)
+	_draw_shadowed_text(overlay, font, pos, text, fsize, text_color)
 	if precision:
 		var prec_text := "PRECISION"
-		overlay.draw_string(font, pos + Vector2(0.0, -14.0) + Vector2(1.0, 1.0), prec_text,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.45))
-		overlay.draw_string(font, pos + Vector2(0.0, -14.0), prec_text,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, text_color)
+		_draw_shadowed_text(overlay, font, pos + Vector2(0.0, -14.0),
+				prec_text, fsize, text_color)
 
 
 func _build_overlay_hint() -> String:
@@ -1840,10 +1839,8 @@ func _draw_selection_dims(overlay: Control) -> void:
 	# Measure width so we can right-align without a RichTextLabel node.
 	var w: float = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
 	var pos := Vector2(overlay.size.x - w - m, overlay.size.y - m)
-	overlay.draw_string(font, pos + Vector2(1.0, 1.0), text,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.0, 0.0, 0.0, 0.55))
-	overlay.draw_string(font, pos, text,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color(0.65, 1.0, 0.65, 0.90))
+	_draw_shadowed_text(overlay, font, pos, text, fsize,
+			Color(0.65, 1.0, 0.65, 0.90))
 
 
 ## Build a human-readable dimension string for the current selection.
@@ -2134,12 +2131,9 @@ func _on_edited_node_removed() -> void:
 		_input_controller.cancel_box_select(null)
 	_cleanup_drag_state()
 	_edited_node = null
-	if _panel:
-		_panel.set_target(null)
-	if _uv_panel:
-		_uv_panel.set_target(null)
-	if _vc_painter:
-		_vc_painter.set_target(null)
+	for panel in [_panel, _uv_panel, _vc_painter]:
+		if panel:
+			panel.set_target(null)
 	update_overlays()
 
 

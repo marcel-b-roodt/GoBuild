@@ -523,35 +523,21 @@ func _refresh() -> void:
 func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 	_sync_mode_buttons(new_mode)
 	_update_ops_buttons()
+	# Drawer open/close matrix: [mode → {drawer → open}].
+	# OBJECT and FACE share the create/UV/surface set; element modes open
+	# only their own drawer.
+	var open_set: Array[GoBuildDrawer] = []
 	match new_mode:
-		SelectionManager.Mode.OBJECT:
-			if _create_drawer  != null: _create_drawer.set_open(true)
-			if _vertex_drawer  != null: _vertex_drawer.set_open(false)
-			if _edge_drawer    != null: _edge_drawer.set_open(false)
-			if _face_drawer    != null: _face_drawer.set_open(false)
-			if _uv_drawer	   != null: _uv_drawer.set_open(true)
-			if _surface_drawer != null: _surface_drawer.set_open(true)
+		SelectionManager.Mode.OBJECT, SelectionManager.Mode.FACE:
+			open_set = [_create_drawer, _uv_drawer, _surface_drawer]
 		SelectionManager.Mode.VERTEX:
-			if _create_drawer  != null: _create_drawer.set_open(false)
-			if _vertex_drawer  != null: _vertex_drawer.set_open(true)
-			if _edge_drawer    != null: _edge_drawer.set_open(false)
-			if _face_drawer    != null: _face_drawer.set_open(false)
-			if _uv_drawer	   != null: _uv_drawer.set_open(false)
-			if _surface_drawer != null: _surface_drawer.set_open(false)
+			open_set = [_vertex_drawer]
 		SelectionManager.Mode.EDGE:
-			if _create_drawer  != null: _create_drawer.set_open(false)
-			if _vertex_drawer  != null: _vertex_drawer.set_open(false)
-			if _edge_drawer    != null: _edge_drawer.set_open(true)
-			if _face_drawer    != null: _face_drawer.set_open(false)
-			if _uv_drawer	   != null: _uv_drawer.set_open(false)
-			if _surface_drawer != null: _surface_drawer.set_open(false)
-		SelectionManager.Mode.FACE:
-			if _create_drawer  != null: _create_drawer.set_open(false)
-			if _vertex_drawer  != null: _vertex_drawer.set_open(false)
-			if _edge_drawer    != null: _edge_drawer.set_open(false)
-			if _face_drawer    != null: _face_drawer.set_open(true)
-			if _uv_drawer	   != null: _uv_drawer.set_open(true)
-			if _surface_drawer != null: _surface_drawer.set_open(true)
+			open_set = [_edge_drawer]
+	for drawer: GoBuildDrawer in [_create_drawer, _vertex_drawer, _edge_drawer,
+			_face_drawer, _uv_drawer, _surface_drawer]:
+		if drawer != null:
+			drawer.set_open(drawer in open_set)
 
 
 ## Press exactly the button that corresponds to [param active_mode] and
