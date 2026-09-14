@@ -2067,7 +2067,8 @@ func _on_snap_selection_to_grid() -> void:
 	var xform: Transform3D = _edited_node.global_transform
 	_edited_node.apply_operation("Snap Selection to Grid",
 			func() -> void:
-				SnapToGridOperation.apply(mesh, verts, xform, step),
+				SnapToGridOperation.apply(
+						_edited_node.go_build_mesh, verts, xform, step),
 			get_undo_redo())
 
 
