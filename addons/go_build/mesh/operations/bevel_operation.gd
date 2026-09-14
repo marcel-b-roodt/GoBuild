@@ -39,12 +39,8 @@ static func apply(
 	if mesh == null or edge_indices.is_empty() or width <= 0.0:
 		return
 
-	var valid: Array[int] = []
-	var seen: Dictionary = {}
-	for ei: int in edge_indices:
-		if ei >= 0 and ei < mesh.edges.size() and not seen.has(ei):
-			seen[ei] = true
-			valid.append(ei)
+	var valid: Array[int] = GoBuildMesh.unique_valid_indices(
+			mesh.edges.size(), edge_indices)
 	if valid.is_empty():
 		return
 

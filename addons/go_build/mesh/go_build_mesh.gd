@@ -1170,6 +1170,20 @@ func align_ring_winding(ring: Array[int], ref_normal: Vector3) -> bool:
 	return false
 
 
+## Deduplicate and bounds-check element indices against a pool size
+## (vertices.size / edges.size / faces.size).  The canonical input filter
+## for operations — sorted, unique, all in [0, pool_size).
+static func unique_valid_indices(pool_size: int, indices: Array[int]) -> Array[int]:
+	var seen: Dictionary = {}
+	for i: int in indices:
+		if i >= 0 and i < pool_size:
+			seen[i] = true
+	var result: Array[int] = []
+	result.assign(seen.keys())
+	result.sort()
+	return result
+
+
 ## Return all distinct ring-neighbours of [param vi] across all faces that
 ## contain it, optionally restricted to [param face_indices] when non-empty.
 func vertex_neighbours(vi: int, face_indices: Array[int] = []) -> Array[int]:

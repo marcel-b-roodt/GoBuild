@@ -37,12 +37,8 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int]) -> void:
 	if mesh == null or face_indices.is_empty():
 		return
 
-	var valid: Array[int] = []
-	var seen: Dictionary = {}
-	for fi: int in face_indices:
-		if fi >= 0 and fi < mesh.faces.size() and not seen.has(fi):
-			seen[fi] = true
-			valid.append(fi)
+	var valid: Array[int] = GoBuildMesh.unique_valid_indices(
+			mesh.faces.size(), face_indices)
 	if valid.is_empty():
 		return
 

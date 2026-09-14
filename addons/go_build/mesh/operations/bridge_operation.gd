@@ -46,12 +46,9 @@ static func apply(mesh: GoBuildMesh, edge_indices: Array[int]) -> void:
 
 	# ── 1. Filter to valid boundary edges ──────────────────────────────────
 	var valid_edges: Array[int] = []
-	var seen: Dictionary = {}
-	for ei: int in edge_indices:
-		if ei >= 0 and ei < mesh.edges.size() \
-				and not seen.has(ei) \
-				and mesh.edges[ei].is_boundary():
-			seen[ei] = true
+	for ei: int in GoBuildMesh.unique_valid_indices(
+			mesh.edges.size(), edge_indices):
+		if mesh.edges[ei].is_boundary():
 			valid_edges.append(ei)
 	if valid_edges.size() < 2:
 		return

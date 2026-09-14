@@ -57,12 +57,8 @@ static func apply(
 	t = clampf(t, 0.0, 1.0)
 
 	# De-duplicate input edge seeds.
-	var seen_seeds: Dictionary = {}
-	var seeds: Array[int] = []
-	for ei: int in edge_indices:
-		if ei >= 0 and ei < mesh.edges.size() and not seen_seeds.has(ei):
-			seen_seeds[ei] = true
-			seeds.append(ei)
+	var seeds: Array[int] = GoBuildMesh.unique_valid_indices(
+			mesh.edges.size(), edge_indices)
 	if seeds.is_empty():
 		return
 

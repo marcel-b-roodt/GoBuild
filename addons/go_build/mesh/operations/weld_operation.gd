@@ -38,7 +38,8 @@ static func apply_merge(mesh: GoBuildMesh, vertex_indices: Array[int]) -> void:
 		return
 
 	# Filter to valid, unique indices.
-	var valid: Array[int] = _unique_valid(mesh, vertex_indices)
+	var valid: Array[int] = GoBuildMesh.unique_valid_indices(
+			mesh.vertices.size(), vertex_indices)
 	if valid.size() < 2:
 		return
 
@@ -260,14 +261,3 @@ static func _union(parent: Array[int], a: int, b: int) -> void:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-## Return sorted unique valid vertex indices from [param indices].
-static func _unique_valid(mesh: GoBuildMesh, indices: Array[int]) -> Array[int]:
-	var seen: Dictionary = {}
-	for vi: int in indices:
-		if vi >= 0 and vi < mesh.vertices.size():
-			seen[vi] = true
-	var result: Array[int] = []
-	result.assign(seen.keys())
-	result.sort()
-	return result

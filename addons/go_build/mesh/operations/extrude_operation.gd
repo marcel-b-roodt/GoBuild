@@ -37,10 +37,8 @@ static func apply(mesh: GoBuildMesh, face_indices: Array[int], distance: float) 
 		return
 
 	# Validate indices up-front so _extrude_single_face can assume they are in range.
-	var valid_indices: Array[int] = []
-	for fi: int in face_indices:
-		if fi >= 0 and fi < mesh.faces.size():
-			valid_indices.append(fi)
+	var valid_indices: Array[int] = GoBuildMesh.unique_valid_indices(
+			mesh.faces.size(), face_indices)
 
 	if valid_indices.is_empty():
 		return
