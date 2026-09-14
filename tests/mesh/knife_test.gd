@@ -1322,3 +1322,67 @@ func _make_cube5_after_first_cut() -> GoBuildMesh:
 		m.faces.append(f)
 	m.rebuild_edges()
 	return m
+
+
+## 2026-09-14 session (GoBuildPolygon5): 2-point seam with an INTERIOR
+## loose end.  p0 free inside face 9, p1 snapped corner 7 (recorded under
+## face 10).  Face 9's run: exit found on edge 17→16 (split → vi23), entry
+## = interior loose end.  The loose end tied to vi23 (nearest "corner"
+## after the split — 0.80 < 1.43) — the SAME vertex as the exit: "single
+## touch point", the seam degenerated to +1v +1e and the drawn segment
+## was thrown out.  Face 10 likewise no-op'd (its single pick IS its
+## entry and exit corner).  Blender: an interior loose end ties to a
+## DISTINCT corner; the seam cuts f9 (p0→23) and the tie edge 24→10
+## completes the partition (+1f +2v +3e).
+func _make_polygon5_partitioned() -> GoBuildMesh:
+	var m := GoBuildMesh.new()
+	m.vertices = [
+		Vector3(3.857142, 0.0, 4.714286), Vector3(4.857142, 0.0, -6.285714),
+		Vector3(0.857142, 0.0, -5.285714), Vector3(0.857142, 0.0, -0.285714),
+		Vector3(-4.142858, 0.0, -0.285714), Vector3(-4.142858, 0.0, 2.714286),
+		Vector3(-2.142858, 0.0, 4.714286), Vector3(3.857142, 0.54787, 4.714286),
+		Vector3(4.857142, 0.54787, -6.285714), Vector3(0.857142, 0.54787, -5.285714),
+		Vector3(0.857142, 0.54787, -0.285714), Vector3(-4.142858, 0.54787, -0.285714),
+		Vector3(-4.142858, 0.54787, 2.714286), Vector3(-2.142858, 0.54787, 4.714286),
+		Vector3(3.152703, 0.54787, -5.02252), Vector3(3.312299, 0.54787, -2.943062),
+		Vector3(1.890329, 0.547871, -3.716109), Vector3(1.589418, 0.54787, 0.005978),
+		Vector3(2.874967, 0.54787, -0.830807), Vector3(3.980344, 0.547871, -3.165718),
+		Vector3(2.410789, 0.54787, -0.528666), Vector3(3.871119, 0.54787, 4.56055),
+		Vector3(3.866541, 0.54787, 4.6109),
+	]
+	var rings := [
+		[0, 1, 8, 21, 7], [1, 2, 9, 8], [2, 3, 10, 9], [3, 4, 11, 10],
+		[4, 5, 12, 11], [5, 6, 13, 12], [6, 0, 7, 13], [6, 5, 4, 3, 2, 1, 0],
+		[14, 15, 16, 17, 20, 18, 19], [8, 9, 10, 17, 16, 15, 14],
+		[10, 11, 12, 13, 7, 21, 8, 14, 19, 18, 20, 17],
+	]
+	for r: Array in rings:
+		var f := GoBuildFace.new()
+		var arr: Array[int] = []
+		arr.assign(r)
+		f.vertex_indices = arr
+		m.faces.append(f)
+	m.rebuild_edges()
+	return m
+
+
+func test_seam_interior_loose_end_cuts_both_faces() -> void:
+	var m := _make_polygon5_partitioned()
+	var p0 := Vector3(1.368477, 0.547871, -1.62393)   # free, inside face 9
+	var pts := [
+		{"face_index": 9, "position": p0, "snapped_vertex": -1},
+		{"face_index": 10, "position": m.vertices[7], "snapped_vertex": 7},
+	]
+	assert_bool(_KNIFE.apply(m, pts, false)).is_true()
+	# Blender counts: +1f +2v (p0=24, exit=23) +3e (23-16 split, 23-24, 24-10).
+	assert_int(m.vertices.size()).is_equal(25)
+	assert_int(m.faces.size()).is_equal(12)
+	# Face 9's ring was repartitioned around the path — the old 7-ring is
+	# gone; the seam edge 23↔24 (exit → interior p0) exists in the edge list.
+	var seam_found := false
+	for e: GoBuildEdge in m.edges:
+		if (e.vertex_a == 23 and e.vertex_b == 24) \
+				or (e.vertex_a == 24 and e.vertex_b == 23):
+			seam_found = true
+			break
+	assert_bool(seam_found).is_true()

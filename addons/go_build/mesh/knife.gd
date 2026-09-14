@@ -1162,14 +1162,56 @@ static func _tessellate_run(mesh: GoBuildMesh, run: Dictionary, cut_verts: Dicti
 		print("[KnifeGeom] face %d: anchors not on ring (stale ring refs)" % face_index)
 		return false
 	if entry_pos == exit_pos:
-		# Both ends resolve to the same ring vertex: the path touches the face
-		# without crossing it (touch / graze case) — the neighbour faces carry
-		# the cut; nothing to partition here.  NOT a failure: the run sets
-		# "no_op" so the transactional apply continues with the other runs
-		# instead of rolling the whole stroke back.
-		print("[KnifeGeom] face %d: single touch point — no partition needed" % face_index)
-		run["no_op"] = true
-		return false
+		# Both ends resolve to the same ring vertex.  A path with an
+		# INTERIOR point is still a real cut (interior loose end → nearest
+		# corner): the tie broke to the same anchor as the other end because
+		# the split vertex sat closest to the loose end — degenerate, but
+		# the drawn segment p0→exit must still partition: anchor the loose
+		# end at the nearest corner that ISN'T the other anchor and emit
+		# [arc from other anchor → tie corner] + [tie corner → path → other
+		# anchor].  A path with NO interior points (pure on-ring graze)
+		# stays a no-op — the neighbours carry the cut.
+		var has_interior := false
+		for pt: Variant in run["points"]:
+			var on_ring := false
+			for vi: int in ring:
+				if mesh.vertices[vi].distance_to(pt as Vector3) < 1e-3:
+					on_ring = true
+					break
+			if not on_ring:
+				has_interior = true
+				break
+		if not has_interior:
+			print("[KnifeGeom] face %d: single touch point — no partition needed" % face_index)
+			run["no_op"] = true
+			return false
+		# Interior cut with a degenerate anchor pair: re-anchor the loose
+		# end to the nearest corner != the other anchor; the generic
+		# member-chain partition below then splits the face around the path.
+		var other := exit_vi
+		var end_p: Vector3 = run["points"][0] if entry.is_empty() \
+				else run["points"][run["points"].size() - 1]
+		var best_vi := -1
+		var best_d := INF
+		for vi: int in ring:
+			if vi == other:
+				continue
+			var d: float = mesh.vertices[vi].distance_squared_to(end_p)
+			if d < best_d:
+				best_d = d
+				best_vi = vi
+		if best_vi < 0:
+			print("[KnifeGeom] face %d: single touch point — no partition needed" % face_index)
+			run["no_op"] = true
+			return false
+		if entry.is_empty():
+			entry_vi = best_vi
+		else:
+			exit_vi = best_vi
+		entry_pos = ring.find(entry_vi)
+		exit_pos = ring.find(exit_vi)
+		print("[KnifeGeom] face %d: interior loose end re-anchored %d→%d" % [
+				face_index, other, best_vi])
 
 	# Member-chained partition: every path vertex that IS a ring member
 	# (edge-snapped points — phase 2 split them in; snapped corners reused)

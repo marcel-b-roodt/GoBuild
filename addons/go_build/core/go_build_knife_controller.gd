@@ -828,7 +828,18 @@ func _draw_crossing_preview(overlay: Control, camera: Camera3D, inv: Transform3D
 			var hp: Vector3 = inv * (hit["hit"] as Vector3)
 			if camera.is_position_behind(hp):
 				continue
+			# Occlusion cull (same rule as screen_edge_hits): the dot must
+			# be on the VISIBLE surface — a crossing whose ray hits a
+			# front-facing face closer than the edge point is behind the
+			# mesh (back-side edges drew a second off-geometry dot set).
 			var sp: Vector2 = camera.unproject_position(hp)
+			var ro: Vector3 = camera.project_ray_origin(sp)
+			var rd: Vector3 = camera.project_ray_normal(sp)
+			var face_t := _KNIFE_SCRIPT._nearest_face_ray_t(gbm,
+					_edited_node.global_transform, ro, rd)
+			if face_t == INF or (hp - ro).length() \
+					> face_t + (wb - wa).length() * 0.01:
+				continue
 			overlay.draw_circle(sp, 3.5, _HOVER_DOT_COLOR)
 			overlay.draw_arc(sp, 5.0, 0.0, TAU, 12, _HOVER_EDGE_COLOR, 1.0)
 	# TUNNELING crossings: segments between picks on adjacent faces pass
