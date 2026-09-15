@@ -171,7 +171,7 @@ func _redraw() -> void:
 			cam_fwd_local = cam_fwd_local.normalized()
 
 	match sel.get_mode():
-		SelectionManager.Mode.OBJECT:
+		SelectionManager.Mode.OBJECT, SelectionManager.Mode.PAINT:
 			pass  # Mesh renders normally; no sub-element overlay needed.
 
 		SelectionManager.Mode.VERTEX:

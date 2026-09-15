@@ -38,6 +38,8 @@ const _SNAP_TO_GRID_OP := preload(
 		"res://addons/go_build/mesh/operations/snap_to_grid_operation.gd")
 const _TRANSFORM_HELPERS := preload(
 		"res://addons/go_build/core/go_build_transform_helpers.gd")
+const _BRUSH_OVERLAY := preload(
+		"res://addons/go_build/core/go_build_brush_overlay.gd")
 const _DRAG_CTRL_SCRIPT    := preload(
 		"res://addons/go_build/core/go_build_drag_controller.gd")
 const _SHAPE_DRAW_CTRL_SCRIPT := preload(
@@ -56,6 +58,7 @@ const _SHORTCUT_OBJECT := "gobuild/shortcuts/object_mode"
 const _SHORTCUT_VERTEX := "gobuild/shortcuts/vertex_mode"
 const _SHORTCUT_EDGE   := "gobuild/shortcuts/edge_mode"
 const _SHORTCUT_FACE   := "gobuild/shortcuts/face_mode"
+const _SHORTCUT_PAINT  := "gobuild/shortcuts/paint_mode"
 
 ## Snap step presets shown in the toolbar picker.
 ## Index 0 is the "Editor" fallback (reads Godot editor grid step).
@@ -160,6 +163,18 @@ var _shortcut_object: Shortcut
 var _shortcut_vertex: Shortcut
 var _shortcut_edge:   Shortcut
 var _shortcut_face:   Shortcut
+var _shortcut_paint:  Shortcut
+
+# Selection mode remembered when entering Paint mode; restored on exit.
+var _mode_before_paint: SelectionManager.Mode = SelectionManager.Mode.OBJECT
+
+## Whether the vertex paint dock is currently shown (Paint-mode UX).
+var _paint_panel_visible: bool = false
+## Dock slot the paint panel was in before being hidden.
+var _paint_panel_slot: int = DOCK_SLOT_RIGHT_UL
+
+## Cog-menu toggle: show the collision debug overlay on the edited node.
+var _show_collision_debug: bool = false
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +263,9 @@ func _build_toolbar() -> void:
 	_toolbar.add_child(VSeparator.new())
 
 	# ── 3. Edit mode buttons ────────────────────────────────────────────
-	var mode_names: Array[String] = ["Object", "Vertex", "Edge", "Face"]
-	var mode_keys: Array[String] = ["1", "2", "3", "4"]
+	var mode_names: Array[String] = [
+			"Object", "Vertex", "Edge", "Face", "Paint"]
+	var mode_keys: Array[String] = ["1", "2", "3", "4", "5"]
 	for i: int in mode_names.size():
 		var mode_btn := Button.new()
 		mode_btn.text = mode_names[i]
@@ -322,6 +338,8 @@ func _build_toolbar() -> void:
 	cog_menu.set_item_checked(2, true)
 	cog_menu.add_check_item("Face Normals")
 	cog_menu.add_check_item("Vertex Normals")
+	cog_menu.add_check_item("Debug Collision Shapes")
+	cog_menu.set_item_checked(5, false)
 	cog_menu.add_separator()
 	cog_menu.add_item("Reset Panel Layout")
 	cog_menu.id_pressed.connect(_on_cog_menu_selected)
@@ -389,13 +407,25 @@ func _sync_toolbar_mode_buttons() -> void:
 	var active: int = SelectionManager.Mode.OBJECT
 	if _edited_node != null:
 		active = _edited_node.selection.get_mode()
+		# A paint session is its own mode for UI purposes: the toolbar shows
+		# Paint highlighted even though the underlying selection mode is
+		# VERTEX (paint rides on vertex-mode picking).
+		if active == SelectionManager.Mode.VERTEX and _vc_painter != null \
+				and _vc_painter.is_paint_mode():
+			active = SelectionManager.Mode.PAINT
 	_sync_toolbar_mode_buttons_value(active)
 
 
 ## Forward target for [method GoBuildPanel._sync_mode_buttons] so
 ## shortcut-driven changes made before/without the panel still sync.
 func sync_toolbar_mode_buttons(active_mode: SelectionManager.Mode) -> void:
-	_sync_toolbar_mode_buttons_value(active_mode as int)
+	var active: int = active_mode
+	# Same paint-session remap as _sync_toolbar_mode_buttons — the panel
+	# forwards VERTEX while a paint session is active; show Paint instead.
+	if active == SelectionManager.Mode.VERTEX and _vc_painter != null \
+			and _vc_painter.is_paint_mode():
+		active = SelectionManager.Mode.PAINT
+	_sync_toolbar_mode_buttons_value(active)
 
 
 func _sync_toolbar_mode_buttons_value(active: int) -> void:
@@ -430,6 +460,11 @@ func _on_cog_menu_selected(id: int) -> void:
 			var on: bool = not _gizmo_plugin.show_vertex_normals
 			set_show_vertex_normals(on)
 			_update_cog_check(4, on)
+		5:
+			_show_collision_debug = not _show_collision_debug
+			if _edited_node != null:
+				_edited_node.set_collision_debug_shown(_show_collision_debug)
+			_update_cog_check(5, _show_collision_debug)
 		_:
 			_reset_panel_layout()
 
@@ -983,6 +1018,9 @@ func _handle_mode_switch_in_global(key: InputEventKey) -> bool:
 	if _shortcut_face.matches_event(key):
 		switch_mode(SelectionManager.Mode.FACE)
 		return true
+	if _shortcut_paint.matches_event(key):
+		switch_mode(SelectionManager.Mode.PAINT)
+		return true
 	return false
 
 
@@ -1043,9 +1081,14 @@ func _handles(object: Object) -> bool:
 
 func _edit(object: Object) -> void:
 	# Capture the current edit mode so we can carry it to the new node.
-	var carry_mode: int = SelectionManager.Mode.OBJECT
+	# Paint mode doesn't carry: the new node drops back to Face (paint
+	# targets stay usable) and the remembered pre-paint mode is discarded.
+	var carry_mode: int = SelectionManager.Mode.FACE
 	if _edited_node != null and is_instance_valid(_edited_node):
 		carry_mode = _edited_node.selection.get_mode()
+		if carry_mode == SelectionManager.Mode.PAINT:
+			carry_mode = SelectionManager.Mode.FACE
+			_mode_before_paint = SelectionManager.Mode.OBJECT
 		# Disconnect signals BEFORE mutating the old node's selection so that
 		# mode_changed / selection_changed callbacks do not fire into plugin.gd
 		# while the node is mid-teardown.
@@ -1056,6 +1099,7 @@ func _edit(object: Object) -> void:
 		_edited_node.selection.set_mode(SelectionManager.Mode.OBJECT)
 		_edited_node.update_gizmos()
 		_edited_node.set_edit_cull_override(false)
+		_edited_node.set_collision_debug_shown(false)
 	else:
 		_disconnect_node_signals()
 
@@ -1087,10 +1131,13 @@ func _edit(object: Object) -> void:
 			_edited_node.selection.set_mode(carry_mode as SelectionManager.Mode)
 		if _edited_node.selection.mode != SelectionManager.Mode.OBJECT:
 			call_deferred("_suppress_native_gizmo")
+		_sync_paint_panel_visibility()
 
 	for panel in [_panel, _uv_panel, _vc_painter]:
 		if panel:
 			panel.set_target(_edited_node)
+	if _edited_node != null:
+		_edited_node.set_collision_debug_shown(_show_collision_debug)
 	if _panel != null and _panel.get_create_drawer() != null:
 		_panel.get_create_drawer().maybe_open_param_popup(_edited_node)
 	_refresh_panel_context()
@@ -1122,6 +1169,7 @@ func _make_visible(visible: bool) -> void:
 			_input_controller.clear_hover(_edited_node)
 		if _edited_node != null:
 			_edited_node.set_edit_cull_override(false)
+			_edited_node.set_collision_debug_shown(false)
 		_disconnect_node_signals()
 		_cleanup_drag_state()
 		_edited_node = null
@@ -1130,6 +1178,11 @@ func _make_visible(visible: bool) -> void:
 				panel.set_target(null)
 		if _panel:
 			_panel.update_context("")
+		# Leaving the node also leaves Paint mode: painter off, dock hidden.
+		if _vc_painter != null and _vc_painter.is_paint_mode():
+			_vc_painter.set_paint_mode(false)
+		_mode_before_paint = SelectionManager.Mode.OBJECT
+		_sync_paint_panel_visibility()
 
 
 # ---------------------------------------------------------------------------
@@ -1163,6 +1216,9 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 			var brush_result: int = _handle_paint_brush(camera, event)
 			if brush_result != 0:
 				return brush_result
+		# Dedicated Paint mode swallows viewport input: no element picking,
+		# no box select, no gizmo handling — only the brush acts.
+		return 1
 	if _edited_node == null:
 		return 0
 	var key_result: int = _handle_keyboard(event)
@@ -1293,84 +1349,21 @@ func _draw_polygon_cursor_overlay(overlay: Control) -> void:
 ## Draw the brush cursor circle at the hit point showing the brush radius.
 ## When the ray doesn't hit the mesh, draws a simpler circle at the mouse
 ## position with a fixed screen-space size so the cursor is always visible.
+# ---------------------------------------------------------------------------
+# Brush cursor overlay — rendering delegated to GoBuildBrushOverlay
+# ---------------------------------------------------------------------------
+
 func _draw_brush_cursor_overlay(overlay: Control) -> void:
 	if _vc_painter == null or not _vc_painter.is_paint_mode():
 		return
-	if _paint_brush == null:
+	if _paint_brush == null or _edited_node == null:
 		return
-	if _edited_node == null:
-		return
-	var draw_pos: Vector2 = _paint_brush.get_mouse_2d_pos()
-	if draw_pos == Vector2.INF:
-		draw_pos = _paint_brush.get_cursor_screen_pos()
-	if draw_pos == Vector2.INF:
-		return
-	var world_pos: Vector3 = _paint_brush.get_cursor_world_pos()
 	var vp: SubViewport = _editor_vp()
 	if vp == null:
 		return
-	var camera: Camera3D = vp.get_camera_3d()
-	if camera == null:
-		return
-	if world_pos == Vector3.INF:
-		var radius: float = _vc_painter.get_brush_radius()
-		var fallback_radius: float = radius * 20.0
-		fallback_radius = clampf(fallback_radius, 4.0, 60.0)
-		overlay.draw_arc(draw_pos, fallback_radius, 0.0, TAU, 64,
-			Color(1.0, 1.0, 1.0, 0.35), 1.0, true)
-		var fb_strength: float = _vc_painter.get_brush_strength()
-		var fb_inner: float = fallback_radius * fb_strength
-		if fb_inner > 1.0:
-			overlay.draw_arc(draw_pos, fb_inner, 0.0, TAU, 64,
-					Color(1.0, 0.85, 0.35, 0.35), 1.0, true)
-		_draw_paint_mode_info(overlay)
-		return
-	var radius: float = _vc_painter.get_brush_radius()
-	var avg_scale: float = (_edited_node.scale.x + _edited_node.scale.y + _edited_node.scale.z) / 3.0
-	var local_radius: float = radius / avg_scale if avg_scale > 0.001 else radius
-	var local_hit: Vector3 = _edited_node.to_local(world_pos)
-	var offset_local: Vector3 = local_hit + Vector3(local_radius, 0.0, 0.0)
-	var offset_world: Vector3 = _edited_node.to_global(offset_local)
-	var center_screen: Vector2 = camera.unproject_position(world_pos)
-	var offset_screen: Vector2 = camera.unproject_position(offset_world)
-	var screen_radius: float = (offset_screen - center_screen).length()
-	screen_radius = clampf(screen_radius, 4.0, 400.0)
-	var color: Color = Color(1.0, 1.0, 1.0, 0.7)
-	overlay.draw_arc(draw_pos, screen_radius, 0.0, TAU, 64, color, 1.5, true)
-	# Strength inner circle: fills from centre to strength percentage of the radius.
-	var strength: float = _vc_painter.get_brush_strength()
-	var inner_radius: float = screen_radius * strength
-	if inner_radius > 1.0:
-		overlay.draw_arc(draw_pos, inner_radius, 0.0, TAU, 64,
-				Color(1.0, 0.85, 0.35, 0.55), 1.0, true)
-	# Paint mode info label.
-	_draw_paint_mode_info(overlay)
-
-
-## Draw the paint mode info overlay (bottom-left of viewport).
-func _draw_paint_mode_info(overlay: Control) -> void:
-	if _vc_painter == null or not _vc_painter.is_paint_mode():
-		return
-	var font: Font = ThemeDB.fallback_font
-	var fsize: int = 12
-	var m: float = 8.0
-	var blend_names: Dictionary = {
-		0: "Mix", 1: "Add", 2: "Subtract", 3: "Multiply",
-	}
-	var blend_id: int = _vc_painter.get_blend_mode()
-	var blend_name: String = blend_names.get(blend_id, "Mix")
-	var radius_str: String = "R: %.2f" % _vc_painter.get_brush_radius()
-	var strength_str: String = "S: %.0f%%" % (_vc_painter.get_brush_strength() * 100.0)
-	var line1: String = "Paint | %s | %s | %s" % [blend_name, radius_str, strength_str]
-	var line2: String = "Alt+Click=Eyedropper  Alt+S=Size  Alt+D=Strength  Shift+A=Cycle Blend"
-	var line3: String = "Alt+Q/W/E/R=Channels  Alt+T=Isolate  Alt+1-5=Target"
-	var y: float = overlay.size.y - m - 18.0 - 18.0 - 18.0
-	_draw_shadowed_text(overlay, font, Vector2(m, y), line1, fsize,
-			Color(0.65, 1.0, 0.65, 0.90))
-	_draw_shadowed_text(overlay, font, Vector2(m, y + 18.0), line2, fsize,
-			Color(0.65, 0.85, 1.0, 0.75))
-	_draw_shadowed_text(overlay, font, Vector2(m, y + 36.0), line3, fsize,
-			Color(0.65, 0.85, 1.0, 0.75))
+	_BRUSH_OVERLAY.draw_brush_cursor(
+			overlay, _vc_painter, _paint_brush, _edited_node,
+			vp.get_camera_3d(), _draw_shadowed_text)
 
 
 # ---------------------------------------------------------------------------
@@ -1579,6 +1572,7 @@ func _init_shortcuts() -> void:
 	_shortcut_vertex = _require_shortcut(es, _SHORTCUT_VERTEX, KEY_2)
 	_shortcut_edge   = _require_shortcut(es, _SHORTCUT_EDGE,   KEY_3)
 	_shortcut_face   = _require_shortcut(es, _SHORTCUT_FACE,   KEY_4)
+	_shortcut_paint  = _require_shortcut(es, _SHORTCUT_PAINT,  KEY_5)
 
 
 func _require_shortcut(es: EditorSettings, setting: String, default_key: Key) -> Shortcut:
@@ -1630,6 +1624,20 @@ func set_show_vertex_normals(enabled: bool) -> void:
 
 
 func switch_mode(mode: SelectionManager.Mode) -> void:
+	# Paint is a dedicated mode: entering it remembers the previous selection
+	# mode (restored on exit) and forces the vertex painter on; leaving it
+	# turns the painter off and returns to the remembered mode.
+	if mode == SelectionManager.Mode.PAINT:
+		if _edited_node != null \
+				and _edited_node.selection.get_mode() != SelectionManager.Mode.PAINT:
+			_mode_before_paint = _edited_node.selection.get_mode()
+		if _vc_painter != null:
+			_vc_painter.set_paint_mode(true)
+		_set_mode(SelectionManager.Mode.VERTEX)
+		return
+	if _vc_painter != null and _vc_painter.is_paint_mode():
+		_vc_painter.set_paint_mode(false)
+	_mode_before_paint = SelectionManager.Mode.OBJECT
 	_set_mode(mode)
 
 
@@ -2117,6 +2125,7 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 		_input_controller.cancel_box_select(_edited_node)
 	_sync_toolbar_mode_buttons()
 	_refresh_panel_context()
+	_sync_paint_panel_visibility()
 	if mode != SelectionManager.Mode.OBJECT:
 		_was_in_edit_mode = true
 		call_deferred("_suppress_native_gizmo")
@@ -2124,6 +2133,27 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 		if _was_in_edit_mode and _tool_pinner != null and _gizmo_plugin != null:
 			_tool_pinner.restore_native_tool_mode(_gizmo_plugin.transform_mode)
 		_was_in_edit_mode = false
+
+
+## Show the vertex paint dock while a paint session is active (Paint mode or
+## the painter's own toggle), hide it otherwise.  The dock slot is remembered
+## so the panel returns to where the user had it.
+func _sync_paint_panel_visibility() -> void:
+	if _vc_painter == null:
+		return
+	# Paint session = painter flag (the selection mode rides on VERTEX).
+	var paint_active: bool = _edited_node != null \
+			and _vc_painter.is_paint_mode()
+	if paint_active and not _paint_panel_visible:
+		_paint_panel_visible = true
+		if not _vc_painter.is_inside_tree():
+			add_control_to_dock(_paint_panel_slot, _vc_painter)
+	elif not paint_active and _paint_panel_visible:
+		_paint_panel_visible = false
+		if _vc_painter.is_inside_tree():
+			_paint_panel_slot = _vc_painter.get_meta(
+					"display_window", DOCK_SLOT_RIGHT_UL)
+			remove_control_from_docks(_vc_painter)
 
 
 func _on_edited_node_removed() -> void:

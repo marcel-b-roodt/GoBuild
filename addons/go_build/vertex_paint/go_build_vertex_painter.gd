@@ -63,7 +63,7 @@ var _strength_spin: SpinBox = null
 var _fill_selected_btn: Button = null
 var _fill_all_btn: Button = null
 var _eyedropper_btn: Button = null
-var _paint_toggle: Button = null
+var _paint_active: bool = false
 var _target_channel: OptionButton = null
 var _greyscale_toggle: CheckBox = null
 var _greyscale_spin: HSlider = null
@@ -116,16 +116,7 @@ func _ready() -> void:
 	header.add_theme_font_size_override("font_size", 11)
 	add_child(header)
 
-	# ── Paint mode toggle ──────────────────────────────────────────────
-	_paint_toggle = Button.new()
-	_paint_toggle.text = "Paint"
-	_paint_toggle.tooltip_text = "Toggle paint mode — LMB paints in viewport when active"
-	_paint_toggle.toggle_mode = true
-	_paint_toggle.button_pressed = false
-	_paint_toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_paint_toggle.add_theme_font_size_override("font_size", 12)
-	_paint_toggle.pressed.connect(_on_paint_toggled)
-	add_child(_paint_toggle)
+	# ── Paint is a dedicated toolbar mode — no in-panel toggle button. ──
 
 	add_child(HSeparator.new())
 	var color_row := HBoxContainer.new()
@@ -346,8 +337,6 @@ func _ready() -> void:
 
 	add_child(fill_grid)
 
-	_update_paint_toggle_style()
-
 
 # ---------------------------------------------------------------------------
 # Public helpers
@@ -453,27 +442,26 @@ func select_target_channel(index: int) -> void:
 ## Toggle isolate view (Alt+T).
 ## Only works when paint mode is active.
 func toggle_isolate() -> void:
-	if _isolate_btn != null and _paint_toggle != null and _paint_toggle.button_pressed:
+	if _isolate_btn != null and _paint_active:
 		_isolate_btn.button_pressed = not _isolate_btn.button_pressed
 		_on_isolate_toggled()
 
 
 ## Whether paint mode is active (LMB paints in viewport).
+## The Paint toolbar button is the mode's only entry point; the plugin's
+## [method GoBuildPlugin.switch_mode] drives [method set_paint_mode].
 func is_paint_mode() -> bool:
-	return _paint_toggle != null and _paint_toggle.button_pressed
+	return _paint_active
 
 
-## Toggle paint mode on or off programmatically.
+## Activate or deactivate paint mode.  The plugin's Paint-mode state machine
+## calls this on enter (after switching selection to Vertex) and on exit.
 func set_paint_mode(enabled: bool) -> void:
-	if _paint_toggle != null:
-		_paint_toggle.button_pressed = enabled
-		_update_paint_toggle_style()
-
-
-func _on_paint_toggled() -> void:
-	_update_paint_toggle_style()
+	if enabled == _paint_active:
+		return
+	_paint_active = enabled
 	var gizmo_plugin = _plugin.get("_gizmo_plugin") if _plugin != null else null
-	if _paint_toggle.button_pressed:
+	if enabled:
 		# Ensure vertex colour data exists on the mesh.
 		if _target != null and _target.go_build_mesh != null:
 			_VC_OP_SCRIPT_VP._ensure_channel(
@@ -481,14 +469,12 @@ func _on_paint_toggled() -> void:
 		if _isolate_active:
 			# Isolate takes priority over paint materials — just refresh isolate view.
 			_apply_isolate_view()
-			_switch_to_vertex_mode()
 		else:
 			_enable_vertex_color_display()
-			_switch_to_vertex_mode()
 		if gizmo_plugin != null:
 			gizmo_plugin.show_vertex_colors = true
 	else:
-		# Turning paint mode off — also disable isolate.
+		# Leaving paint mode — also disable isolate.
 		if _isolate_active:
 			_isolate_active = false
 			_isolate_btn.button_pressed = false
@@ -503,29 +489,6 @@ func _on_paint_toggled() -> void:
 			gizmo_plugin.show_vertex_colors = false
 
 
-func _update_paint_toggle_style() -> void:
-	if _paint_toggle.button_pressed:
-		_paint_toggle.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
-		_paint_toggle.add_theme_color_override("font_hover_color", Color(1.0, 0.90, 0.50))
-		_paint_toggle.add_theme_color_override("font_pressed_color", Color(1.0, 0.85, 0.35))
-		var pressed_bg := StyleBoxFlat.new()
-		pressed_bg.bg_color = Color(0.30, 0.25, 0.12)
-		pressed_bg.set_corner_radius_all(4)
-		pressed_bg.set_content_margin_all(4)
-		_paint_toggle.add_theme_stylebox_override("pressed", pressed_bg)
-		var hover_bg := StyleBoxFlat.new()
-		hover_bg.bg_color = Color(0.35, 0.30, 0.15)
-		hover_bg.set_corner_radius_all(4)
-		hover_bg.set_content_margin_all(4)
-		_paint_toggle.add_theme_stylebox_override("hover", hover_bg)
-	else:
-		_paint_toggle.remove_theme_color_override("font_color")
-		_paint_toggle.remove_theme_color_override("font_hover_color")
-		_paint_toggle.remove_theme_color_override("font_pressed_color")
-		_paint_toggle.remove_theme_stylebox_override("pressed")
-		_paint_toggle.remove_theme_stylebox_override("hover")
-
-
 func _on_greyscale_toggled(pressed: bool) -> void:
 	_greyscale_spin.editable = pressed
 	_color_picker.visible = not pressed
@@ -537,14 +500,6 @@ func _on_greyscale_toggled(pressed: bool) -> void:
 
 func _on_greyscale_value_changed(value: float) -> void:
 	_greyscale_value_label.text = "%.2f" % value
-
-
-## Switch the target to vertex selection mode so vertex gizmos are visible.
-func _switch_to_vertex_mode() -> void:
-	if _target == null:
-		return
-	_target.selection.set_mode(SelectionManager.Mode.VERTEX)
-	_target.update_gizmos()
 
 
 ## Ensure vertex colours are visible on all materials when paint mode activates.
@@ -729,7 +684,7 @@ func _on_channel_toggled(_pressed: bool) -> void:
 
 func _on_isolate_toggled(_pressed: bool = false) -> void:
 	# Isolate only works in paint mode.
-	if _paint_toggle != null and not _paint_toggle.button_pressed:
+	if not _paint_active:
 		_isolate_btn.button_pressed = false
 		_isolate_active = false
 		_update_isolate_style()
@@ -841,7 +796,7 @@ func _apply_isolate_view() -> void:
 			_target.go_build_mesh, _isolate_original_colors)
 		_clear_material_overrides()
 		_target.bake_silently()
-		if _paint_toggle != null and _paint_toggle.button_pressed:
+		if _paint_active:
 			_apply_paint_materials()
 		return
 

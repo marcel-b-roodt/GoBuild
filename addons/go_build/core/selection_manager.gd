@@ -21,6 +21,7 @@ enum Mode {
 	VERTEX = 1, ## Individual vertex selection.
 	EDGE   = 2, ## Individual edge selection.
 	FACE   = 3, ## Individual face selection.
+	PAINT  = 4, ## Vertex paint mode; LMB paints, no element picking.
 }
 
 ## The active editing mode. Change via [method set_mode].

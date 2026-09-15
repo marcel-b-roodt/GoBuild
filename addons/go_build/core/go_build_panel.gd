@@ -534,6 +534,8 @@ func _on_target_mode_changed(new_mode: SelectionManager.Mode) -> void:
 			open_set = [_vertex_drawer]
 		SelectionManager.Mode.EDGE:
 			open_set = [_edge_drawer]
+		SelectionManager.Mode.PAINT:
+			pass  # Paint UI lives in its own dock panel, not this panel.
 	for drawer: GoBuildDrawer in [_create_drawer, _vertex_drawer, _edge_drawer,
 			_face_drawer, _uv_drawer, _surface_drawer]:
 		if drawer != null:

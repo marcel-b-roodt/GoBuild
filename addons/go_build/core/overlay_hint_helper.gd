@@ -44,7 +44,8 @@ static func build_hint(
 		tmode: int,
 		shift: bool,
 		ctrl: bool) -> String:
-	if mode == SelectionManager.Mode.OBJECT:
+	if mode == SelectionManager.Mode.OBJECT \
+			or mode == SelectionManager.Mode.PAINT:
 		return ""
 
 	var mode_label: String

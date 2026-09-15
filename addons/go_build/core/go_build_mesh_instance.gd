@@ -28,6 +28,10 @@ const _MESH_SCRIPT             := preload("res://addons/go_build/mesh/go_build_m
 const _FACE_SCRIPT             := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _SYMMETRY_SCRIPT         := preload("res://addons/go_build/core/go_build_symmetry.gd")
 
+## Inflation factor for the editor-only collision debug overlay: pushes the
+## debug surface slightly off the mesh to avoid z-fighting.
+const _COLLISION_DEBUG_INFLATE := 1.002
+
 # ---------------------------------------------------------------------------
 # Mesh (ungrouped)
 # ---------------------------------------------------------------------------
@@ -138,6 +142,10 @@ var _restoring: bool = false
 var _collision_body: StaticBody3D = null
 var _collision_shape: CollisionShape3D = null
 var _collision_debug_mesh: MeshInstance3D = null
+
+## Whether the selected-only collision debug overlay may render.  Driven by
+## the plugin's cog-menu toggle; off by default.
+var _collision_debug_shown: bool = false
 
 ## When true, [method bake] applies double-sided (cull-disabled) surface
 ## override materials so back-faces are visible in the editor viewport.
@@ -640,6 +648,12 @@ func _update_collision_debug_overlay() -> void:
 			or _collision_shape.shape == null:
 		_remove_collision_debug_overlay()
 		return
+	# Only shown while the node is the plugin's edit target (selected) and
+	# the plugin's Debug Collision Shapes toggle is on — a global tint on
+	# every GoBuild mesh both z-fights and drowns the viewport.
+	if not _collision_debug_shown:
+		_remove_collision_debug_overlay()
+		return
 	var debug_mesh: Mesh = _collision_shape.shape.get_debug_mesh()
 	if _collision_debug_mesh != null and is_instance_valid(_collision_debug_mesh):
 		_collision_debug_mesh.mesh = debug_mesh
@@ -648,10 +662,13 @@ func _update_collision_debug_overlay() -> void:
 	_collision_debug_mesh = MeshInstance3D.new()
 	_collision_debug_mesh.name = "CollisionDebugOverlay"
 	_collision_debug_mesh.mesh = debug_mesh
-	_collision_debug_mesh.global_transform = global_transform
+	# Slight inflation keeps the debug surface off the mesh surface — no
+	# z-fighting — while staying visually aligned.
+	_collision_debug_mesh.global_transform = global_transform.scaled_local(
+			Vector3.ONE * _COLLISION_DEBUG_INFLATE)
 	var mat := StandardMaterial3D.new()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(0.0, 0.6, 0.7, 0.15)
+	mat.albedo_color = Color(0.0, 0.6, 0.7, 0.08)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_collision_debug_mesh.material_override = mat
@@ -659,12 +676,19 @@ func _update_collision_debug_overlay() -> void:
 	add_child(_collision_debug_mesh, true)
 
 
+## Toggle the selected-only collision debug overlay (cog-menu driven).
+func set_collision_debug_shown(shown: bool) -> void:
+	_collision_debug_shown = shown
+	if is_inside_tree():
+		_update_collision_debug_overlay()
+
+
 func _remove_collision_debug_overlay() -> void:
 	if _collision_debug_mesh != null and is_instance_valid(_collision_debug_mesh):
 		var parent := _collision_debug_mesh.get_parent()
 		if parent != null:
 			parent.remove_child(_collision_debug_mesh)
-		_collision_debug_mesh.queue_free()
+			_collision_debug_mesh.queue_free()
 	_collision_debug_mesh = null
 
 
