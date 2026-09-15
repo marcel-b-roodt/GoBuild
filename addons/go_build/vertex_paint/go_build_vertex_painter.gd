@@ -21,6 +21,8 @@ const _SEL_MGR_SCRIPT_VP     := preload("res://addons/go_build/core/selection_ma
 const _MESH_INST_SCRIPT_VP   := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _VC_OP_SCRIPT_VP       := \
 		preload("res://addons/go_build/mesh/operations/vertex_color_operation.gd")
+const _ALPHA_REMAP_SCRIPT_VP := \
+		preload("res://addons/go_build/mesh/operations/alpha_remap_operation.gd")
 
 const _ISOLATE_SHADER_CODE: String = """shader_type spatial;
 render_mode unshaded;
@@ -657,8 +659,10 @@ func _on_fill_selected_pressed() -> void:
 		faces.assign(sel)
 		_target.apply_operation(
 			"Fill Vertex Color",
-			func(): _VC_OP_SCRIPT_VP.fill_faces(
-				_target.go_build_mesh, faces, color, blend, mask, target),
+			func():
+				_VC_OP_SCRIPT_VP.fill_faces(
+					_target.go_build_mesh, faces, color, blend, mask, target)
+				_remap_alpha_after_fill(faces, target),
 			_plugin.get_undo_redo(),
 		)
 	elif mode == SelectionManager.Mode.VERTEX:
@@ -669,18 +673,45 @@ func _on_fill_selected_pressed() -> void:
 		verts.assign(sel)
 		_target.apply_operation(
 			"Paint Vertex Color",
-			func(): _VC_OP_SCRIPT_VP.set_vertices(
-				_target.go_build_mesh, verts, color, blend, mask, target),
+			func():
+				_VC_OP_SCRIPT_VP.set_vertices(
+					_target.go_build_mesh, verts, color, blend, mask, target)
+				_remap_alpha_after_fill(_faces_of_vertices(verts), target),
 			_plugin.get_undo_redo(),
 		)
 	elif mode == SelectionManager.Mode.OBJECT:
 		_target.apply_operation(
 			"Fill All Vertex Colors",
-			func(): _VC_OP_SCRIPT_VP.fill_all(
-				_target.go_build_mesh, color, blend, mask, target),
+			func():
+				_VC_OP_SCRIPT_VP.fill_all(
+					_target.go_build_mesh, color, blend, mask, target)
+				_remap_alpha_after_fill(
+					GoBuildMesh.all_face_indices(
+						_target.go_build_mesh.faces.size()), target),
 			_plugin.get_undo_redo(),
 	)
 	_target.update_gizmos()
+
+
+## Auto-remap metre faces after a fill; runs inside the undo action's do-method.
+func _remap_alpha_after_fill(face_indices: Array[int], target: int) -> void:
+	if _target == null or _target.go_build_mesh == null:
+		return
+	_ALPHA_REMAP_SCRIPT_VP.apply(_target.go_build_mesh, face_indices, target)
+
+
+## Faces containing any of [param vertex_indices] (vertex-mode fill path).
+func _faces_of_vertices(vertex_indices: Array[int]) -> Array[int]:
+	var wanted: Dictionary = {}
+	for vi: int in vertex_indices:
+		wanted[vi] = true
+	var result: Array[int] = []
+	for fi: int in _target.go_build_mesh.faces.size():
+		for vi: int in _target.go_build_mesh.faces[fi].vertex_indices:
+			if wanted.has(vi):
+				result.append(fi)
+				break
+	return result
 
 
 # ---------------------------------------------------------------------------
@@ -879,8 +910,12 @@ func _on_fill_all_pressed() -> void:
 	var target: int = get_target_channel()
 	_target.apply_operation(
 		"Fill All Vertex Colors",
-		func(): _VC_OP_SCRIPT_VP.fill_all(
-			_target.go_build_mesh, color, blend, mask, target),
+		func():
+			_VC_OP_SCRIPT_VP.fill_all(
+				_target.go_build_mesh, color, blend, mask, target)
+			_remap_alpha_after_fill(
+				GoBuildMesh.all_face_indices(
+					_target.go_build_mesh.faces.size()), target),
 		_plugin.get_undo_redo(),
 	)
 	_target.update_gizmos()

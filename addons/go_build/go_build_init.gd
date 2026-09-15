@@ -69,6 +69,8 @@ const _AUTO_SMOOTH    := preload("res://addons/go_build/mesh/operations/auto_smo
 const _SMOOTH_GRP     := preload("res://addons/go_build/mesh/operations/smooth_group_operation.gd")
 const _HARD_EDGE      := preload("res://addons/go_build/mesh/operations/hard_edge_operation.gd")
 const _TRIANGULATE_OP := preload("res://addons/go_build/mesh/operations/triangulate_operation.gd")
+const _ALPHA_REMAP    := preload(
+		"res://addons/go_build/mesh/operations/alpha_remap_operation.gd")
 
 # ── Layer 2: UV (depends on GoBuildMesh) ─────────────────────────────────
 

@@ -165,6 +165,17 @@ func test_ensure_default_palette_creates_palette_object() -> void:
 		assert_int(pal.materials.size()).is_greater_equal(3)
 
 
+func test_default_palette_has_metre_alpha_as_second_slot() -> void:
+	var pal := load("res://addons/go_build/default_palette.tres") as GoBuildMaterialPalette
+	assert_int(pal.materials.size()).is_equal(5)
+	var alpha: Material = pal.materials[1]
+	assert_bool(alpha is BaseMaterial3D).is_true()
+	assert_int((alpha as BaseMaterial3D).transparency) \
+			.is_equal(BaseMaterial3D.TRANSPARENCY_ALPHA)
+	assert_str((alpha as BaseMaterial3D).resource_name) \
+			.is_equal("go_build_metre_alpha")
+
+
 # ---------------------------------------------------------------------------
 # GoBuildProjectSettings.discover_palettes
 # ---------------------------------------------------------------------------

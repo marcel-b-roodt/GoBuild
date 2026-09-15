@@ -8,6 +8,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Selective per-face transparency** — vertex painting alpha < 1.0 no longer
+  forces TRANSPARENCY_ALPHA on the shared `go_build_material.tres` slot
+  material (the root cause of whole-mesh transparency and depth/occlusion
+  confusion). Faces touched by an alpha paint are remapped to the shared
+  `go_build_material_alpha.tres` (no duplicates created); painting alpha back
+  to 1.0 remaps them to the opaque original. Custom materials are never
+  touched and no material metadata is read or written (fixes a spurious
+  `meta` error when painting on custom materials). The alpha material also
+  ships as the second Default-palette slot for manual face assignment.
+
 ---
 
 ## [0.11.0] — 2026-09-14

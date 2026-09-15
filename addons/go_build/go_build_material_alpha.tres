@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://njfevmbj67ci"]
+
+[ext_resource type="Texture2D" uid="uid://feioe34cxp8f" path="res://addons/go_build/go_build_metre_texture.png" id="1_0p1j3"]
+
+[resource]
+resource_name = "go_build_metre_alpha"
+transparency = 1
+depth_draw_mode = 3
+vertex_color_use_as_albedo = true
+albedo_texture = ExtResource("1_0p1j3")

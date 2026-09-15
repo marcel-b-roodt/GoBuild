@@ -66,3 +66,13 @@ static func grey_material() -> StandardMaterial3D:
 	_grey = StandardMaterial3D.new()
 	_grey.albedo_color = Color(0.5, 0.5, 0.5)
 	return _grey
+
+
+## The one transparent twin of the metre material the per-face alpha remap
+## assigns: the loaded [code]go_build_material_alpha.tres[/code].  Shared —
+## no duplicates.  Returns [code]null[/code] when the file is missing.
+static func metre_alpha_material() -> Material:
+	var path := "res://addons/go_build/go_build_material_alpha.tres"
+	if not ResourceLoader.exists(path):
+		return null
+	return load(path)

@@ -109,6 +109,9 @@ static func ensure_default_palette() -> GoBuildMaterialPalette:
 	var metre_mat := _load_or_null("res://addons/go_build/go_build_material.tres")
 	if metre_mat != null:
 		pal.materials.append(metre_mat)
+	var metre_alpha := _load_or_null("res://addons/go_build/go_build_material_alpha.tres")
+	if metre_alpha != null:
+		pal.materials.append(metre_alpha)
 	pal.materials.append(GoBuildMaterials.white_material())
 	pal.materials.append(GoBuildMaterials.grey_material())
 	pal.materials.append(GoBuildMaterials.checker_material())

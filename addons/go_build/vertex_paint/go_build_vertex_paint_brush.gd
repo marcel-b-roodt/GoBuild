@@ -20,10 +20,12 @@ class_name GoBuildVertexPaintBrush
 extends RefCounted
 
 # Self-preloads — dependency order.
-const _MESH_SCRIPT_PB       := preload("res://addons/go_build/mesh/go_build_mesh.gd")
+const _FACE_SCRIPT_PB       := preload("res://addons/go_build/mesh/go_build_face.gd")
 const _MESH_INST_SCRIPT_PB := preload("res://addons/go_build/core/go_build_mesh_instance.gd")
 const _VC_OP_SCRIPT_PB      := \
 		preload("res://addons/go_build/mesh/operations/vertex_color_operation.gd")
+const _ALPHA_REMAP_SCRIPT_PB := \
+		preload("res://addons/go_build/mesh/operations/alpha_remap_operation.gd")
 
 var _plugin: EditorPlugin = null
 var _painter: GoBuildVertexPainter = null
@@ -134,6 +136,7 @@ func end_stroke(node: GoBuildMeshInstance, ur: EditorUndoRedoManager) -> void:
 		_ensure_mouse_visible()
 		return
 	var snapshot := _snapshot
+	var painted: Dictionary = _painted_vertices.duplicate()
 	_active = false
 	_painted_vertices.clear()
 	_ensure_mouse_visible()
@@ -142,11 +145,30 @@ func end_stroke(node: GoBuildMeshInstance, ur: EditorUndoRedoManager) -> void:
 	node.end_preview()
 	if _painter != null and _painter.is_isolate_active():
 		_painter.sync_isolate_vertex_colors()
+	_remap_alpha_faces(node, painted)
 	node.bake()
 	ur.create_action("Paint Vertex Color")
 	ur.add_do_method(node, "bake")
 	ur.add_undo_method(node, "restore_and_bake", snapshot)
 	ur.commit_action()
+
+
+## Remap metre-material faces touched by this stroke to transparent variants
+## (or back to opaque when painted alpha returns to 1.0).  Silent on failure —
+## the undo snapshot already captures slot state either way.
+func _remap_alpha_faces(node: GoBuildMeshInstance, painted: Dictionary) -> void:
+	if node.go_build_mesh == null or painted.is_empty():
+		return
+	var faces: Array[int] = []
+	for fi: int in node.go_build_mesh.faces.size():
+		var face: GoBuildFace = node.go_build_mesh.faces[fi]
+		for vi: int in face.vertex_indices:
+			if painted.has(vi):
+				faces.append(fi)
+				break
+	if not faces.is_empty():
+		_ALPHA_REMAP_SCRIPT_PB.apply(
+				node.go_build_mesh, faces, _painter.get_target_channel())
 
 
 ## Cancel the stroke without committing undo.

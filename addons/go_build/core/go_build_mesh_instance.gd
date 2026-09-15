@@ -202,7 +202,6 @@ func bake() -> void:
 	if auto_uv_mode != GoBuildFace.UvMode.NONE:
 		_apply_auto_uv()
 	mesh = go_build_mesh.bake()
-	_ensure_vertex_alpha_materials()
 	if _edit_cull_override:
 		_apply_cull_overrides()
 	mesh_changed.emit()
@@ -220,7 +219,6 @@ func bake_silently() -> void:
 	if auto_uv_mode != GoBuildFace.UvMode.NONE:
 		_apply_auto_uv()
 	mesh = go_build_mesh.bake()
-	_ensure_vertex_alpha_materials()
 	if _edit_cull_override:
 		_apply_cull_overrides()
 	_update_collision_shape()
@@ -559,24 +557,6 @@ func _clear_cull_overrides() -> void:
 		return
 	for i: int in am.get_surface_count():
 		set_surface_override_material(i, null)
-
-
-## Ensure material slots have vertex colour and transparency settings
-## consistent with whether [member GoBuildMesh.vertex_colors] has any alpha < 1.0.
-## When alpha is present, all [BaseMaterial3D] slots get transparency enabled.
-func _ensure_vertex_alpha_materials() -> void:
-	if go_build_mesh == null:
-		return
-	var has_colors: bool = go_build_mesh.vertex_colors.size() == go_build_mesh.vertices.size()
-	if not has_colors:
-		return
-	var has_alpha: bool = go_build_mesh.has_alpha_below_one()
-	for mat: Material in go_build_mesh.material_slots:
-		if mat is BaseMaterial3D:
-			var bmat: BaseMaterial3D = mat as BaseMaterial3D
-			bmat.vertex_color_use_as_albedo = true
-			if has_alpha:
-				bmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
 
 # ---------------------------------------------------------------------------
