@@ -170,8 +170,6 @@ var _mode_before_paint: SelectionManager.Mode = SelectionManager.Mode.OBJECT
 
 ## Whether the vertex paint dock is currently shown (Paint-mode UX).
 var _paint_panel_visible: bool = false
-## Dock slot the paint panel was in before being hidden.
-var _paint_panel_slot: int = DOCK_SLOT_RIGHT_UL
 
 ## Cog-menu toggle: show the collision debug overlay on the edited node.
 var _show_collision_debug: bool = false
@@ -219,7 +217,7 @@ func _enter_tree() -> void:
 
 	_vc_painter = _VC_PAINTER_SCRIPT.new()
 	_vc_painter.name = "GoBuild Vertex Paint"
-	add_control_to_dock(DOCK_SLOT_RIGHT_UL, _vc_painter)
+	add_control_to_dock(DOCK_SLOT_LEFT_UL, _vc_painter)
 	_vc_painter.set_plugin(self)
 
 	_paint_brush = _PAINT_BRUSH_SCRIPT.new()
@@ -634,7 +632,7 @@ func _reset_panel_layout() -> void:
 	if _uv_panel != null and is_instance_valid(_uv_panel):
 		add_control_to_dock(DOCK_SLOT_BOTTOM, _uv_panel)
 	if _vc_painter != null and is_instance_valid(_vc_painter):
-		add_control_to_dock(DOCK_SLOT_RIGHT_UL, _vc_painter)
+		add_control_to_dock(DOCK_SLOT_LEFT_UL, _vc_painter)
 
 
 ## Cancel any active material-drop preview and reset drag state.
@@ -2147,12 +2145,10 @@ func _sync_paint_panel_visibility() -> void:
 	if paint_active and not _paint_panel_visible:
 		_paint_panel_visible = true
 		if not _vc_painter.is_inside_tree():
-			add_control_to_dock(_paint_panel_slot, _vc_painter)
+			add_control_to_dock(DOCK_SLOT_LEFT_UL, _vc_painter)
 	elif not paint_active and _paint_panel_visible:
 		_paint_panel_visible = false
 		if _vc_painter.is_inside_tree():
-			_paint_panel_slot = _vc_painter.get_meta(
-					"display_window", DOCK_SLOT_RIGHT_UL)
 			remove_control_from_docks(_vc_painter)
 
 
