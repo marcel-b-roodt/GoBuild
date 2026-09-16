@@ -55,7 +55,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - **Vertex Paint dock shares the GoBuild panel slot** (left dock, tabbed) —
-  panel layout reset restores both.
+  panel layout reset restores both; the dock is hidden at plugin start and
+  only appears during an active Paint session.
 - **Brush stroke performance** — dabs closer than a quarter brush radius to
   the previous dab are skipped (one full preview bake saved each); the
   smooth-region BFS in mesh bake early-outs when no face is smooth (the
