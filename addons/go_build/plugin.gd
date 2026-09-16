@@ -170,6 +170,8 @@ var _mode_before_paint: SelectionManager.Mode = SelectionManager.Mode.OBJECT
 
 ## Whether the vertex paint dock is currently shown (Paint-mode UX).
 var _paint_panel_visible: bool = false
+## Whether the GoBuild panel was undocked to make room for the paint dock.
+var _panel_hidden_for_paint: bool = false
 
 ## Cog-menu toggle: show the collision debug overlay on the edited node.
 var _show_collision_debug: bool = false
@@ -2133,9 +2135,9 @@ func _on_mode_changed(mode: SelectionManager.Mode) -> void:
 		_was_in_edit_mode = false
 
 
-## Show the vertex paint dock while a paint session is active (Paint mode or
-## the painter's own toggle), hide it otherwise.  The dock slot is remembered
-## so the panel returns to where the user had it.
+## Show the vertex paint dock while a paint session is active, hide it
+## otherwise.  Swap-style UX: the GoBuild panel is undocked while Paint is
+## active and re-docked when it ends (same slot, so they exchange places).
 func _sync_paint_panel_visibility() -> void:
 	if _vc_painter == null:
 		return
@@ -2146,10 +2148,19 @@ func _sync_paint_panel_visibility() -> void:
 		_paint_panel_visible = true
 		if not _vc_painter.is_inside_tree():
 			add_control_to_dock(DOCK_SLOT_LEFT_UL, _vc_painter)
+		if _panel_scroll != null and is_instance_valid(_panel_scroll) \
+				and _panel_scroll.is_inside_tree():
+			remove_control_from_docks(_panel_scroll)
+			_panel_hidden_for_paint = true
 	elif not paint_active and _paint_panel_visible:
 		_paint_panel_visible = false
 		if _vc_painter.is_inside_tree():
 			remove_control_from_docks(_vc_painter)
+		if _panel_hidden_for_paint \
+				and _panel_scroll != null and is_instance_valid(_panel_scroll) \
+				and not _panel_scroll.is_inside_tree():
+			add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel_scroll)
+		_panel_hidden_for_paint = false
 
 
 func _on_edited_node_removed() -> void:
