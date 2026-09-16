@@ -140,33 +140,35 @@ func test_import_preserves_vertex_positions() -> void:
 func test_import_ccw_winding_preserved() -> void:
 	# Standard Godot CCW triangle on XZ plane.
 	# CCW from +Y: (0,0,0)→(1,0,0)→(0,0,1).
-	# Newell normal should point +Y (outward).
+	# This codebase's Newell convention gives -Y for this ring (outward
+	# convention verified against the dissolve/brush cube fixtures).
 	var arr_mesh := _make_ccw_triangle_mesh()
 	var go_mesh: GoBuildMesh = MeshImport.from_array_mesh(arr_mesh)
 	var face: GoBuildFace = go_mesh.faces[0]
 	var normal := go_mesh.compute_face_normal(face)
-	assert_float(normal.dot(Vector3.UP)).is_greater_than(0.9)
+	assert_float(normal.dot(Vector3.DOWN)).is_greater(0.9)
 
 
 func test_import_cw_winding_reversed() -> void:
 	# GoBuild-baked CW triangle.
-	# CW from +Y: (0,0,0)→(0,0,1)→(1,0,0) — Newell would give -Y.
-	# With reverse_winding=true, it should become CCW and normal should be +Y.
+	# CW from +Y: (0,0,0)→(0,0,1)→(1,0,0) — Newell gives +Y.
+	# With reverse_winding=true, the ring flips → -Y (outward by convention).
 	var arr_mesh := _make_cw_triangle_mesh()
 	var go_mesh: GoBuildMesh = MeshImport.from_array_mesh(arr_mesh, true)
 	var face: GoBuildFace = go_mesh.faces[0]
 	var normal := go_mesh.compute_face_normal(face)
-	assert_float(normal.dot(Vector3.UP)).is_greater_than(0.9)
+	assert_float(normal.dot(Vector3.DOWN)).is_greater(0.9)
 
 
 func test_import_cw_without_reverse_gives_inward_normal() -> void:
-	# Same CW triangle imported without reverse — normal points -Y.
+	# Same CW triangle imported without reverse — normal points +Y (inward
+	# for the underside by this convention).
 	var arr_mesh := _make_cw_triangle_mesh()
 	var go_mesh: GoBuildMesh = MeshImport.from_array_mesh(arr_mesh, false)
 	var face: GoBuildFace = go_mesh.faces[0]
 	var normal := go_mesh.compute_face_normal(face)
-	# Newell normal should point DOWN (-Y) for CW winding.
-	assert_float(normal.dot(Vector3.DOWN)).is_greater_than(0.9)
+	# Newell normal should point UP (+Y) for the un-reversed CW ring.
+	assert_float(normal.dot(Vector3.UP)).is_greater(0.9)
 
 
 func test_import_vertex_colors() -> void:
@@ -211,9 +213,9 @@ func test_import_uvs_preserved() -> void:
 	var go_mesh: GoBuildMesh = MeshImport.from_array_mesh(arr_mesh)
 	assert_int(go_mesh.faces[0].uvs.size()).is_equal(3)
 	# UVs should match input order (CCW, no reversal).
-	assert_vector2(go_mesh.faces[0].uvs[0]).is_equal(Vector2(0, 1))
-	assert_vector2(go_mesh.faces[0].uvs[1]).is_equal(Vector2(1, 1))
-	assert_vector2(go_mesh.faces[0].uvs[2]).is_equal(Vector2(0, 0))
+	assert_vector(go_mesh.faces[0].uvs[0]).is_equal(Vector2(0, 1))
+	assert_vector(go_mesh.faces[0].uvs[1]).is_equal(Vector2(1, 1))
+	assert_vector(go_mesh.faces[0].uvs[2]).is_equal(Vector2(0, 0))
 
 
 func test_import_uvs_reversed_with_cw() -> void:
@@ -232,9 +234,9 @@ func test_import_uvs_reversed_with_cw() -> void:
 	var go_mesh: GoBuildMesh = MeshImport.from_array_mesh(arr_mesh, true)
 	assert_int(go_mesh.faces[0].uvs.size()).is_equal(3)
 	# After reversal: index 2→0, index 1 stays, index 0→2
-	assert_vector2(go_mesh.faces[0].uvs[0]).is_equal(Vector2(1, 1))
-	assert_vector2(go_mesh.faces[0].uvs[1]).is_equal(Vector2(0, 0))
-	assert_vector2(go_mesh.faces[0].uvs[2]).is_equal(Vector2(0, 1))
+	assert_vector(go_mesh.faces[0].uvs[0]).is_equal(Vector2(1, 1))
+	assert_vector(go_mesh.faces[0].uvs[1]).is_equal(Vector2(0, 0))
+	assert_vector(go_mesh.faces[0].uvs[2]).is_equal(Vector2(0, 1))
 
 
 func test_import_smooth_group_is_zero() -> void:

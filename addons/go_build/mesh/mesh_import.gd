@@ -60,10 +60,16 @@ static func from_array_mesh(
 		if verts.is_empty():
 			continue
 
-		var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV] as PackedVector2Array
-		var uv2s: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2] as PackedVector2Array
-		var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR] as PackedColorArray
-		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] as PackedInt32Array
+		# Absent channels arrive as null — `null as PackedXArray` errors,
+		# so read via Variant and default to empty.
+		var uvs_raw: Variant = arrays[Mesh.ARRAY_TEX_UV]
+		var uv2s_raw: Variant = arrays[Mesh.ARRAY_TEX_UV2]
+		var colors_raw: Variant = arrays[Mesh.ARRAY_COLOR]
+		var indices_raw: Variant = arrays[Mesh.ARRAY_INDEX]
+		var uvs: PackedVector2Array = uvs_raw if uvs_raw != null else PackedVector2Array()
+		var uv2s: PackedVector2Array = uv2s_raw if uv2s_raw != null else PackedVector2Array()
+		var colors: PackedColorArray = colors_raw if colors_raw != null else PackedColorArray()
+		var indices: PackedInt32Array = indices_raw if indices_raw != null else PackedInt32Array()
 
 		var has_uvs: bool = uvs.size() == verts.size()
 		var has_uv2s: bool = uv2s.size() == verts.size()
