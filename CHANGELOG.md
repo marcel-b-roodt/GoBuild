@@ -8,6 +8,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [0.11.1] — 2026-09-16
+
 ### Added
 - **Paint as a dedicated toolbar mode** — Paint joins Object/Vertex/Edge/Face
   as the fifth toolbar mode (shortcut 5); entering remembers the previous
