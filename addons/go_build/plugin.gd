@@ -30,6 +30,8 @@ const _PAINT_BRUSH_SCRIPT := preload(
 		"res://addons/go_build/vertex_paint/go_build_vertex_paint_brush.gd")
 const _CONTROLLER_SCRIPT    := preload(
 		"res://addons/go_build/core/selection_input_controller.gd")
+const _DEBUG_DUMP           := preload(
+		"res://addons/go_build/core/go_build_debug_dump.gd")
 const _CHEATSHEET_SCRIPT    := preload(
 		"res://addons/go_build/core/go_build_cheatsheet_popup.gd")
 const _TOOL_PINNER_SCRIPT   := preload(
@@ -330,16 +332,16 @@ func _build_toolbar() -> void:
 	cog.icon = EditorInterface.get_editor_theme().get_icon(
 			"Tools", "EditorIcons")
 	var cog_menu: PopupMenu = cog.get_popup()
-	cog_menu.add_item("Print Selection")
-	cog_menu.add_separator()
-	cog_menu.add_check_item("Debug Logging")
-	cog_menu.set_item_checked(1, GoBuildDebug.enabled)
 	cog_menu.add_check_item("X-Ray (show through mesh)")
-	cog_menu.set_item_checked(2, true)
+	cog_menu.set_item_checked(0, true)
 	cog_menu.add_check_item("Face Normals")
 	cog_menu.add_check_item("Vertex Normals")
+	cog_menu.add_separator()
+	cog_menu.add_item("Print Selection")
+	cog_menu.add_check_item("Debug Logging")
+	cog_menu.set_item_checked(5, GoBuildDebug.enabled)
 	cog_menu.add_check_item("Debug Collision Shapes")
-	cog_menu.set_item_checked(5, false)
+	cog_menu.set_item_checked(6, false)
 	cog_menu.add_separator()
 	cog_menu.add_item("Reset Panel Layout")
 	cog_menu.id_pressed.connect(_on_cog_menu_selected)
@@ -441,31 +443,33 @@ func _on_help_pressed() -> void:
 
 
 func _on_cog_menu_selected(id: int) -> void:
+	# Item ids equal insertion indices; separators occupy an index without
+	# consuming one, so the id sequence skips at each divider (0-2, 4-6, 8).
 	match id:
 		0:
-			_on_print_selection()
-		1:
-			var on: bool = not GoBuildDebug.enabled
-			GoBuildDebug.enabled = on
-			_update_cog_check(1, on)
-		2:
 			var on: bool = not _gizmo_plugin.xray_mode
 			set_xray_mode(on)
-			_update_cog_check(2, on)
-		3:
+			_update_cog_check(0, on)
+		1:
 			var on: bool = not _gizmo_plugin.show_face_normals
 			set_show_face_normals(on)
-			_update_cog_check(3, on)
-		4:
+			_update_cog_check(1, on)
+		2:
 			var on: bool = not _gizmo_plugin.show_vertex_normals
 			set_show_vertex_normals(on)
-			_update_cog_check(4, on)
+			_update_cog_check(2, on)
+		4:
+			_on_print_selection()
 		5:
+			var on: bool = not GoBuildDebug.enabled
+			GoBuildDebug.enabled = on
+			_update_cog_check(5, on)
+		6:
 			_show_collision_debug = not _show_collision_debug
 			if _edited_node != null:
 				_edited_node.set_collision_debug_shown(_show_collision_debug)
-			_update_cog_check(5, _show_collision_debug)
-		_:
+			_update_cog_check(6, _show_collision_debug)
+		8:
 			_reset_panel_layout()
 
 
@@ -504,8 +508,7 @@ func _on_print_selection() -> void:
 			f_parts.append("%d ring=%s" % [fi, gbm.faces[fi].vertex_indices])
 		print("[Selection] faces (%d): %s" % [faces.size(), "; ".join(f_parts)])
 	if verts.is_empty() and edges.is_empty() and faces.is_empty():
-		print("[Selection] nothing selected")
-
+		_DEBUG_DUMP.print_mesh_geometry(gbm)
 
 func _build_draw_overlay() -> void:
 	var vp: SubViewport = _editor_vp()
@@ -619,9 +622,13 @@ func _exit_tree() -> void:
 		_tool_pinner = null
 
 
-## Remove both dock panels from their current positions and re-add them
+## Remove all dock panels from their current positions and re-add them
 ## to the default dock slots.  This recovers closed or misplaced panels.
 func _reset_panel_layout() -> void:
+	# Re-syncing the paint UX first makes the remove calls below safe when
+	# the panel is currently swapped out for the paint dock.
+	_paint_panel_visible = false
+	_panel_hidden_for_paint = false
 	if _panel_scroll != null and is_instance_valid(_panel_scroll):
 		remove_control_from_docks(_panel_scroll)
 	if _uv_panel != null and is_instance_valid(_uv_panel):

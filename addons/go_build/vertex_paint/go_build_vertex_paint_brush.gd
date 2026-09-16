@@ -46,6 +46,11 @@ var _resize_origin: Vector2 = Vector2.INF
 var _resize_warp_pending: bool = false
 var _saved_mouse_mode: int = Input.MOUSE_MODE_VISIBLE
 
+# Local-space position of the last dab this stroke.  Dabs closer than a
+# quarter-radius to it are skipped — radial blending makes them redundant,
+# and each dab otherwise costs a full preview bake.
+var _last_dab_pos: Vector3 = Vector3.INF
+
 
 ## Begin a paint stroke.  Takes a snapshot for undo and enters preview mode.
 func begin_stroke(node: GoBuildMeshInstance) -> void:
@@ -54,6 +59,7 @@ func begin_stroke(node: GoBuildMeshInstance) -> void:
 	_snapshot = node.go_build_mesh.take_snapshot()
 	_painted_vertices.clear()
 	_active = true
+	_last_dab_pos = Vector3.INF
 	node.begin_preview()
 	if _painter != null and _painter.is_isolate_active():
 		_painter.sync_isolate_vertex_colors()
@@ -81,6 +87,12 @@ func paint_at(
 	var local_pos: Vector3 = node.to_local(world_pos)
 	var avg_scale: float = (node.scale.x + node.scale.y + node.scale.z) / 3.0
 	var local_radius: float = radius / avg_scale if avg_scale > 0.001 else radius
+	# Dab spacing: skip redundant dabs (each one costs a full preview bake).
+	if _last_dab_pos != Vector3.INF \
+			and local_pos.distance_squared_to(_last_dab_pos) \
+					< (local_radius * 0.25) * (local_radius * 0.25):
+		return
+	_last_dab_pos = local_pos
 	var painted: bool = paint_vertices_in_radius(mesh, local_pos, local_radius,
 		color, blend_mode, channel_mask, strength, _painted_vertices, target)
 	if painted:

@@ -195,6 +195,16 @@ func _compute_face_regions() -> Array[int]:
 	result.resize(faces.size())
 	result.fill(-1)
 
+	# Fast path: no smooth faces at all (the common blockout case) — skip
+	# the edge→face map build and BFS entirely.
+	var has_smooth := false
+	for face in faces:
+		if face.smooth_group != 0:
+			has_smooth = true
+			break
+	if not has_smooth:
+		return result
+
 	if edges.is_empty():
 		return result
 
