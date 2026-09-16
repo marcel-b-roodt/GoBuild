@@ -655,15 +655,19 @@ func _update_collision_debug_overlay() -> void:
 		_remove_collision_debug_overlay()
 		return
 	var debug_mesh: Mesh = _collision_shape.shape.get_debug_mesh()
+	# Overlay is a CHILD of this node: use a plain local transform so the
+	# shape's position rides along with the mesh automatically. Setting
+	# global_transform before add_child stores it as the local transform —
+	# the node transform then applied twice, shifting the overlay.
 	var debug_xform: Transform3D = _inflated_debug_transform()
 	if _collision_debug_mesh != null and is_instance_valid(_collision_debug_mesh):
 		_collision_debug_mesh.mesh = debug_mesh
-		_collision_debug_mesh.global_transform = debug_xform
+		_collision_debug_mesh.transform = debug_xform
 		return
 	_collision_debug_mesh = MeshInstance3D.new()
 	_collision_debug_mesh.name = "CollisionDebugOverlay"
 	_collision_debug_mesh.mesh = debug_mesh
-	_collision_debug_mesh.global_transform = debug_xform
+	_collision_debug_mesh.transform = debug_xform
 	var mat := StandardMaterial3D.new()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.albedo_color = Color(0.0, 0.6, 0.7, 0.08)
@@ -674,18 +678,15 @@ func _update_collision_debug_overlay() -> void:
 	add_child(_collision_debug_mesh, true)
 
 
-## Overlay transform that scales the debug mesh about the shape's own
+## Overlay local transform that scales the debug mesh about the shape's own
 ## centre — position stays fixed, size grows by [_COLLISION_DEBUG_INFLATE],
-## no drift for shapes offset from the node origin. Scaling the raw
-## transform about the node origin shifts a shape centred at (50,0,0) by
-## 0.1 units; pre-scaling about the shape centre keeps it pinned.
+## no drift for shapes offset from the node origin. Scaling about the node
+## origin would shift a shape centred at (50,0,0) by 0.1 units.
 func _inflated_debug_transform() -> Transform3D:
 	var shape_aabb: AABB = _collision_shape.shape.get_debug_mesh().get_aabb()
 	var centre := shape_aabb.get_center()
 	var k := _COLLISION_DEBUG_INFLATE
-	var local := Transform3D(
-			Basis().scaled(Vector3.ONE * k), centre * (1.0 - k))
-	return global_transform * local
+	return Transform3D(Basis().scaled(Vector3.ONE * k), centre * (1.0 - k))
 
 
 ## Toggle the selected-only collision debug overlay (cog-menu driven).
