@@ -18,6 +18,8 @@ const _BRUSH_SCRIPT := preload(
 		"res://addons/go_build/vertex_paint/go_build_vertex_paint_brush.gd")
 const _VC_OP_SCRIPT := preload(
 		"res://addons/go_build/mesh/operations/vertex_color_operation.gd")
+const _MESH_INSTANCE_SCRIPT := preload(
+		"res://addons/go_build/core/go_build_mesh_instance.gd")
 
 
 func _make_unit_cube() -> GoBuildMesh:
@@ -54,8 +56,9 @@ func assert_color_equal(actual: Color, expected: Color, delta: float = 0.001) ->
 
 func test_paint_near_origin_selects_nearby_vertices() -> void:
 	var mesh := _make_unit_cube()
+	# Small radius around one corner: hits some vertices but not all 8.
 	GoBuildVertexPaintBrush.paint_vertices_in_radius(
-		mesh, Vector3.ZERO, 1.0,
+		mesh, Vector3(-0.5, -0.5, -0.5), 0.4,
 		Color.RED, VertexColorOperation.BlendMode.MIX,
 		VertexColorOperation.CHANNEL_ALL, 1.0)
 	var red_count: int = 0
@@ -109,32 +112,42 @@ func test_paint_blend_mode_add() -> void:
 
 func test_paint_channel_mask_r_only() -> void:
 	var mesh := _make_unit_cube()
+	# Existing green+alpha colour; R-only mask must change just red.
+	for i: int in mesh.vertex_colors.size():
+		mesh.vertex_colors[i] = Color(0.0, 0.25, 0.25, 0.25)
 	GoBuildVertexPaintBrush.paint_vertices_in_radius(
 		mesh, Vector3.ZERO, 10.0,
 		Color.RED, VertexColorOperation.BlendMode.MIX,
 		VertexColorOperation.CHANNEL_R, 1.0)
 	for c: Color in mesh.vertex_colors:
-		assert_float(c.r).is_equal_approx(1.0, 0.001)
-		assert_float(c.g).is_equal_approx(0.0, 0.001)
-		assert_float(c.b).is_equal_approx(0.0, 0.001)
-		assert_float(c.a).is_equal_approx(1.0, 0.001)
+		assert_color_equal(c, Color(1.0, 0.25, 0.25, 0.25))
 
 
 func test_begin_end_stroke_lifecycle() -> void:
+	var node := _make_node_with_mesh_instance()
 	var brush := GoBuildVertexPaintBrush.new()
 	assert_bool(brush.is_active()).is_false()
-	brush.begin_stroke(null)
+	brush.begin_stroke(node)
 	assert_bool(brush.is_active()).is_true()
-	brush.end_stroke(null, null)
+	brush.end_stroke(node, null)
 	assert_bool(brush.is_active()).is_false()
 
 
 func test_cancel_stroke_deactivates() -> void:
+	var node := _make_node_with_mesh_instance()
 	var brush := GoBuildVertexPaintBrush.new()
-	brush.begin_stroke(null)
+	brush.begin_stroke(node)
 	assert_bool(brush.is_active()).is_true()
-	brush.cancel_stroke(null)
+	brush.cancel_stroke(node)
 	assert_bool(brush.is_active()).is_false()
+
+
+## A [GoBuildMeshInstance] wrapping a unit cube, freed by the test runner.
+## Strokes need a real node (snapshot + preview path); undo is stubbed with null.
+func _make_node_with_mesh_instance() -> GoBuildMeshInstance:
+	var node: GoBuildMeshInstance = auto_free(GoBuildMeshInstance.new())
+	node.go_build_mesh = _make_unit_cube()
+	return node
 
 
 func test_paint_at_not_active_does_nothing() -> void:

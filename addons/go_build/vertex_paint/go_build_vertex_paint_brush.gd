@@ -159,6 +159,8 @@ func end_stroke(node: GoBuildMeshInstance, ur: EditorUndoRedoManager) -> void:
 		_painter.sync_isolate_vertex_colors()
 	_remap_alpha_faces(node, painted)
 	node.bake()
+	if ur == null:
+		return
 	ur.create_action("Paint Vertex Color")
 	ur.add_do_method(node, "bake")
 	ur.add_undo_method(node, "restore_and_bake", snapshot)

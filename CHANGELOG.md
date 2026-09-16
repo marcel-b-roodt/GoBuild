@@ -8,7 +8,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Paint as a dedicated toolbar mode** — Paint joins Object/Vertex/Edge/Face
+  as the fifth toolbar mode (shortcut 5); entering remembers the previous
+  selection mode, forces the vertex painter on, switches to vertex picking,
+  and swaps the Vertex Paint dock in for the GoBuild panel; leaving restores
+  the remembered mode and swaps the panels back. The in-panel Paint toggle
+  button is removed (the toolbar button is the only entry point).
+- **Geometry dump** — cog menu → Print Selection with a mesh and no
+  sub-selection prints the full mesh: every vertex (index + position), edge,
+  and face ring.
+- **Collision debug overlay toggle** — cog menu item shows the collision
+  debug mesh for the edited node only, with a slight inflation to avoid
+  z-fighting.
+
 ### Fixed
+- **Cog menu id mapping** — separators occupy an index but consume no auto-id;
+  the handler now matches the gapped ids (clicking Debug Collision Shapes
+  previously triggered Reset Panel Layout by mistake).
 - **Selective per-face transparency** — vertex painting alpha < 1.0 no longer
   forces TRANSPARENCY_ALPHA on the shared `go_build_material.tres` slot
   material (the root cause of whole-mesh transparency and depth/occlusion
@@ -18,6 +35,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   touched and no material metadata is read or written (fixes a spurious
   `meta` error when painting on custom materials). The alpha material also
   ships as the second Default-palette slot for manual face assignment.
+
+### Changed
+- **Vertex Paint dock shares the GoBuild panel slot** (left dock, tabbed) —
+  panel layout reset restores both.
+- **Brush stroke performance** — dabs closer than a quarter brush radius to
+  the previous dab are skipped (one full preview bake saved each); the
+  smooth-region BFS in mesh bake early-outs when no face is smooth (the
+  common blockout case).
 
 ---
 
