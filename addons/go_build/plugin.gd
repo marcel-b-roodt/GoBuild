@@ -626,8 +626,11 @@ func _exit_tree() -> void:
 ## Remove all dock panels from their current positions and re-add them
 ## to the default dock slots.  This recovers closed or misplaced panels.
 func _reset_panel_layout() -> void:
-	# Re-syncing the paint UX first makes the remove calls below safe when
-	# the panel is currently swapped out for the paint dock.
+	# Session-aware: during an active Paint session the dock slot belongs to
+	# the paint panel (GoBuild panel swapped out); otherwise the GoBuild
+	# panel owns the slot and the paint dock stays undocked.
+	var paint_session: bool = _edited_node != null and _vc_painter != null \
+			and _vc_painter.is_paint_mode()
 	_paint_panel_visible = false
 	_panel_hidden_for_paint = false
 	if _panel_scroll != null and is_instance_valid(_panel_scroll):
@@ -636,9 +639,14 @@ func _reset_panel_layout() -> void:
 		remove_control_from_docks(_uv_panel)
 	if _vc_painter != null and is_instance_valid(_vc_painter):
 		remove_control_from_docks(_vc_painter)
-	# Re-add to default slots. Paint dock is NOT re-added: it only appears
-	# during an active Paint session (same as startup state).
-	if _panel_scroll != null and is_instance_valid(_panel_scroll):
+	# Re-add to default slots: paint dock only during a Paint session.
+	if paint_session and _vc_painter != null and is_instance_valid(_vc_painter):
+		add_control_to_dock(DOCK_SLOT_LEFT_UL, _vc_painter)
+		_paint_panel_visible = true
+		# GoBuild panel stays out of the dock for the rest of the session;
+		# exit-paint must re-dock it.
+		_panel_hidden_for_paint = true
+	else:
 		add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel_scroll)
 	if _uv_panel != null and is_instance_valid(_uv_panel):
 		add_control_to_dock(DOCK_SLOT_BOTTOM, _uv_panel)
