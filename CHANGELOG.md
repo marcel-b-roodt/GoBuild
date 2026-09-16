@@ -23,6 +23,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   z-fighting.
 
 ### Fixed
+- **Collision debug overlay** — the shape now sits exactly on the collision
+  shape (plain local transform as a child of the mesh node; the previous
+  global-transform setup double-applied the node transform, placing the
+  overlay far away until a rebake). The overlay scales ×1.002 about the
+  shape's own centre — position pinned, size grown, no drift for shapes
+  offset from the node origin — and survives bakes and re-selections.
+- **Mesh import of UV-less meshes** — importing an ArrayMesh without
+  UV/UV2/colour/index channels crashed (`null as PackedVectorArray`); absent
+  channels now default to empty.
+- **Vertex Paint dock hidden at startup** — the painter dock no longer
+  competes with the GoBuild panel from plugin load; it appears only during
+  an active Paint session, and Reset Panel Layout is session-aware (restores
+  the paint dock mid-session, the GoBuild panel otherwise).
 - **Cog menu id mapping** — separators occupy an index but consume no auto-id;
   the handler now matches the gapped ids (clicking Debug Collision Shapes
   previously triggered Reset Panel Layout by mistake).
