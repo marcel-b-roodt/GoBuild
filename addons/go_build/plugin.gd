@@ -221,7 +221,8 @@ func _enter_tree() -> void:
 
 	_vc_painter = _VC_PAINTER_SCRIPT.new()
 	_vc_painter.name = "GoBuild Vertex Paint"
-	add_control_to_dock(DOCK_SLOT_LEFT_UL, _vc_painter)
+	# Not docked at startup: the GoBuild panel owns the dock slot until a
+	# Paint session swaps them (_sync_paint_panel_visibility).
 	_vc_painter.set_plugin(self)
 
 	_paint_brush = _PAINT_BRUSH_SCRIPT.new()
@@ -635,13 +636,12 @@ func _reset_panel_layout() -> void:
 		remove_control_from_docks(_uv_panel)
 	if _vc_painter != null and is_instance_valid(_vc_painter):
 		remove_control_from_docks(_vc_painter)
-	# Re-add to default slots.
+	# Re-add to default slots. Paint dock is NOT re-added: it only appears
+	# during an active Paint session (same as startup state).
 	if _panel_scroll != null and is_instance_valid(_panel_scroll):
 		add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel_scroll)
 	if _uv_panel != null and is_instance_valid(_uv_panel):
 		add_control_to_dock(DOCK_SLOT_BOTTOM, _uv_panel)
-	if _vc_painter != null and is_instance_valid(_vc_painter):
-		add_control_to_dock(DOCK_SLOT_LEFT_UL, _vc_painter)
 
 
 ## Cancel any active material-drop preview and reset drag state.
@@ -2168,6 +2168,13 @@ func _sync_paint_panel_visibility() -> void:
 				and not _panel_scroll.is_inside_tree():
 			add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel_scroll)
 		_panel_hidden_for_paint = false
+	elif not paint_active and _vc_painter.is_inside_tree():
+		# No paint session but the paint dock is still docked (e.g. a panel
+		# reset re-docked it): recover to the GoBuild-panel-only default.
+		remove_control_from_docks(_vc_painter)
+		if _panel_scroll != null and is_instance_valid(_panel_scroll) \
+				and not _panel_scroll.is_inside_tree():
+			add_control_to_dock(DOCK_SLOT_LEFT_UL, _panel_scroll)
 
 
 func _on_edited_node_removed() -> void:

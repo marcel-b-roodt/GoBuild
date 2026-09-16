@@ -5399,7 +5399,7 @@ vertex_colors = Array[Color]([Color(0.19, 0, 0.19, 1), Color(0.19, 0, 0.19, 1), 
 faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_chygu"), SubResource("Resource_7dpvt"), SubResource("Resource_s5qnb"), SubResource("Resource_ll03x"), SubResource("Resource_jqif2"), SubResource("Resource_3gm2s"), SubResource("Resource_mvmgl"), SubResource("Resource_y7iko"), SubResource("Resource_ig6r4"), SubResource("Resource_e4fn0"), SubResource("Resource_eye8s"), SubResource("Resource_78shp"), SubResource("Resource_fxdu7"), SubResource("Resource_0lae3"), SubResource("Resource_b6r24"), SubResource("Resource_d5fxl"), SubResource("Resource_06012"), SubResource("Resource_7fpy8"), SubResource("Resource_rcpej"), SubResource("Resource_3382r"), SubResource("Resource_dny3v"), SubResource("Resource_7nonh"), SubResource("Resource_phevq"), SubResource("Resource_74xde"), SubResource("Resource_bvcr6"), SubResource("Resource_333a8"), SubResource("Resource_651td"), SubResource("Resource_dhevm"), SubResource("Resource_kn7b1"), SubResource("Resource_tmysq"), SubResource("Resource_vir7t"), SubResource("Resource_lckih"), SubResource("Resource_5pklr"), SubResource("Resource_darhg"), SubResource("Resource_rlblo"), SubResource("Resource_3kdy2"), SubResource("Resource_irl6e"), SubResource("Resource_sqhep"), SubResource("Resource_0iewe"), SubResource("Resource_wouwc")])
 material_slots = Array[Material]([ExtResource("8_gr644")])
 
-[sub_resource type="ArrayMesh" id="ArrayMesh_r2xhd"]
+[sub_resource type="ArrayMesh" id="ArrayMesh_77t1m"]
 _surfaces = [{
 "aabb": AABB(-2.2378683, 0, -2.1357422, 4.0934954, 0.30422616, 4.389078),
 "attribute_data": PackedByteArray("/////xBrnD8AAAAAAAAAAAAAAAD/////AAAAAIjDmz4AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////xBrnD8AAAAAAAAAAAAAAAD/////EGucP4jDmz4AAAAAAAAAAP////8AAAAAiMObPgAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////uEu8P4jDmz4AAAAAAAAAAP////+4S7w/AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAIjDmz4AAAAAAAAAAP////+4S7w/iMObPgAAAAAAAAAA/////zCwrj8AAAAAAAAAAAAAAAD/////AAAAAIjDmz4AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////zCwrj8AAAAAAAAAAAAAAAD/////MLCuP4jDmz4AAAAAAAAAAP////8AAAAAiMObPgAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////PJ9fQIjDmz4AAAAAAAAAAP////88n19AAAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAIjDmz4AAAAAAAAAAP////88n19AiMObPgAAAAAAAAAA/////wDz7j8AAAAAAAAAAAAAAAD/////AAAAAIjDmz4AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////wDz7j8AAAAAAAAAAAAAAAD/////APPuP4jDmz4AAAAAAAAAAP////8AAAAAiMObPgAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////fO3/P4jDmz4AAAAAAAAAAP////987f8/AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAIjDmz4AAAAAAAAAAP////987f8/iMObPgAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0FU5P4jDmz4AAAAAAAAAAP/////QVTk/AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAIjDmz4AAAAAAAAAAP/////QVTk/iMObPgAAAAAAAAAA/////xAlXz8AAAAAAAAAAAAAAAD/////AAAAABDTmD8AAAAAAAAAAP////+4S7w/MLCuPwAAAAAAAAAA/////wAAAAAobSFAAAAAAAAAAAD/////+NUnQBDTmD8AAAAAAAAAAP////88n19AAAAAAAAAAAAAAAAA/////wAAAABAB6o/AAAAAAAAAAD/////0CMAQBBrnD8AAAAAAAAAAP/////41SdAAAAAAAAAAAAAAAAA/////wAAAAAAw9k9AAAAAAAAAAD/////RHkuQEDyJT8AAAAAAAAAAP/////QIwBAAAAAAAAAAAAAAAAA/////0R5LkDguQo/AAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAP////8YCjo/APPuPwAAAAAAAAAA/////wAAAAAA6S4+AAAAAAAAAAD/////ECVfPzCwrj8AAAAAAAAAAP////+4S7w/AAAAAAAAAAAAAAAA//////jVJ0BAB6o/AAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAP////88n19AKG0hQAAAAAAAAAAA/////9AjAEAAw9k9AAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAP/////41SdAQAeqPwAAAAAAAAAA/////0R5LkAAAAAAAAAAAAAAAAD/////AAAAAOC5Cj8AAAAAAAAAAP/////QIwBAQPIlPwAAAAAAAAAA/////wAAAABGv68/AAAAAAAAAAD/////TlMAQBd2eT8AAAAAAAAAAP/////+1Ag/AAAAAAAAAAAAAAAA/////wAAAAAA8+4/AAAAAAAAAAD/////+sNWP6gTkD4AAAAAAAAAAP////8YCjo/AAAAAAAAAAAAAAAA/////wAAAAAA8+4/AAAAAAAAAAD/////+N2bPjDE0z8AAAAAAAAAAP/////6w1Y/qBOQPgAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////DZnKP/a/oD8AAAAAAAAAAP////987f8/EJapPwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////EM/lPagTkD4AAAAAAAAAAP////8Nmco/9r+gPwAAAAAAAAAA/////0R5LkCoYY09AAAAAAAAAAD/////+N2bPuoQzD4AAAAAAAAAAP////8AAAAAFWYcPwAAAAAAAAAA/////0R5LkCoYY09AAAAAAAAAAD/////Dc8TQAAAAAAAAAAAAAAAAP/////43Zs+6hDMPgAAAAAAAAAA/////wAAAABlQyY+AAAAAAAAAAD/////Rr+vPwAAAAAAAAAAAAAAAP////9Gv68/ZUMmPgAAAAAAAAAA/////wAAAABlQyY+AAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAP////9Gv68/AAAAAAAAAAAAAAAA/////xw8vD9lQyY+AAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAP////8AAAAAZUMmPgAAAAAAAAAA/////xw8vD9lQyY+AAAAAAAAAAD/////HDy8PwAAAAAAAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////05TAEBlQyY+AAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAP////8AAAAAZUMmPgAAAAAAAAAA/////05TAEBlQyY+AAAAAAAAAAD/////TlMAQAAAAAAAAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA"),
@@ -5533,7 +5533,7 @@ vertex_colors = Array[Color]([Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 
 faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_h775o"), SubResource("Resource_aoelk"), SubResource("Resource_oeew0"), SubResource("Resource_ysesp"), SubResource("Resource_quqfa"), SubResource("Resource_evkl7"), SubResource("Resource_b7wdd"), SubResource("Resource_o66g7"), SubResource("Resource_wejk5"), SubResource("Resource_5x87o"), SubResource("Resource_1qfcv"), SubResource("Resource_gkctu"), SubResource("Resource_ynlce"), SubResource("Resource_e4y25"), SubResource("Resource_elsap"), SubResource("Resource_mfen6"), SubResource("Resource_0u7ai"), SubResource("Resource_cn3el"), SubResource("Resource_4i76d"), SubResource("Resource_dk34w"), SubResource("Resource_lf6xb"), SubResource("Resource_qelx3"), SubResource("Resource_typvi")])
 material_slots = Array[Material]([ExtResource("8_gr644")])
 
-[sub_resource type="ArrayMesh" id="ArrayMesh_mbkqa"]
+[sub_resource type="ArrayMesh" id="ArrayMesh_cbht5"]
 _surfaces = [{
 "aabb": AABB(-0.9892397, -0.9318598, -0.4928217, 1.9784794, 1.8637197, 0.9856434),
 "attribute_data": PackedByteArray("/////wAAAAAAAAAAAAAAAAAAAAD/////0D79Pl2O7j8AAAAAAAAAAP/////QPv0+AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAF6O7j8AAAAAAAAAAP/////QPv0+XY7uPwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D79Pl6O7j8AAAAAAAAAAP/////QPv0+AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAF2O7j8AAAAAAAAAAP/////QPv0+Xo7uPwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D79PiBTfD8AAAAAAAAAAP/////QPv0+AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAACBTfD8AAAAAAAAAAP/////QPv0+IFN8PwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D79PiBTfD8AAAAAAAAAAP/////QPv0+AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAACBTfD8AAAAAAAAAAP/////QPv0+IFN8PwAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////AAAAAF2O7j8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////IFN8P12O7j8AAAAAAAAAAP////8AAAAAXY7uPwAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////AAAAAF6O7j8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////IFN8P16O7j8AAAAAAAAAAP////8AAAAAXo7uPwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D79Pl6O7j8AAAAAAAAAAP/////QPv0+AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAF2O7j8AAAAAAAAAAP/////QPv0+Xo7uPwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D79Pl2O7j8AAAAAAAAAAP/////QPv0+AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAF6O7j8AAAAAAAAAAP/////QPv0+XY7uPwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D79PiBTfD8AAAAAAAAAAP/////QPv0+AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAACBTfD8AAAAAAAAAAP/////QPv0+IFN8PwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D79PiBTfD8AAAAAAAAAAP/////QPv0+AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAACBTfD8AAAAAAAAAAP/////QPv0+IFN8PwAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////AAAAAF6O7j8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////IFN8P16O7j8AAAAAAAAAAP////8AAAAAXo7uPwAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////AAAAAF2O7j8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////IFN8P12O7j8AAAAAAAAAAP////8AAAAAXY7uPwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D59P07Yvj4AAAAAAAAAAP/////QPn0/AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAE7Yvj4AAAAAAAAAAP/////QPn0/Tti+PgAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D59P07Yvj4AAAAAAAAAAP/////QPn0/AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAE7Yvj4AAAAAAAAAAP/////QPn0/Tti+PgAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D59PyBTfD8AAAAAAAAAAP/////QPn0/AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAACBTfD8AAAAAAAAAAP/////QPn0/IFN8PwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////0D59PyBTfD8AAAAAAAAAAP/////QPn0/AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAACBTfD8AAAAAAAAAAP/////QPn0/IFN8PwAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////AAAAAE7Yvj4AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////IFN8P07Yvj4AAAAAAAAAAP////8AAAAATti+PgAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////AAAAAE7Yvj4AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////yBTfD8AAAAAAAAAAAAAAAD/////IFN8P07Yvj4AAAAAAAAAAP////8AAAAATti+PgAAAAAAAAAA"),
@@ -5642,7 +5642,7 @@ vertex_colors = Array[Color]([Color(1.3333334, 1.3333334, 1.3333334, 1), Color(1
 faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_rfhyt"), SubResource("Resource_5vgmf"), SubResource("Resource_h4ql4"), SubResource("Resource_b01e8"), SubResource("Resource_qnabc"), SubResource("Resource_x6bap"), SubResource("Resource_5xe65"), SubResource("Resource_s1agq"), SubResource("Resource_hldcd"), SubResource("Resource_3r84y"), SubResource("Resource_kfvlb"), SubResource("Resource_0t30p"), SubResource("Resource_1xhk3"), SubResource("Resource_kb5ou"), SubResource("Resource_84jv7"), SubResource("Resource_0gx21"), SubResource("Resource_csmbr"), SubResource("Resource_1f3jx")])
 material_slots = Array[Material]([ExtResource("8_gr644")])
 
-[sub_resource type="ArrayMesh" id="ArrayMesh_5mcfh"]
+[sub_resource type="ArrayMesh" id="ArrayMesh_s7tkr"]
 _surfaces = [{
 "aabb": AABB(-4.1428576, 0, -6.285714, 9, 0.54787064, 11),
 "attribute_data": PackedByteArray("/////wAAMEEAAAAAAAAAAAAAAAD/////AAAAADhBDD8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////wAAMEEAAAAAAAAAAAAAAAD/////AAAwQThBDD8AAAAAAAAAAP////8AAAAAOEEMPwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AACAQDhBDD8AAAAAAAAAAP////8AAIBAAAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAADhBDD8AAAAAAAAAAP////8AAIBAOEEMPwAAAAAAAAAA/////wAAoEAAAAAAAAAAAAAAAAD/////AAAAADhBDD8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////wAAoEAAAAAAAAAAAAAAAAD/////AACgQDhBDD8AAAAAAAAAAP////8AAAAAOEEMPwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AACgQDhBDD8AAAAAAAAAAP////8AAKBAAAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAADhBDD8AAAAAAAAAAP////8AAKBAOEEMPwAAAAAAAAAA/////wAAQEAAAAAAAAAAAAAAAAD/////AAAAADhBDD8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////wAAQEAAAAAAAAAAAAAAAAD/////AABAQDhBDD8AAAAAAAAAAP////8AAAAAOEEMPwAAAAAAAAAA/////wAAAEAAAAAAAAAAAAAAAAD/////AAAAADhBDD8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////wAAAEAAAAAAAAAAAAAAAAD/////AAAAQDhBDD8AAAAAAAAAAP////8AAAAAOEEMPwAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AADAQDhBDD8AAAAAAAAAAP////8AAMBAAAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAADhBDD8AAAAAAAAAAP////8AAMBAOEEMPwAAAAAAAAAA/////wAAAEEAADBBAAAAAAAAAAD/////AAAAAAAAEEEAAAAAAAAAAP////8AAABAAAAwQQAAAAAAAAAA/////wAAAEEAADBBAAAAAAAAAAD/////AAAAAAAAwEAAAAAAAAAAAP////8AAAAAAAAQQQAAAAAAAAAA/////wAAAEEAADBBAAAAAAAAAAD/////AACgQAAAwEAAAAAAAAAAAP////8AAAAAAADAQAAAAAAAAAAA/////wAAAEEAADBBAAAAAAAAAAD/////AACgQAAAgD8AAAAAAAAAAP////8AAKBAAADAQAAAAAAAAAAA/////wAAoEAAAIA/AAAAAAAAAAD/////AAAAQQAAMEEAAAAAAAAAAP////8AABBBAAAAAAAAAAAAAAAA/////+wEGUAQ/UpAAAAAAAAAAAD/////WIfcPxK9PEAAAAAAAAAAAP////+4Gcg/dOmgQAAAAAAAAAAA/////1iH3D8SvTxAAAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAP////8AEZo+qzZuQAAAAAAAAAAA/////+wEGUAQ/UpAAAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAP////9Yh9w/Er08QAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////7AQZQBD9SkAAAAAAAAAAAP/////YjKQ/gDdWPwAAAAAAAAAA/////3jqEkB06aBAAAAAAAAAAAD/////AAAAAIpVqUAAAAAAAAAAAP////8AAIBAilXJQAAAAAAAAAAA/////wAAAACKValAAAAAAAAAAAD/////cHY7PwAAAAAAAAAAAAAAAP////8AAAAAoFiVPgAAAAAAAAAA/////wAAAACKValAAAAAAAAAAAD/////eD+EP6s2bkAAAAAAAAAAAP////9wdjs/AAAAAAAAAAAAAAAA/////3jqEkB06aBAAAAAAAAAAAD/////eD+EP6s2bkAAAAAAAAAAAP////8AAAAAilWpQAAAAAAAAAAA/////3g/hD+rNm5AAAAAAAAAAAD/////eOoSQHTpoEAAAAAAAAAAAP////9IIR1AEr08QAAAAAAAAAAA/////85ut0B2qpZAAAAAAAAAAAD/////AAAAAAAAoEAAAAAAAAAAAP////8AAKBAAACgQAAAAAAAAAAA/////85ut0B2qpZAAAAAAAAAAAD/////AAAAAAAAAEAAAAAAAAAAAP////8AAAAAAACgQAAAAAAAAAAA/////85ut0B2qpZAAAAAAAAAAAD/////AAAAQAAAAAAAAAAAAAAAAP////8AAAAAAAAAQAAAAAAAAAAA/////85ut0B2qpZAAAAAAAAAAAD/////AAAAQQAAAAAAAAAAAAAAAP////8AAABAAAAAAAAAAAAAAAAA/////wAAEEEAADBBAAAAAAAAAAD/////ovgBQf4o/EAAAAAAAAAAAP////88delA9ckbQQAAAAAAAAAA/////wAAAEEAAAAAAAAAAAAAAAD/////ovgBQf4o/EAAAAAAAAAAAP////8AABBBAAAwQQAAAAAAAAAA/////wAAAEEAAAAAAAAAAAAAAAD/////BJLgQGZxsUAAAAAAAAAAAP////+i+AFB/ij8QAAAAAAAAAAA/////wAAAEEAAAAAAAAAAAAAAAD/////zm63QHaqlkAAAAAAAAAAAP////8EkuBAZnGxQAAAAAAAAAAA"),
@@ -5714,6 +5714,153 @@ script = ExtResource("2_f08cm")
 vertices = Array[Vector3]([Vector3(3.8571424, 0, 4.714286), Vector3(4.8571424, 0, -6.285714), Vector3(0.85714245, 0, -5.285714), Vector3(0.85714245, 0, -0.28571415), Vector3(-4.1428576, 0, -0.28571415), Vector3(-4.1428576, 0, 2.7142859), Vector3(-2.1428576, 0, 4.714286), Vector3(3.8571424, 0.54787016, 4.714286), Vector3(4.8571424, 0.54787016, -6.285714), Vector3(0.85714245, 0.54787016, -5.285714), Vector3(0.85714245, 0.54787016, -0.28571415), Vector3(-4.1428576, 0.54787016, -0.28571415), Vector3(-4.1428576, 0.54787016, 2.7142859), Vector3(-2.1428576, 0.54787016, 4.714286), Vector3(3.1527033, 0.54787016, -5.02252), Vector3(3.3122988, 0.54787016, -2.9430623), Vector3(1.8903294, 0.54787064, -3.716109), Vector3(1.5894184, 0.54787016, 0.0059776306), Vector3(2.8749666, 0.5478697, -0.83080673), Vector3(3.9803438, 0.54787064, -3.165718)])
 vertex_colors = Array[Color]([Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1)])
 faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_m3pb1"), SubResource("Resource_c3lgi"), SubResource("Resource_pnck7"), SubResource("Resource_so1nr"), SubResource("Resource_dtlog"), SubResource("Resource_6qagw"), SubResource("Resource_0e7ts"), SubResource("Resource_klyq4"), SubResource("Resource_6po3f"), SubResource("Resource_110bx"), SubResource("Resource_mktse")])
+material_slots = Array[Material]([ExtResource("8_gr644")])
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_yp148"]
+_surfaces = [{
+"aabb": AABB(-3, 0, -2.5, 6, 0.47665644, 5),
+"attribute_data": PackedByteArray("/////wAAoEAAAAAAAAAAAAAAAAD/////AAAAAFAM9D4AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////wAAoEAAAAAAAAAAAAAAAAD/////AACgQFAM9D4AAAAAAAAAAP////8AAAAAUAz0PgAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AADAQFAM9D4AAAAAAAAAAP////8AAMBAAAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAFAM9D4AAAAAAAAAAP////8AAMBAUAz0PgAAAAAAAAAA/////wAAoEAAAAAAAAAAAAAAAAD/////AAAAAFAM9D4AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////wAAoEAAAAAAAAAAAAAAAAD/////AACgQFAM9D4AAAAAAAAAAP////8AAAAAUAz0PgAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AADAQFAM9D4AAAAAAAAAAP////8AAMBAAAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAFAM9D4AAAAAAAAAAP////8AAMBAUAz0PgAAAAAAAAAA/////wAAAAAAAKBAAAAAAAAAAAD/////AADAQAAAAAAAAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////wAAAAAAAKBAAAAAAAAAAAD/////AADAQAAAoEAAAAAAAAAAAP////8AAMBAAAAAAAAAAAAAAAAA/////wAAwEAAAAAAAAAAAAAAAAD/////AAAAAAAAoEAAAAAAAAAAAP////8AAMBAAACgQAAAAAAAAAAA/////wAAwEAAAAAAAAAAAAAAAAD/////AAAAAAAAAAAAAAAAAAAAAP////8AAAAAAACgQAAAAAAAAAAA"),
+"format": 34359738431,
+"material": ExtResource("8_gr644"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 36,
+"vertex_data": PackedByteArray("AABAQAAAAAAAACBAAABAQFAM9D4AACDAAABAQAAAAAAAACDAAABAQAAAAAAAACBAAABAQFAM9D4AACBAAABAQFAM9D4AACDAAABAQAAAAAAAACDAAABAwFAM9D4AACDAAABAwAAAAAAAACDAAABAQAAAAAAAACDAAABAQFAM9D4AACDAAABAwFAM9D4AACDAAABAwAAAAAAAACDAAABAwFAM9D4AACBAAABAwAAAAAAAACBAAABAwAAAAAAAACDAAABAwFAM9D4AACDAAABAwFAM9D4AACBAAABAwAAAAAAAACBAAABAQFAM9D4AACBAAABAQAAAAAAAACBAAABAwAAAAAAAACBAAABAwFAM9D4AACBAAABAQFAM9D4AACBAAABAwAAAAAAAACBAAABAQAAAAAAAACDAAABAwAAAAAAAACDAAABAwAAAAAAAACBAAABAQAAAAAAAACBAAABAQAAAAAAAACDAAABAQFAM9D4AACBAAABAwFAM9D4AACDAAABAQFAM9D4AACDAAABAQFAM9D4AACBAAABAwFAM9D4AACBAAABAwFAM9D4AACDA////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+///////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCAAAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+/")
+}]
+
+[sub_resource type="Resource" id="Resource_r2xhd"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([0, 1, 5, 4])
+uvs = Array[Vector2]([Vector2(5, 0), Vector2(0, 0), Vector2(0, 0.47665644), Vector2(5, 0.47665644)])
+
+[sub_resource type="Resource" id="Resource_mbkqa"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([1, 2, 6, 5])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(6, 0), Vector2(6, 0.47665644), Vector2(0, 0.47665644)])
+
+[sub_resource type="Resource" id="Resource_5mcfh"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([2, 3, 7, 6])
+uvs = Array[Vector2]([Vector2(5, 0), Vector2(0, 0), Vector2(0, 0.47665644), Vector2(5, 0.47665644)])
+
+[sub_resource type="Resource" id="Resource_g3qy7"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([3, 0, 4, 7])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(6, 0), Vector2(6, 0.47665644), Vector2(0, 0.47665644)])
+
+[sub_resource type="Resource" id="Resource_m1125"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([3, 2, 1, 0])
+uvs = Array[Vector2]([Vector2(0, 5), Vector2(0, 0), Vector2(6, 0), Vector2(6, 5)])
+
+[sub_resource type="Resource" id="Resource_gfmnl"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([4, 5, 6, 7])
+uvs = Array[Vector2]([Vector2(6, 0), Vector2(6, 5), Vector2(0, 5), Vector2(0, 0)])
+
+[sub_resource type="Resource" id="Resource_urgxc"]
+script = ExtResource("2_f08cm")
+vertices = Array[Vector3]([Vector3(3, 0, 2.5), Vector3(3, 0, -2.5), Vector3(-3, 0, -2.5), Vector3(-3, 0, 2.5), Vector3(3, 0.47665644, 2.5), Vector3(3, 0.47665644, -2.5), Vector3(-3, 0.47665644, -2.5), Vector3(-3, 0.47665644, 2.5)])
+vertex_colors = Array[Color]([Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1)])
+faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_r2xhd"), SubResource("Resource_mbkqa"), SubResource("Resource_5mcfh"), SubResource("Resource_g3qy7"), SubResource("Resource_m1125"), SubResource("Resource_gfmnl")])
+material_slots = Array[Material]([ExtResource("8_gr644")])
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_7cwe0"]
+_surfaces = [{
+"aabb": AABB(-0.5165062, -2.3841858e-07, -0.37794876, 0.9877949, 1.7211971, 0.7468796),
+"attribute_data": PackedByteArray("/////wAAAAAAAIA0AAAAAAAAAAD/////oDBhPyxQ3D8AAAAAAAAAAP////+gMGE/AAAAAAAAAAAAAAAA/////wAAAAAAAIA0AAAAAAAAAAD/////AAAAAC5Q3D8AAAAAAAAAAP////+gMGE/LFDcPwAAAAAAAAAA/////4AzPz8AAAAAAAAAAAAAAAD/////AAAAACxQ3D8AAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////4AzPz8AAAAAAAAAAAAAAAD/////gDM/PyxQ3D8AAAAAAAAAAP////8AAAAALFDcPwAAAAAAAAAA/////wAAAAAAAIA0AAAAAAAAAAD/////IOB8PyxQ3D8AAAAAAAAAAP////8g4Hw/AAAAAAAAAAAAAAAA/////wAAAAAAAIA0AAAAAAAAAAD/////AAAAAC5Q3D8AAAAAAAAAAP////8g4Hw/LFDcPwAAAAAAAAAA/////0DDLD8AAAAAAAAAAAAAAAD/////AAAAADBQ3D8AAAAAAAAAAP////8AAAAAAAAANQAAAAAAAAAA/////0DDLD8AAAAAAAAAAAAAAAD/////QMMsPyxQ3D8AAAAAAAAAAP////8AAAAAMFDcPwAAAAAAAAAA/////wAAAAAAcjg9AAAAAAAAAAD/////gJt6P4AzPz8AAAAAAAAAAP////8g4Hw/AAAAAAAAAAAAAAAA/////wAAAAAAcjg9AAAAAAAAAAD/////AFfLPWBKOD8AAAAAAAAAAP////+Am3o/gDM/PwAAAAAAAAAA/////wBXyz0AJN08AAAAAAAAAAD/////IOB8P4AzPz8AAAAAAAAAAP////+Am3o/AAAAAAAAAAAAAAAA/////wBXyz0AJN08AAAAAAAAAAD/////AAAAAGCsMz8AAAAAAAAAAP////8g4Hw/gDM/PwAAAAAAAAAA"),
+"format": 34359738431,
+"material": ExtResource("8_gr644"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 36,
+"vertex_data": PackedByteArray("wJ3VvgAAgDRAEq8+gMPsPixQ3D+A5Lw+gMPsPgAAAACA5Lw+wJ3VvgAAgDRAEq8+wJ3Vvi5Q3D9AEq8+gMPsPixQ3D+A5Lw+gMPsPgAAAACA5Lw+wEzxPixQ3D+AgsG+wEzxPgAAAACAgsG+gMPsPgAAAACA5Lw+gMPsPixQ3D+A5Lw+wEzxPixQ3D+AgsG+wEzxPgAAAACAgsG+wDkEvypQ3D9AdKq+wDkEvwAAgLRAdKq+wEzxPgAAAACAgsG+wEzxPixQ3D+AgsG+wDkEvypQ3D9AdKq+wDkEvwAAgLRAdKq+wJ3Vvi5Q3D9AEq8+wJ3VvgAAgDRAEq8+wDkEvwAAgLRAdKq+wDkEvypQ3D9AdKq+wJ3Vvi5Q3D9AEq8+wDkEvwAAgLRAdKq+gMPsPgAAAACA5Lw+wEzxPgAAAACAgsG+wDkEvwAAgLRAdKq+wJ3VvgAAgDRAEq8+gMPsPgAAAACA5Lw+wJ3Vvi5Q3D9AEq8+wEzxPixQ3D+AgsG+gMPsPixQ3D+A5Lw+wJ3Vvi5Q3D9AEq8+wDkEvypQ3D9AdKq+wEzxPixQ3D+AgsG+L3z/f86D9YEvfP9/zoP1gS98/3/Og/WBL3z/f86D9YEvfP9/zoP1gS98/3/Og/WBfv7/f39+/L9+/v9/f378v37+/39/fvy/fv7/f39+/L9+/v9/f378v37+/39/fvy/AACUBW166IIAAJQFbXroggAAlAVteuiCAACUBW166IIAAJQFbXroggAAlAVteuiCahD/fxyQz75qEP9/HJDPvmoQ/38ckM++ahD/fxyQz75qEP9/HJDPvmoQ/38ckM++/38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+/")
+}]
+
+[sub_resource type="Resource" id="Resource_y4bv2"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([0, 1, 5, 4])
+uvs = Array[Vector2]([Vector2(0, 2.3841858e-07), Vector2(0.8796482, 0), Vector2(0.8796482, 1.7211967), Vector2(0, 1.7211969)])
+
+[sub_resource type="Resource" id="Resource_cnm6b"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([1, 2, 6, 5])
+uvs = Array[Vector2]([Vector2(0.7468796, 0), Vector2(0, 0), Vector2(0, 1.7211967), Vector2(0.7468796, 1.7211967)])
+
+[sub_resource type="Resource" id="Resource_7tvte"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([2, 3, 7, 6])
+uvs = Array[Vector2]([Vector2(0, 2.3841858e-07), Vector2(0.9877949, 0), Vector2(0.9877949, 1.7211967), Vector2(0, 1.7211969)])
+
+[sub_resource type="Resource" id="Resource_n4db4"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([3, 0, 4, 7])
+uvs = Array[Vector2]([Vector2(0.6748543, 0), Vector2(0, 4.7683716e-07), Vector2(0, 1.7211971), Vector2(0.6748543, 1.7211967)])
+
+[sub_resource type="Resource" id="Resource_1qg15"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([3, 2, 1, 0])
+uvs = Array[Vector2]([Vector2(0, 0.045030594), Vector2(0.9877949, 0), Vector2(0.97893524, 0.7468796), Vector2(0.09928703, 0.7198849)])
+
+[sub_resource type="Resource" id="Resource_247xf"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([4, 5, 6, 7])
+uvs = Array[Vector2]([Vector2(0.09928703, 0.026994705), Vector2(0.97893524, 0), Vector2(0.9877949, 0.7468796), Vector2(0, 0.701849)])
+
+[sub_resource type="Resource" id="Resource_f3k3h"]
+script = ExtResource("2_f08cm")
+vertices = Array[Vector3]([Vector3(-0.41721916, 2.3841858e-07, 0.3419361), Vector3(0.46242905, 0, 0.36893082), Vector3(0.47128868, 0, -0.37794876), Vector3(-0.5165062, -2.3841858e-07, -0.33291817), Vector3(-0.41721916, 1.7211969, 0.3419361), Vector3(0.46242905, 1.7211967, 0.36893082), Vector3(0.47128868, 1.7211967, -0.37794876), Vector3(-0.5165062, 1.7211964, -0.33291817)])
+vertex_colors = Array[Color]([Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1)])
+faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_y4bv2"), SubResource("Resource_cnm6b"), SubResource("Resource_7tvte"), SubResource("Resource_n4db4"), SubResource("Resource_1qg15"), SubResource("Resource_247xf")])
+material_slots = Array[Material]([ExtResource("8_gr644")])
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_yfvbx"]
+_surfaces = [{
+"aabb": AABB(-0.8296013, -5.9604645e-08, -0.7047372, 1.6024513, 4.286656, 1.2609825),
+"attribute_data": PackedByteArray("/////+BnoT8AAAAAAAAAAAAAAAD/////AAAAAEksiUAAAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////+BnoT8AAAAAAAAAAAAAAAD/////4GehP0ksiUAAAAAAAAAAAP////8AAAAASSyJQAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////kDi7P0ksiUAAAAAAAAAAAP////+QOLs/AACANAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAEksiUAAAAAAAAAAAP////+QOLs/SSyJQAAAAAAAAAAA/////9D6ZT8AAIA0AAAAAAAAAAD/////AAAAAEksiUAAAAAAAAAAAP////8AAAAAAAAAAAAAAAAAAAAA/////9D6ZT8AAIA0AAAAAAAAAAD/////0PplP0ksiUAAAAAAAAAAAP////8AAAAASSyJQAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////QLGsP0ksiUAAAAAAAAAAAP////9Asaw/AAAAAAAAAAAAAAAA/////wAAAAAAAAAAAAAAAAAAAAD/////AAAAAEksiUAAAAAAAAAAAP////9Asaw/SSyJQAAAAAAAAAAA/////4CvgT5sNJ0/AAAAAAAAAAD/////kDi7PwAAAAAAAAAAAAAAAP////8AAAAAENyoPgAAAAAAAAAA/////4CvgT5sNJ0/AAAAAAAAAAD/////IB3NP+BnoT8AAAAAAAAAAP////+QOLs/AAAAAAAAAAAAAAAA/////yAdzT8AAAAAAAAAAAAAAAD/////AAAAALhhbj8AAAAAAAAAAP////+QOLs/4GehPwAAAAAAAAAA/////yAdzT8AAAAAAAAAAAAAAAD/////gK+BPoBuBj0AAAAAAAAAAP////8AAAAAuGFuPwAAAAAAAAAA"),
+"format": 34359738431,
+"material": ExtResource("8_gr644"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 36,
+"vertex_data": PackedByteArray("gNlFPwAAgLMYZg4/YBAiP0ksiUCoaTS/YBAiPwAAgLOoaTS/gNlFPwAAgLMYZg4/gNlFP0ksiUAYZg4/YBAiP0ksiUCoaTS/YBAiPwAAgLOoaTS/wGBUv0ksiUBA97++wGBUvwAAQDRA97++YBAiPwAAgLOoaTS/YBAiP0ksiUCoaTS/wGBUv0ksiUBA97++wGBUvwAAQDRA97++AIkTv0ksiUAw/wU/AIkTvwAAgLMw/wU/wGBUvwAAQDRA97++wGBUv0ksiUBA97++AIkTv0ksiUAw/wU/AIkTvwAAgLMw/wU/gNlFP0ksiUAYZg4/gNlFPwAAgLMYZg4/AIkTvwAAgLMw/wU/AIkTv0ksiUAw/wU/gNlFP0ksiUAYZg4/AIkTvwAAgLMw/wU/YBAiPwAAgLOoaTS/wGBUvwAAQDRA97++AIkTvwAAgLMw/wU/gNlFPwAAgLMYZg4/YBAiPwAAgLOoaTS/gNlFP0ksiUAYZg4/wGBUv0ksiUBA97++YBAiP0ksiUCoaTS/gNlFP0ksiUAYZg4/AIkTv0ksiUAw/wU/wGBUv0ksiUBA97++///FjKGMS7///8WMoYxLv///xYyhjEu////FjKGMS7///8WMoYxLv///xYyhjEu/AABx6GJp2o0AAHHoYmnajQAAcehiadqNAABx6GJp2o0AAHHoYmnajQAAcehiadqNJhz/f4GaQrwmHP9/gZpCvCYc/3+BmkK8Jhz/f4GaQrwmHP9/gZpCvCYc/3+BmkK89Xz/fwmDjYH1fP9/CYONgfV8/38Jg42B9Xz/fwmDjYH1fP9/CYONgfV8/38Jg42B/38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+/")
+}]
+
+[sub_resource type="Resource" id="Resource_oxykq"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([0, 1, 5, 4])
+uvs = Array[Vector2]([Vector2(1.2609825, 0), Vector2(0, 0), Vector2(0, 4.286656), Vector2(1.2609825, 4.286656)])
+
+[sub_resource type="Resource" id="Resource_d2pnp"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([1, 2, 6, 5])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1.4626637, 2.3841858e-07), Vector2(1.4626637, 4.286656), Vector2(0, 4.286656)])
+
+[sub_resource type="Resource" id="Resource_kf4vh"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([2, 3, 7, 6])
+uvs = Array[Vector2]([Vector2(0.89835835, 2.3841858e-07), Vector2(0, 0), Vector2(0, 4.286656), Vector2(0.89835835, 4.286656)])
+
+[sub_resource type="Resource" id="Resource_jvh7h"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([3, 0, 4, 7])
+uvs = Array[Vector2]([Vector2(0, 0), Vector2(1.3491592, 0), Vector2(1.3491592, 4.286656), Vector2(0, 4.286656)])
+
+[sub_resource type="Resource" id="Resource_hs1jg"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([3, 2, 1, 0])
+uvs = Array[Vector2]([Vector2(0.25329208, 1.2281623), Vector2(0, 0.32980394), Vector2(1.4626637, 0), Vector2(1.6024513, 1.2609825)])
+
+[sub_resource type="Resource" id="Resource_fo51c"]
+script = ExtResource("2_phtbm")
+vertex_indices = Array[int]([4, 5, 6, 7])
+uvs = Array[Vector2]([Vector2(1.6024513, 0), Vector2(1.4626637, 1.2609825), Vector2(0, 0.93117857), Vector2(0.25329208, 0.032820225)])
+
+[sub_resource type="Resource" id="Resource_mwe4x"]
+script = ExtResource("2_f08cm")
+vertices = Array[Vector3]([Vector3(0.77285004, -5.9604645e-08, 0.5562453), Vector3(0.63306236, -5.9604645e-08, -0.7047372), Vector3(-0.8296013, 1.7881393e-07, -0.37493324), Vector3(-0.5763092, -5.9604645e-08, 0.5234251), Vector3(0.77285004, 4.286656, 0.5562453), Vector3(0.63306236, 4.286656, -0.7047372), Vector3(-0.8296013, 4.286656, -0.37493324), Vector3(-0.5763092, 4.286656, 0.5234251)])
+vertex_colors = Array[Color]([Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1)])
+faces = Array[ExtResource("2_phtbm")]([SubResource("Resource_oxykq"), SubResource("Resource_d2pnp"), SubResource("Resource_kf4vh"), SubResource("Resource_jvh7h"), SubResource("Resource_hs1jg"), SubResource("Resource_fo51c")])
 material_slots = Array[Material]([ExtResource("8_gr644")])
 
 [node name="Node3D" type="Node3D" unique_id=825975108]
@@ -5890,19 +6037,19 @@ use_collision = true
 
 [node name="GoBuildPolygon4" type="MeshInstance3D" parent="." unique_id=675887362]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.133023, 0.11706686, 19.478104)
-mesh = SubResource("ArrayMesh_r2xhd")
+mesh = SubResource("ArrayMesh_77t1m")
 script = ExtResource("1_4gi1e")
 go_build_mesh = SubResource("Resource_uo2tx")
 
 [node name="GoBuildDoorway" type="MeshInstance3D" parent="." unique_id=772303614]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.879439, 0.9318598, 14.0260515)
-mesh = SubResource("ArrayMesh_mbkqa")
+mesh = SubResource("ArrayMesh_cbht5")
 script = ExtResource("1_4gi1e")
 go_build_mesh = SubResource("Resource_a1sqh")
 
 [node name="GoBuildPolygon5" type="MeshInstance3D" parent="." unique_id=416942264]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.142858, 0, 4.285714)
-mesh = SubResource("ArrayMesh_5mcfh")
+mesh = SubResource("ArrayMesh_s7tkr")
 script = ExtResource("1_4gi1e")
 go_build_mesh = SubResource("Resource_k6rnj")
 metadata/go_build_params = {
@@ -5911,5 +6058,47 @@ metadata/go_build_params = {
 "height": 0.54787016,
 "override_normal": Vector3(0, 1, 0),
 "polygon_points": Array[Vector3]([Vector3(9, 0, 9), Vector3(7, 0, 7), Vector3(7, 0, 4), Vector3(12, 0, 4), Vector3(12, 0, -1), Vector3(16, 0, -2), Vector3(15, 0, 9)])
+}
+metadata/go_build_shape = "Polygon"
+
+[node name="GoBuildPolygon6" type="MeshInstance3D" parent="." unique_id=1225374655]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 23, 0, 6.5)
+mesh = SubResource("ArrayMesh_yp148")
+script = ExtResource("1_4gi1e")
+go_build_mesh = SubResource("Resource_urgxc")
+metadata/go_build_params = {
+"cap_bottom": true,
+"cap_top": true,
+"height": 0.47665644,
+"override_normal": Vector3(0, 1, 0),
+"polygon_points": Array[Vector3]([Vector3(20, 0, 9), Vector3(20, 0, 4), Vector3(26, 0, 4), Vector3(26, 0, 9)])
+}
+metadata/go_build_shape = "Polygon"
+
+[node name="GoBuildPolygon" type="MeshInstance3D" parent="GoBuildPolygon6" unique_id=1339397242]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.8453369, 0.4766562, 1.8071623)
+mesh = SubResource("ArrayMesh_7cwe0")
+script = ExtResource("1_4gi1e")
+go_build_mesh = SubResource("Resource_f3k3h")
+metadata/go_build_params = {
+"cap_bottom": true,
+"cap_top": true,
+"height": 1.7211967,
+"override_normal": Vector3(0, 1, 0),
+"polygon_points": Array[Vector3]([Vector3(24.428118, 0.47665644, 8.649098), Vector3(25.307766, 0.4766562, 8.676093), Vector3(25.316626, 0.4766562, 7.9292135), Vector3(24.32883, 0.47665596, 7.974244)])
+}
+metadata/go_build_shape = "Polygon"
+
+[node name="GoBuildPolygon2" type="MeshInstance3D" parent="GoBuildPolygon6" unique_id=1415843184]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.6637173, 0.47665626, -1.2421622)
+mesh = SubResource("ArrayMesh_yfvbx")
+script = ExtResource("1_4gi1e")
+go_build_mesh = SubResource("Resource_mwe4x")
+metadata/go_build_params = {
+"cap_bottom": true,
+"cap_top": true,
+"height": 4.286656,
+"override_normal": Vector3(0, 1, 0),
+"polygon_points": Array[Vector3]([Vector3(20.759974, 0.4766562, 5.781263), Vector3(20.506681, 0.47665644, 4.8829045), Vector3(21.969345, 0.4766562, 4.5531006), Vector3(22.109133, 0.4766562, 5.814083)])
 }
 metadata/go_build_shape = "Polygon"

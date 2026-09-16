@@ -654,15 +654,16 @@ func _update_collision_debug_overlay() -> void:
 	if not _collision_debug_shown:
 		_remove_collision_debug_overlay()
 		return
-	var debug_mesh: Mesh = _inflated_debug_mesh()
+	var debug_mesh: Mesh = _collision_shape.shape.get_debug_mesh()
+	var debug_xform: Transform3D = _inflated_debug_transform()
 	if _collision_debug_mesh != null and is_instance_valid(_collision_debug_mesh):
 		_collision_debug_mesh.mesh = debug_mesh
-		_collision_debug_mesh.global_transform = global_transform
+		_collision_debug_mesh.global_transform = debug_xform
 		return
 	_collision_debug_mesh = MeshInstance3D.new()
 	_collision_debug_mesh.name = "CollisionDebugOverlay"
 	_collision_debug_mesh.mesh = debug_mesh
-	_collision_debug_mesh.global_transform = global_transform
+	_collision_debug_mesh.global_transform = debug_xform
 	var mat := StandardMaterial3D.new()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.albedo_color = Color(0.0, 0.6, 0.7, 0.08)
@@ -673,32 +674,18 @@ func _update_collision_debug_overlay() -> void:
 	add_child(_collision_debug_mesh, true)
 
 
-## Shape's debug mesh with verts inflated about the shape's own centre —
-## position stays fixed, size grows by [_COLLISION_DEBUG_INFLATE], no drift
-## for shapes offset from the node origin (scaling the transform about the
-## node origin shifts a shape centred at (50,0,0) by 0.1 units).
-func _inflated_debug_mesh() -> Mesh:
-	var debug_mesh: Mesh = _collision_shape.shape.get_debug_mesh()
-	var am := debug_mesh as ArrayMesh
-	if am == null or am.get_surface_count() == 0:
-		return debug_mesh
-	var arrays: Array = am.surface_get_arrays(0)
-	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	if verts.is_empty():
-		return debug_mesh
-	var aabb := AABB()
-	for v: Vector3 in verts:
-		aabb = aabb.expand(v)
-	var centre := aabb.get_center()
-	var inflated: PackedVector3Array = PackedVector3Array()
-	inflated.resize(verts.size())
-	for i: int in verts.size():
-		inflated[i] = centre + (verts[i] - centre) * _COLLISION_DEBUG_INFLATE
-	arrays[Mesh.ARRAY_VERTEX] = inflated
-	var out := ArrayMesh.new()
-	out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	out.surface_set_material(0, am.surface_get_material(0))
-	return out
+## Overlay transform that scales the debug mesh about the shape's own
+## centre — position stays fixed, size grows by [_COLLISION_DEBUG_INFLATE],
+## no drift for shapes offset from the node origin. Scaling the raw
+## transform about the node origin shifts a shape centred at (50,0,0) by
+## 0.1 units; pre-scaling about the shape centre keeps it pinned.
+func _inflated_debug_transform() -> Transform3D:
+	var shape_aabb: AABB = _collision_shape.shape.get_debug_mesh().get_aabb()
+	var centre := shape_aabb.get_center()
+	var k := _COLLISION_DEBUG_INFLATE
+	var local := Transform3D(
+			Basis().scaled(Vector3.ONE * k), centre * (1.0 - k))
+	return global_transform * local
 
 
 ## Toggle the selected-only collision debug overlay (cog-menu driven).
